@@ -1,0 +1,40 @@
+// genie/version.hpp — 版本信息（由 CMake 从 project() 单一来源生成）
+
+#ifndef GENIE_VERSION_HPP
+#define GENIE_VERSION_HPP
+
+#define GENIE_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define GENIE_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define GENIE_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define GENIE_VERSION_STRING "@PROJECT_VERSION@"
+
+namespace genie {
+
+struct Version {
+    int major;
+    int minor;
+    int patch;
+
+    [[nodiscard]] constexpr bool operator==(const Version&) const = default;
+};
+
+/// 编译期库版本。
+[[nodiscard]] constexpr Version version() noexcept {
+    return Version{GENIE_VERSION_MAJOR, GENIE_VERSION_MINOR, GENIE_VERSION_PATCH};
+}
+
+/// "0.1.0" 形式的版本字符串。
+[[nodiscard]] const char* version_string() noexcept;
+
+/// 运行时能力查询：构建期是否启用了 ONNX Runtime / kairo。
+struct BuildFeatures {
+    bool onnxruntime;  ///< 是否编入了 ONNX Runtime 后端
+    bool kairo;        ///< 是否编入了 kairo 调度层
+    bool sanitizers;   ///< 是否启用了 sanitizer
+};
+
+[[nodiscard]] BuildFeatures build_features() noexcept;
+
+}  // namespace genie
+
+#endif  // GENIE_VERSION_HPP

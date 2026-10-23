@@ -1,0 +1,16 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads REQUIRED)
+
+if(@GENIE_ENABLE_ORT@)
+    find_dependency(onnxruntime CONFIG QUIET)
+endif()
+
+if(@GENIE_ENABLE_KAIRO@)
+    find_dependency(kairo CONFIG QUIET)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/genieTargets.cmake")
+
+check_required_components(genie)
