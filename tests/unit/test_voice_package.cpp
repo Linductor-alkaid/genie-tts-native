@@ -20,9 +20,12 @@ namespace {
 class TempPackage {
 public:
     TempPackage() {
-        static int counter = 0;
+        // 目录名要跨平台唯一：这里用「进程内计数器 + 纳秒时钟」而不是 getpid()
+        // —— unistd.h 是 POSIX 专有的，Windows 上不存在。
+        static std::uint64_t counter = 0;
+        const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
         root_ = std::filesystem::temp_directory_path() /
-                ("genie_voicepkg_" + std::to_string(::getpid()) + "_" + std::to_string(counter++));
+                ("genie_voicepkg_" + std::to_string(stamp) + "_" + std::to_string(counter++));
         std::filesystem::create_directories(root_ / "models");
         root_str_ = root_.string();
     }
