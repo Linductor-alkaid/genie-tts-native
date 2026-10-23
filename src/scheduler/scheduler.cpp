@@ -66,7 +66,16 @@ struct Scheduler::Impl {
 Scheduler::Scheduler() : impl_(std::make_unique<Impl>()) {}
 
 Scheduler::~Scheduler() {
-    shutdown();
+    // ⚠️ 析构时**不能**再碰 kairo 的 Executor。
+    //
+    // kairo 的 Executor 是函数级静态：它在 initialize() 里才被首次引用，
+    // 因此**比本单例更晚构造、更早析构**。进程退出时，Executor 已经没了，
+    // 这时候再调 request_task_cancel() 就是 use-after-free。
+    //
+    // 表现为：进程在退出阶段挂住（kairo 的 shutdown 会等 300 秒）。
+    //
+    // 所以析构只做 genie 侧的收尾：置取消标志 + 等任务收尾。
+    shutdown_impl(/*use_executor=*/false);
 }
 
 Scheduler& Scheduler::instance() {
@@ -137,6 +146,10 @@ void Scheduler::initialize(const SchedulerConfig& config) {
 }
 
 void Scheduler::shutdown() {
+    shutdown_impl(/*use_executor=*/true);
+}
+
+void Scheduler::shutdown_impl([[maybe_unused]] bool use_executor) {
     std::unique_lock<std::mutex> lock(impl_->mutex);
     if (!impl_->ready.load()) {
         return;
@@ -163,7 +176,10 @@ void Scheduler::shutdown() {
     for (const auto& [id, record] : impl_->tasks) {
         record.cancel_flag->store(true);
 #if defined(GENIE_HAVE_KAIRO)
-        (void)kairo::Executor::instance().request_task_cancel(record.handle);
+        // 析构路径上 Executor 可能已经析构 —— 那时不能碰它。
+        if (use_executor) {
+            (void)kairo::Executor::instance().request_task_cancel(record.handle);
+        }
 #endif
         pending.push_back(id);
     }

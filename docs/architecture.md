@@ -167,6 +167,46 @@ genie::symbols::master_v2()   →  732 个符号，顺序即 ID
 
 多音字、变调、儿化与上游有偏差，逐一记录在 `docs/upstream-audit.md` §9.4。
 
+### 2.8 引擎：合成是"多阶段 + 可打断"的
+
+一次合成天然分阶段：
+
+```
+文本 → 音素 ID ─┐
+                 ├─► t2s_encoder ─► first_stage ─► stage ×N ─► vits ─► PCM
+参考音频条件 ───┘
+```
+
+其中**自回归解码是串行的**（必须逐 token），但**文本前端与声码器是 CPU 密集**
+的，可以与其他请求重叠。
+
+所以分工是：
+
+- `genie::T2SDecoder`：纯逻辑，只依赖 `ModelSession` 抽象 —— 可单测，
+  不依赖任何后端；
+- `genie::Engine`：编排。流式合成时把整条流水线提交给 kairo 执行器，
+  调用线程只从 `AudioChunkChannel` 取音频块。
+
+**公开 API 不暴露任何 kairo 类型** —— 换掉调度后端不会破坏上层。
+
+**生命周期约定**（踩过坑）：
+
+- 一个 `Engine` 同时只跑一个流式合成（模型会话不是线程安全的）；
+- 引擎析构时会**取消并等待**在途任务 —— 后台任务捕获了引擎指针，
+  引擎先死就是 use-after-free；
+- 音频通道由任务与调用方**共同持有**（`shared_ptr`）——
+  调用方先放手，通道不能在任务还在往里写的时候析构。
+
+**退出顺序的坑**：kairo 的 `Executor` 是函数级静态，在 `initialize()` 里
+才被首次引用 → **比 `Scheduler` 单例更晚构造、更早析构**。所以
+`Scheduler` 的析构函数**不能**再碰 kairo（那是 use-after-free）。
+症状不是崩溃而是挂住：kairo 的 shutdown 最多等在途任务 300 秒。
+析构只做 genie 侧的收尾（置取消标志 + 等任务收尾）。
+
+> `tests/unit/test_scheduler_lifetime.cpp` 专门覆盖这条路径 ——
+> 它让进程**带着就绪的调度器退出**。别的调度器测试都在 TearDown 里
+> `shutdown()`，反而绕开了它。
+
 ---
 
 ## 3. 推理链路与上游的对齐点

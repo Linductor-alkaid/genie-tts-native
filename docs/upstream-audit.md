@@ -418,9 +418,89 @@ $ python3 tools/g2p/verify_pinyin_rules.py /tmp/dump_pinyin
 - 生成脚本：`tools/g2p/generate_pinyin_table.py`（可复现）
 - 音素表摘要：`b381f96b…0b83a`，由 `tests/unit/test_pinyin.cpp` 锁死
 
+
 ---
 
-## 10. 待补充（M0 剩余项）
+## 10. T2S 自回归解码：逐行对齐的结果
+
+解码循环是整个推理链路里最容易写错的一段。本节记录**从上游 ONNX 图里
+读出来的确切语义**（不是从代码猜的），以及本移植的处理方式。
+
+### 10.1 图里读出来的结构
+
+`third_party/genie-tts-models/v2/t2s_stage_decoder_fp32.onnx` 的关键节点：
+
+```
+y    = Concat(iy, /Cast_2_output_0)        ← iy 是**完整**的 token 序列
+y_emb= Concat(iy_emb, Gather(word_emb, ...))
+stop_condition_tensor = Greater(ReduceSum(Or(Equal(ArgMax, 1024), ...)), 0)
+```
+
+`t2s_first_stage_decoder_fp32.onnx`：
+
+```
+y     = Concat(prompts, /Cast_5_output_0)   ← prompt token + 首个生成的 token
+y_emb = Gather(word_embeddings.weight, prompts)
+```
+
+由此确定三件事：
+
+1. **EOS token = 1024**。模型的停止条件就是"新 token == 1024"，
+   与上游 `np.where(semantic_tokens >= 1024)` 用的是同一个阈值。
+2. **`iy` 要喂完整的 token 序列**，不能喂标量 —— 模型内部是
+   `Concat(iy, 新 token)`，喂标量输出长度就不对。
+3. **KV cache 的名字会变**：首阶段输出 `present_k_layer_N`，
+   下一阶段输入 `past_k_layer_N`。名字不一样，必须显式映射。
+   层数不写死，从模型的实际输出名里扫出来。
+
+### 10.2 上游那几行索引运算的语义
+
+```python
+for idx in range(0, 500):
+    ...
+    y, y_emb, stop_condition_tensor, *present_key_values = stage_decoder.run(None, input_feed)
+    if stop_condition_tensor: break
+y[0, -1] = 0
+return np.expand_dims(y[:, -idx:], axis=0)
+```
+
+| 上游写法 | 实际语义 | 本移植的处理 |
+|---|---|---|
+| `for idx in range(0, 500)` | 正常跑完时 `idx == 499`（**不是** 500）；break 时 `idx` 是 break 的那次下标 | 照搬。用 `while` + 显式计数模拟 |
+| `y[0, -1] = 0` | 把最后一个 token **置零**（不是截断）。EOS 因此不会命中后续的 `>= 1024` 截断，序列末尾会留一个 0 | 照搬 |
+| `y[:, -idx:]` | numpy 里 `-0 == 0`，所以 `idx == 0` 时等价于 `x[:, 0:]`（**全取**），会连 prompt 一起带上 | 照搬 |
+| `np.expand_dims(..., axis=0)` | 得到 `[1, 1, L]` —— 这正是 `vits` 的 `pred_semantic` 输入形状 | 照搬 |
+
+> 这几处都是上游的**实际行为**，不是笔误。改了会影响听感，所以逐条照搬并加测试锁住。
+
+### 10.3 本移植的三处刻意偏离
+
+| 项 | 上游 | 本移植 | 原因 |
+|---|---|---|---|
+| 输入绑定 | `zip(input_names, [y, y_emb, *kv])` —— **按位置** | **按名字** | 位置绑定依赖 `get_inputs()` 的顺序恰好是 `iy, iy_emb, past_k_*...`。上游一旦调整顺序就会静默错位 —— 不报错，只输出垃圾 |
+| KV cache 名字 | 直接把 `present_*` 的输出当 `past_*` 的输入传 | 显式做 `present_X` → `past_X` 映射 | 名字确实不同，必须显式转换（上游靠 `zip` 的位置巧合绕过了） |
+| 取消 | `stop_event.is_set()` → `return None`（放弃整次合成） | 返回空序列，由上层决定 | 本项目的 API 不返回 `None` |
+
+### 10.4 文本前置与 EOS 截断
+
+```python
+text = '。' + text                      # 防止漏第一句
+...
+eos_indices = np.where(semantic_tokens >= 1024)
+if len(eos_indices[0]) > 0:
+    first_eos_index = eos_indices[-1][0]
+    semantic_tokens = semantic_tokens[..., :first_eos_index]
+```
+
+- **文本前置一个句号**：`。` 在符号表里（ID 321），会占一个音素位。
+  照搬 —— 它影响首音素分布。
+- **EOS 截断**：形状是 `[1, 1, L]`，所以 `eos_indices[0]` 是第 0 维
+  （长度 1），`[-1]` 取最后一个元素 —— 也就是"第一个 EOS 的位置"。
+  照搬。
+
+---
+
+## 11. 待补充（M0 剩余项）
 
 - [ ] Golden Dataset：文本 / 音素 / 中间张量 / 语义 token / PCM 的 Python 参考输出
   - 音素部分已完成：见 §9.2 的 41,923 字全量比对

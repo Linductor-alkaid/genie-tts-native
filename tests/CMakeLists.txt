@@ -39,6 +39,10 @@ add_executable(genie_unit_tests
     unit/test_symbols.cpp
     unit/test_pinyin.cpp
     unit/test_text.cpp
+    unit/test_t2s.cpp
+    unit/test_engine.cpp
+    # 必须排在最后：它要覆盖"调度器就绪状态下进程退出"这条路径。
+    unit/test_scheduler_lifetime.cpp
 )
 target_link_libraries(genie_unit_tests PRIVATE genie_test_support)
 add_test(NAME genie_unit COMMAND genie_unit_tests)

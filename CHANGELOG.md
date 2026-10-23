@@ -5,8 +5,29 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **调度器退出路径的 use-after-free**：kairo 的 `Executor` 是函数级静态，
+  在 `Scheduler::initialize()` 里才被首次引用，因此比 `Scheduler` 单例
+  **更晚构造、更早析构**。进程退出时 `Executor` 已经没了，而
+  `Scheduler` 的析构函数仍会调 `request_task_cancel()` —— 症状不是崩溃，
+  而是**挂住**（kairo 的 shutdown 最多等在途任务 300 秒）。
+  析构现在只做 genie 侧的收尾（置取消标志 + 等任务收尾），
+  不再触碰 kairo。
+- **流式合成的生命周期**：后台任务捕获了引擎指针，而引擎可能在任务还在跑的
+  时候被析构；音频通道也是裸指针，调用方先放手就会悬垂。现在引擎析构时
+  会取消并**等待**任务收尾，通道改由任务与调用方共同持有（shared_ptr）。
+
 ### Added
 
+- **合成引擎**（`genie::Engine`）：把音色包、模型会话、文本前端与调度层
+  串成一次完整合成。`synthesize()` 同步，`synthesize_streaming()` 走 kairo
+  执行器并通过 `AudioChunkChannel` 交付音频块。
+- **T2S 自回归解码**（`genie::T2SDecoder`）：逐行对齐上游 `t2s_cpu()`，
+  包括 `range(0,500)` 的下标语义、`y[0,-1]=0` 的置零、`y[:,-idx:]` 在
+  `idx==0` 时全取这几个**容易写错**的细节。详见 docs/upstream-audit.md §10。
+- **会话工厂扩展点**（`genie::SessionFactory`）：可替换推理后端，
+  也让测试能注入假会话，在没有权重、没有 ORT 的环境里跑完整流水线。
 - **音素符号表**（`genie::symbols`）：重新实现上游 `SymbolsV2.py` 的生成规则，
   732 个符号与上游**逐字一致**（顺序 + 全表摘要双重锁定）。
   符号 ID 错一位不会报错、只会合成出乱码，所以这一层必须硬锁。
