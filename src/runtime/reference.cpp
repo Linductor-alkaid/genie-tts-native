@@ -48,6 +48,11 @@ ReferenceCondition load_reference(const std::string& root, const text::TextFront
     }
     condition.audio = std::move(audio);
 
+    // 16 kHz 版本：HuBERT 与说话人验证模型要这个采样率。
+    condition.audio_16k.samples =
+        resample(condition.audio.samples, condition.audio.sample_rate, 16000);
+    condition.audio_16k.sample_rate = 16000;
+
     // 2) 参考文本 → 音素。
     if (std::filesystem::exists(text_path)) {
         condition.text = read_text_file(text_path);

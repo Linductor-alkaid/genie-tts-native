@@ -528,7 +528,48 @@ voice-package/reference/text.txt    → 文本前端 → ref_seq
 
 ---
 
-## 12. 待补充（M0 剩余项）
+## 12. V2ProPlus：全局说话人嵌入
+
+上游的 V2ProPlus 比 V2 多一条链路（`ReferenceAudio.update_global_emb`）：
+
+```python
+sv_emb = speaker_verification_model.run(None, {'waveform': self.audio_16k})[0]
+self.global_emb, self.global_emb_advanced = prompt_encoder.run(None, {
+    'ref_audio': self.audio_32k,
+    'sv_emb': sv_emb,
+})
+```
+
+然后 V2ProPlus 的 vits 吃 `ge` / `ge_advanced`（**不是** `ref_audio`）：
+
+| 张量 | 形状 | 喂给 |
+|---|---|---|
+| `ge` | `[1, 1024, 1]` | vits（V2ProPlus） |
+| `ge_advanced` | `[1, 512, 1]` | vits（V2ProPlus） |
+
+### 三条采样率
+
+上游把同一段参考音频喂给三个模型，各要一个采样率：
+
+| 用途 | 采样率 | 张量名 |
+|---|---|---|
+| HuBERT | 16 kHz | `input_values` |
+| 说话人验证 | 16 kHz | `waveform` |
+| prompt_encoder / vits | 32 kHz | `ref_audio` |
+
+本实现对参考音频同时准备 32 kHz 与 16 kHz 两个版本。
+
+### 降级与硬依赖
+
+- **HuBERT 缺失** → `ssl_content` 是全零特征（软降级）。
+- **说话人验证模型缺失** → **V2ProPlus 分支不可用**（硬依赖）。
+  上游在 `update_global_emb` 里判断 `if model_manager.load_sv_model():`，
+  算不出来时 `global_emb` 保持 `None`，vits 就会拿到 `ge=None`。
+  本实现在**加载期**就报错 —— 早失败比合成出垃圾好。
+
+---
+
+## 13. 待补充（M0 剩余项）
 
 - [ ] Golden Dataset：文本 / 音素 / 中间张量 / 语义 token / PCM 的 Python 参考输出
   - 音素部分已完成：见 §9.2 的 41,923 字全量比对

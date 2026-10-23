@@ -95,6 +95,43 @@ struct Engine::Impl {
     Tensor global_emb_advanced;
 
     [[nodiscard]] bool v2proplus() const noexcept { return manifest.capabilities.v2proplus; }
+
+    /// 计算 V2ProPlus 的全局说话人嵌入（ge / ge_advanced）。
+    ///
+    /// 上游的顺序（ReferenceAudio.update_global_emb）：
+    ///   sv_emb = sv_model.run({'waveform': audio_16k})[0]
+    ///   ge, ge_advanced = prompt_encoder.run({'ref_audio': audio_32k, 'sv_emb': sv_emb})
+    ///
+    /// 上游是**第一次推理时**算（算完缓存），这里提前到加载期 ——
+    /// 形状不对的话早失败比合成出垃圾好。
+    void compute_global_embeddings() {
+        // 1) 说话人向量：16 kHz 波形 → sv_emb。
+        TensorFeed sv_feed;
+        sv_feed.emplace_back(
+            "waveform",
+            Tensor::from_float32({1, static_cast<std::int64_t>(reference.audio_16k.samples.size())},
+                                 reference.audio_16k.samples));
+        const auto sv_outputs = speaker_verifier->run(sv_feed);
+        if (sv_outputs.empty()) {
+            throw_error(ErrorCode::ModelLoadError, "说话人验证模型没有输出");
+        }
+
+        // 2) prompt encoder：32 kHz 波形 + sv_emb → ge / ge_advanced。
+        TensorFeed encoder_feed;
+        encoder_feed.emplace_back(
+            "ref_audio",
+            Tensor::from_float32({1, static_cast<std::int64_t>(reference.audio.samples.size())},
+                                 reference.audio.samples));
+        encoder_feed.emplace_back("sv_emb", sv_outputs.front());
+        const auto encoder_outputs = prompt_encoder->run(encoder_feed);
+        if (encoder_outputs.size() < 2) {
+            throw_error(ErrorCode::ModelLoadError,
+                        "prompt_encoder 至少要两个输出（ge / ge_advanced），实际 " +
+                            std::to_string(encoder_outputs.size()));
+        }
+        global_emb = encoder_outputs[0];
+        global_emb_advanced = encoder_outputs[1];
+    }
 };
 
 Engine::Engine(std::string root) : Engine(std::move(root), SessionConfig{}) {}
@@ -132,6 +169,15 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
 
     if (impl->v2proplus()) {
         impl->prompt_encoder = load(impl->package.model_path(ModelRole::PromptEncoder));
+        // 说话人验证模型是 V2ProPlus 的**硬依赖**：
+        // 上游的 update_global_emb() 只有在 SV 模型加载成功时才会算
+        // global_emb；算不出来就没法喂 vits 的 ge / ge_advanced。
+        // 这里在**加载期**就报清楚，而不是等到推理时炸。
+        if (!impl->package.has(ModelRole::SpeakerVerification)) {
+            throw_error(ErrorCode::NotFound,
+                        "V2ProPlus 音色包缺少说话人验证模型（speaker_verification）—— "
+                        "没有它算不出 ge / ge_advanced，V2ProPlus 分支不可用");
+        }
         impl->speaker_verifier = load(impl->package.model_path(ModelRole::SpeakerVerification));
     }
 
@@ -142,6 +188,14 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     // 4) 参考音频条件。
     if (impl->frontend != nullptr) {
         impl->reference = load_reference(impl->root, *impl->frontend, impl->sample_rate);
+    }
+
+    // 5) V2ProPlus 的全局说话人嵌入。
+    //
+    // 上游是在第一次推理时算（ReferenceAudio.update_global_emb 会缓存结果），
+    // 这里提前到加载期 —— 形状不对的话早失败比合成出垃圾好。
+    if (impl->prompt_encoder != nullptr) {
+        impl->compute_global_embeddings();
     }
 
     impl_ = std::move(impl);

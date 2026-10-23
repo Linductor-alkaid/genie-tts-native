@@ -152,6 +152,43 @@ public:
         return std::make_unique<FakeSession>(std::move(inputs), std::move(config));
     }
 
+    /// 构造一个 V2ProPlus 声码器（吃 ge / ge_advanced，不吃 ref_audio）。
+    static std::unique_ptr<FakeSession> vocoder_v2proplus(int samples = 16) {
+        std::vector<TensorSpec> inputs;
+        inputs.push_back({"text_seq", ElementType::Int64, {1, -1}});
+        inputs.push_back({"pred_semantic", ElementType::Int64, {1, 1, -1}});
+        inputs.push_back({"ge", ElementType::Float32, {1, 1024, 1}});
+        inputs.push_back({"ge_advanced", ElementType::Float32, {1, 512, 1}});
+
+        FakeSessionConfig config;
+        config.outputs.emplace_back(
+            "audio", Tensor::zeros(ElementType::Float32, {1, static_cast<std::int64_t>(samples)}));
+        return std::make_unique<FakeSession>(std::move(inputs), std::move(config));
+    }
+
+    /// 构造一个说话人验证模型：16 kHz 波形 → sv_emb [1, 20480]。
+    static std::unique_ptr<FakeSession> speaker_verification() {
+        std::vector<TensorSpec> inputs;
+        inputs.push_back({"waveform", ElementType::Float32, {1, -1}});
+
+        FakeSessionConfig config;
+        config.outputs.emplace_back("sv_emb", Tensor::zeros(ElementType::Float32, {1, 20480}));
+        return std::make_unique<FakeSession>(std::move(inputs), std::move(config));
+    }
+
+    /// 构造一个 prompt_encoder：32 kHz 波形 + sv_emb → ge / ge_advanced。
+    static std::unique_ptr<FakeSession> prompt_encoder() {
+        std::vector<TensorSpec> inputs;
+        inputs.push_back({"ref_audio", ElementType::Float32, {1, -1}});
+        inputs.push_back({"sv_emb", ElementType::Float32, {1, 20480}});
+
+        FakeSessionConfig config;
+        config.outputs.emplace_back("ge", Tensor::zeros(ElementType::Float32, {1, 1024, 1}));
+        config.outputs.emplace_back("ge_advanced",
+                                    Tensor::zeros(ElementType::Float32, {1, 512, 1}));
+        return std::make_unique<FakeSession>(std::move(inputs), std::move(config));
+    }
+
     [[nodiscard]] const std::vector<TensorSpec>& inputs() const override { return inputs_; }
     [[nodiscard]] const std::vector<TensorSpec>& outputs() const override { return output_specs_; }
 

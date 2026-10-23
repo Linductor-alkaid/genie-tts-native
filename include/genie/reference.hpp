@@ -49,6 +49,13 @@ struct ReferenceCondition {
     Tensor ssl;
     /// 参考波形，32 kHz 单声道（喂给 vits 的 `ref_audio`）。
     AudioBuffer audio;
+    /// 参考波形，16 kHz 单声道。
+    ///
+    /// 上游把参考音频同时喂给三个模型，各要一个采样率：
+    /// - HuBERT      → 16 kHz（`input_values`）
+    /// - 说话人验证   → 16 kHz（`waveform`）
+    /// - prompt_encoder / vits → 32 kHz（`ref_audio`）
+    AudioBuffer audio_16k;
     /// 参考文本（用于生成 phoneme_ids）。
     std::string text;
 
