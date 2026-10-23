@@ -122,6 +122,13 @@ private:
     Scheduler();
     struct Impl;
     std::unique_ptr<Impl> impl_;
+
+    /// 停止接活并收尾。
+    ///
+    /// @param use_executor 是否通过 kairo 取消任务。**析构时必须传 false** ——
+    ///        kairo 的 Executor 是函数级静态，比本单例更早析构，
+    ///        那时碰它就是 use-after-free。
+    void shutdown_impl(bool use_executor);
 };
 
 /// 有界音频分块通道 —— 流式 PCM 的分发通道。

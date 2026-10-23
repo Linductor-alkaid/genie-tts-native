@@ -87,17 +87,17 @@
 > 当前进度：中文主链路（符号表 → 规范化 → 拼音 → 音素 ID）已经打通，
 > 并用 `genie-tts g2p` 单独可查。剩下的偏差见 `docs/upstream-audit.md` §9.4。
 
-### M3 GPT-SoVITS 完整推理迁移 — ⏳
+### M3 GPT-SoVITS 完整推理迁移 — 🚧
 
 - ✅ T2S 链路跑通（`tests/integration/`）
-- ⏳ 参考语义条件构建
-- ⏳ 文本与音素条件编码
-- ⏳ 自回归 token 生成、KV cache 递推
-- ⏳ EOS 检测与最大长度限制
+- ✅ 自回归 token 生成、KV cache 递推（按名字绑定 + present→past 映射）
+- ✅ EOS 检测与最大长度限制（逐行对齐上游语义）
+- ✅ 声学合成（VITS）与端到端流水线
+- ✅ 目标 API：`genie::Engine::synthesize()` / `synthesize_streaming()`
+- ⏳ 参考语义条件构建（参考音频的 phoneme / bert / ssl 特征）
+- ⏳ 文本与音素条件编码（text_bert）
 - ⏳ 随机数生成与确定性测试
-- ⏳ 声学合成（VITS）与端到端流水线
 - ⏳ V2ProPlus 适配（`prompt_encoder` / `ge` / `ge_advanced`）
-- ⏳ 目标 API：`genie::Engine::synthesize()`
 
 ### M4 正确性验证与原生 SDK — ⏳
 

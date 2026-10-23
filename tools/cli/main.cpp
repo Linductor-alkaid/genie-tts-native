@@ -16,6 +16,7 @@
 
 #include "genie/audio.hpp"
 #include "genie/config.hpp"
+#include "genie/engine.hpp"
 #include "genie/errors.hpp"
 #include "genie/onnx_graph.hpp"
 #include "genie/scheduler.hpp"
@@ -267,8 +268,31 @@ int command_synth(const Options& options) {
                      "-DGENIE_ENABLE_ORT=ON\n";
         return kExitError;
     }
-    std::cerr << "synthesis pipeline lands with the inference milestone\n";
-    return kExitError;
+
+    genie::SynthesisOptions synthesis;
+    synthesis.language = *language;
+    if (options.seed != 0) {
+        synthesis.seed = options.seed;
+    }
+
+    genie::Engine engine(options.model_dir);
+    const auto result = engine.synthesize(options.text, synthesis);
+
+    if (options.output.empty()) {
+        std::cerr << "synth requires --output <file.wav>\n";
+        return kExitUsage;
+    }
+    if (synthesis.format == genie::AudioFormat::Float32) {
+        genie::WavCodec::write_float32(options.output, result.audio);
+    } else {
+        genie::WavCodec::write_pcm16(options.output, result.audio);
+    }
+
+    std::cout << "wrote " << options.output << " (" << result.audio.frame_count() << " frames, "
+              << result.audio.sample_rate << " Hz, " << result.audio.duration_seconds() << " s)\n";
+    std::cout << "  phonemes: " << result.phoneme_ids.size() << "\n";
+    std::cout << "  semantic tokens: " << result.semantic_tokens.size() << "\n";
+    return kExitOk;
 }
 
 }  // namespace

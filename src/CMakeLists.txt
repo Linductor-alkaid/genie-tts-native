@@ -92,8 +92,12 @@ endif()
 # 注意不要把这一层放到 GENIE_ENABLE_KAIRO 的条件里 —— 否则关闭 kairo 时
 # genie::Scheduler / genie::AudioChunkChannel 会没有实现，链接期才炸。
 # --------------------------------------------------------------------------------------
+# 引擎放在这一层：它要用到调度器（流式合成提交到 kairo 执行器），
+# 而 genie_sched 依赖 genie_core —— 反过来就成环了。
 add_library(genie_sched STATIC
     scheduler/scheduler.cpp
+    engine/t2s.cpp
+    engine/engine.cpp
 )
 target_link_libraries(genie_sched
     PUBLIC
