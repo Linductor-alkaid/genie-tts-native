@@ -1,0 +1,18 @@
+# 默认所有者：仓库维护者
+* @Linductor-alkaid
+
+# 运行时与推理后端
+/src/runtime/    @Linductor-alkaid
+/include/genie/  @Linductor-alkaid
+
+# 文本前端
+/src/text/       @Linductor-alkaid
+
+# 音频处理
+/src/audio/      @Linductor-alkaid
+
+# 调度与并发
+/src/scheduler/  @Linductor-alkaid
+
+# 持续集成
+/.github/        @Linductor-alkaid

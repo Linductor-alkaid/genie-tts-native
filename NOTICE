@@ -1,0 +1,48 @@
+genie-tts-native
+Copyright (c) 2026 Linductor-alkaid
+
+本项目是 Genie-TTS 的原生 C++ 移植，遵循 MIT 协议。
+
+--------------------------------------------------------------------------------
+第三方组件
+--------------------------------------------------------------------------------
+
+1. Genie-TTS (https://github.com/High-Logic/Genie-TTS)
+   Copyright (c) 2025 High_Logic
+   MIT License
+
+   本项目的推理链路设计、模型 I/O 契约、G2P 行为约定均来自该项目。
+   仓库内 third_party/genie-tts-models/ 下的六个 ONNX 模型文件直接取自
+   Genie-TTS 仓库（该仓库已随源码一同发布这些模型），按 MIT 协议使用。
+   授权原文见 third_party/genie-tts-models/LICENSE。
+
+   本项目与 High_Logic 无隶属关系。
+
+2. kairo (https://github.com/Linductor-alkaid/kairo)
+   Copyright (c) 2026 Linductor-alkaid
+   MIT License
+
+   本项目用 kairo 承担调度与并发（线程池、任务优先级、有界通道、协作式取消）。
+   kairo 以 FetchContent 方式在构建期拉取，不随本仓库分发。
+
+3. ONNX Runtime (https://github.com/microsoft/onnxruntime)
+   Copyright (c) Microsoft Corporation
+   MIT License
+
+   本项目的推理后端。构建期链接，不随本仓库分发。
+
+4. GoogleTest (https://github.com/google/googletest)
+   Copyright (c) 2008, Google Inc.
+   BSD 3-Clause License
+
+   仅测试期使用，构建期拉取，不随本仓库分发。
+
+--------------------------------------------------------------------------------
+模型授权
+--------------------------------------------------------------------------------
+
+third_party/genie-tts-models/ 下的 ONNX 模型由 Genie-TTS 仓库以 MIT 协议发布，
+原作者为 High_Logic。
+
+这些模型源自 GPT-SoVITS 项目，**用户自己的音色模型**（voice package）不随本仓库
+分发，其授权由相应作者决定。详见 docs/architecture.md 的「模型授权」一节。

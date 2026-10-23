@@ -1,0 +1,45 @@
+# 构建产物
+build/
+build-*/
+out/
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.lib
+*.exe
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+_deps/
+
+# IDE
+.vscode/
+.idea/
+.vs/
+*.user
+*.swp
+.DS_Store
+
+# 产物
+*.wav
+*.onnx
+!third_party/genie-tts-models/**/*.onnx
+*.log
+
+# 缓存
+.cache/
+__pycache__/
+*.pyc
+
+# 本地模型包（模型体积大，不入库）
+voice-package/
+models/
+!third_party/genie-tts-models/
