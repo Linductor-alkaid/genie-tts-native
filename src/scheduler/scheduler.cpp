@@ -65,7 +65,9 @@ struct Scheduler::Impl {
 
 Scheduler::Scheduler() : impl_(std::make_unique<Impl>()) {}
 
-Scheduler::~Scheduler() { shutdown(); }
+Scheduler::~Scheduler() {
+    shutdown();
+}
 
 Scheduler& Scheduler::instance() {
     static Scheduler scheduler;
@@ -114,9 +116,8 @@ void Scheduler::initialize(const SchedulerConfig& config) {
                 std::packaged_task<void()> job;
                 {
                     std::unique_lock<std::mutex> lock(impl_->mutex);
-                    impl_->queue_cv.wait(lock, [this] {
-                        return impl_->stopping || !impl_->queue.empty();
-                    });
+                    impl_->queue_cv.wait(
+                        lock, [this] { return impl_->stopping || !impl_->queue.empty(); });
                     if (impl_->stopping && impl_->queue.empty()) {
                         return;
                     }
@@ -184,7 +185,9 @@ void Scheduler::release_executor() {
 #endif
 }
 
-bool Scheduler::initialized() const noexcept { return impl_->ready.load(); }
+bool Scheduler::initialized() const noexcept {
+    return impl_->ready.load();
+}
 
 Scheduler::TaskId Scheduler::submit(std::function<void(const CancellationToken&)> task) {
     if (!task) {
@@ -288,9 +291,13 @@ bool Scheduler::wait(TaskId id, std::chrono::milliseconds timeout) {
     return future.wait_for(timeout) == std::future_status::ready;
 }
 
-std::size_t Scheduler::in_flight() const noexcept { return impl_->in_flight.load(); }
+std::size_t Scheduler::in_flight() const noexcept {
+    return impl_->in_flight.load();
+}
 
-std::uint64_t Scheduler::failure_count() const noexcept { return impl_->failures.load(); }
+std::uint64_t Scheduler::failure_count() const noexcept {
+    return impl_->failures.load();
+}
 
 // ======================================================================================
 // AudioChunkChannel
@@ -310,12 +317,13 @@ struct AudioChunkChannel::Impl {
 
     explicit Impl(std::size_t capacity)
 #if defined(GENIE_HAVE_KAIRO)
-        : channel(kairo::comm::ChannelOptions{capacity, kairo::comm::DropPolicy::RejectNewest,
-                                               true, "genie.audio.stream"})
+        : channel(kairo::comm::ChannelOptions{capacity, kairo::comm::DropPolicy::RejectNewest, true,
+                                              "genie.audio.stream"})
 #else
         : capacity(capacity)
 #endif
-    {}
+    {
+    }
 };
 
 AudioChunkChannel::AudioChunkChannel(std::size_t capacity)
@@ -358,9 +366,8 @@ bool AudioChunkChannel::push(AudioBuffer chunk, std::chrono::milliseconds timeou
     return static_cast<bool>(result);
 #else
     std::unique_lock<std::mutex> lock(impl_->mutex);
-    const bool ok = impl_->not_full.wait_for(lock, timeout, [this] {
-        return impl_->closed || impl_->queue.size() < impl_->capacity;
-    });
+    const bool ok = impl_->not_full.wait_for(
+        lock, timeout, [this] { return impl_->closed || impl_->queue.size() < impl_->capacity; });
     if (!ok || impl_->closed) {
         return false;
     }
@@ -376,9 +383,8 @@ bool AudioChunkChannel::pop(AudioBuffer& out, std::chrono::milliseconds timeout)
     return static_cast<bool>(result);
 #else
     std::unique_lock<std::mutex> lock(impl_->mutex);
-    const bool ok = impl_->not_empty.wait_for(lock, timeout, [this] {
-        return impl_->closed || !impl_->queue.empty();
-    });
+    const bool ok = impl_->not_empty.wait_for(
+        lock, timeout, [this] { return impl_->closed || !impl_->queue.empty(); });
     if (!ok || impl_->queue.empty()) {
         return false;
     }

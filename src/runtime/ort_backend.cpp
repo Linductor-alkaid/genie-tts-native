@@ -39,10 +39,10 @@ ElementType map_element_type(ONNXTensorElementDataType type) {
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
             return ElementType::Bool;
         default:
-            throw_error(ErrorCode::Unsupported,
-                        "ONNX element type " + std::to_string(static_cast<int>(type)) +
-                            " is not supported by the native runtime "
-                            "(only float32 / int64 / bool are)");
+            throw_error(ErrorCode::Unsupported, "ONNX element type " +
+                                                    std::to_string(static_cast<int>(type)) +
+                                                    " is not supported by the native runtime "
+                                                    "(only float32 / int64 / bool are)");
     }
 }
 
@@ -160,7 +160,7 @@ private:
     }
 
     TensorSpec make_spec(std::size_t index, bool is_input,
-                          Ort::AllocatorWithDefaultOptions& allocator) const {
+                         Ort::AllocatorWithDefaultOptions& allocator) const {
         TensorSpec spec;
         const auto name = is_input ? session_->GetInputNameAllocated(index, allocator)
                                    : session_->GetOutputNameAllocated(index, allocator);
@@ -217,7 +217,8 @@ private:
         switch (info.GetElementType()) {
             case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT: {
                 const float* data = value.GetTensorData<float>();
-                return Tensor::from_float32(shape, std::vector<float>(data, data + info.GetElementCount()));
+                return Tensor::from_float32(
+                    shape, std::vector<float>(data, data + info.GetElementCount()));
             }
             case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64: {
                 const std::int64_t* data = value.GetTensorData<std::int64_t>();
@@ -243,10 +244,12 @@ private:
 }  // namespace
 
 std::unique_ptr<ModelSession> create_session(const std::string& model_path,
-                                              const SessionConfig& config) {
+                                             const SessionConfig& config) {
     return std::make_unique<OrtModelSession>(model_path, config);
 }
 
-bool has_onnxruntime_backend() noexcept { return true; }
+bool has_onnxruntime_backend() noexcept {
+    return true;
+}
 
 }  // namespace genie

@@ -44,9 +44,8 @@ public:
     T2sChain(const std::filesystem::path& model_dir) {
         const SessionConfig config;
         encoder_ = create_session((model_dir / "v2" / "t2s_encoder_fp32.onnx").string(), config);
-        first_stage_ =
-            create_session((model_dir / "v2" / "t2s_first_stage_decoder_fp32.onnx").string(),
-                           config);
+        first_stage_ = create_session(
+            (model_dir / "v2" / "t2s_first_stage_decoder_fp32.onnx").string(), config);
         stage_decoder_ =
             create_session((model_dir / "v2" / "t2s_stage_decoder_fp32.onnx").string(), config);
     }
@@ -56,7 +55,8 @@ public:
         const std::vector<std::int64_t> ref_seq(kRefPhonemes, 5);
         const std::vector<std::int64_t> text_seq(kTextPhonemes, 7);
         const std::vector<float> ref_bert(static_cast<std::size_t>(kRefPhonemes) * kBertDim, 0.0F);
-        const std::vector<float> text_bert(static_cast<std::size_t>(kTextPhonemes) * kBertDim, 0.0F);
+        const std::vector<float> text_bert(static_cast<std::size_t>(kTextPhonemes) * kBertDim,
+                                           0.0F);
         const std::vector<float> ssl(static_cast<std::size_t>(kSslDim) * kSslFrames, 0.0F);
 
         const auto outputs = encoder_->run({
@@ -183,8 +183,8 @@ TEST_F(V2ChainTest, VocoderProducesAudio) {
     const auto semantic = chain.decode(4);
 
     // pred_semantic 的形状是 [1, 1, pred_length] —— 中间有 singleton 维。
-    Tensor semantic_tensor = Tensor::from_int64({1, 1, static_cast<std::int64_t>(semantic.size())},
-                                                semantic);
+    Tensor semantic_tensor =
+        Tensor::from_int64({1, 1, static_cast<std::int64_t>(semantic.size())}, semantic);
 
     const std::vector<std::int64_t> text_seq(kTextPhonemes, 7);
     const std::vector<float> ref_audio(32000, 0.0F);

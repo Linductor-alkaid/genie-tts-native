@@ -12,7 +12,7 @@
 namespace genie {
 
 std::unique_ptr<ModelSession> create_session(const std::string& model_path,
-                                              const SessionConfig& config) {
+                                             const SessionConfig& config) {
     (void)model_path;
     (void)config;
     throw_error(ErrorCode::BackendUnavailable,
@@ -20,7 +20,9 @@ std::unique_ptr<ModelSession> create_session(const std::string& model_path,
                 "-DGENIE_ENABLE_ORT=ON and provide an ONNX Runtime package");
 }
 
-bool has_onnxruntime_backend() noexcept { return false; }
+bool has_onnxruntime_backend() noexcept {
+    return false;
+}
 
 }  // namespace genie
 

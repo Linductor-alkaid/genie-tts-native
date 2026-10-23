@@ -23,10 +23,11 @@ TEST(Errors, ToStringCoversEveryCode) {
 }
 
 TEST(Errors, RoundTripsThroughString) {
-    for (const auto code : {ErrorCode::Ok, ErrorCode::InvalidArgument, ErrorCode::NotFound,
-                            ErrorCode::IoError, ErrorCode::ModelLoadError, ErrorCode::InferenceError,
-                            ErrorCode::Unsupported, ErrorCode::Cancelled, ErrorCode::Timeout,
-                            ErrorCode::BackendUnavailable, ErrorCode::Internal}) {
+    for (const auto code :
+         {ErrorCode::Ok, ErrorCode::InvalidArgument, ErrorCode::NotFound, ErrorCode::IoError,
+          ErrorCode::ModelLoadError, ErrorCode::InferenceError, ErrorCode::Unsupported,
+          ErrorCode::Cancelled, ErrorCode::Timeout, ErrorCode::BackendUnavailable,
+          ErrorCode::Internal}) {
         EXPECT_EQ(error_code_from_string(to_string(code)), code);
     }
 }

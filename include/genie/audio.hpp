@@ -86,7 +86,7 @@ public:
 /// @param output_rate  目标采样率
 /// @throws genie::Error InvalidArgument —— 采样率非法
 [[nodiscard]] std::vector<float> resample(std::span<const float> input, int input_rate,
-                                           int output_rate);
+                                          int output_rate);
 
 /// 线性插值重采样。用于对延迟不敏感的低成本路径。
 [[nodiscard]] std::vector<float> resample_linear(std::span<const float> input, int input_rate,

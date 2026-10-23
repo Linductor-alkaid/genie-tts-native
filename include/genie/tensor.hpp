@@ -77,7 +77,9 @@ public:
     [[nodiscard]] std::optional<Scalar> scalar() const noexcept;
 
     /// 原始字节视图。
-    [[nodiscard]] std::span<std::byte> bytes() noexcept { return {storage_.data(), storage_.size()}; }
+    [[nodiscard]] std::span<std::byte> bytes() noexcept {
+        return {storage_.data(), storage_.size()};
+    }
     [[nodiscard]] std::span<const std::byte> bytes() const noexcept {
         return {storage_.data(), storage_.size()};
     }

@@ -85,22 +85,21 @@ SampleFormat format_from_tag(std::uint16_t tag, std::uint16_t bits) {
             return SampleFormat::Float64;
         }
     }
-    throw_error(ErrorCode::Unsupported,
-                "unsupported WAV format: tag=" + std::to_string(tag) + " bits=" +
-                    std::to_string(bits));
+    throw_error(ErrorCode::Unsupported, "unsupported WAV format: tag=" + std::to_string(tag) +
+                                            " bits=" + std::to_string(bits));
 }
 
 /// 把一个采样帧的所有声道求平均，得到单声道值。
-double decode_sample(std::span<const std::byte> data, std::size_t byte_offset,
-                     SampleFormat format, int channels) {
+double decode_sample(std::span<const std::byte> data, std::size_t byte_offset, SampleFormat format,
+                     int channels) {
     double accumulator = 0.0;
     for (int ch = 0; ch < channels; ++ch) {
-        const std::size_t offset = byte_offset + static_cast<std::size_t>(ch) *
-                                                     (format == SampleFormat::Pcm24   ? 3
-                                                      : format == SampleFormat::Pcm16 ? 2
-                                                      : format == SampleFormat::PcmU8  ? 1
-                                                      : format == SampleFormat::Pcm32  ? 4
-                                                                                     : 4);
+        const std::size_t offset =
+            byte_offset + static_cast<std::size_t>(ch) * (format == SampleFormat::Pcm24   ? 3
+                                                          : format == SampleFormat::Pcm16 ? 2
+                                                          : format == SampleFormat::PcmU8 ? 1
+                                                          : format == SampleFormat::Pcm32 ? 4
+                                                                                          : 4);
         double value = 0.0;
         switch (format) {
             case SampleFormat::PcmU8:
@@ -197,8 +196,8 @@ std::vector<float> resample_windowed_sinc(std::span<const float> input, int inpu
     const double fc = std::min(1.0, ratio);
     const double step = 1.0 / ratio;  // 每个输出样本对应的输入位置步长
 
-    const auto output_size = static_cast<std::size_t>(
-        std::llround(static_cast<double>(input.size()) * ratio));
+    const auto output_size =
+        static_cast<std::size_t>(std::llround(static_cast<double>(input.size()) * ratio));
     std::vector<float> output(output_size);
 
     const auto n = static_cast<double>(input.size());
@@ -423,8 +422,8 @@ void WavCodec::write_pcm16(const std::string& path, const AudioBuffer& audio) {
 
     for (const float sample : audio.samples) {
         const float clamped = std::clamp(sample, -1.0F, 1.0F);
-        const auto value = static_cast<std::int16_t>(
-            std::lround(static_cast<double>(clamped) * 32767.0));
+        const auto value =
+            static_cast<std::int16_t>(std::lround(static_cast<double>(clamped) * 32767.0));
         const auto offset = out.size();
         out.resize(offset + 2);
         std::memcpy(out.data() + offset, &value, sizeof(value));
@@ -515,7 +514,7 @@ std::vector<float> resample_linear(std::span<const float> input, int input_rate,
         }
         const double frac = position - static_cast<double>(index);
         output[i] = static_cast<float>(static_cast<double>(input[index]) * (1.0 - frac) +
-                                      static_cast<double>(input[index + 1]) * frac);
+                                       static_cast<double>(input[index + 1]) * frac);
     }
     return output;
 }

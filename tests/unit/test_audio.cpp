@@ -25,9 +25,9 @@ std::vector<float> sine(double frequency, int rate, double seconds) {
     const auto count = static_cast<std::size_t>(rate * seconds);
     std::vector<float> samples(count);
     for (std::size_t i = 0; i < count; ++i) {
-        samples[i] = static_cast<float>(
-            0.5 * std::sin(2.0 * std::numbers::pi * frequency *
-                            static_cast<double>(i) / static_cast<double>(rate)));
+        samples[i] =
+            static_cast<float>(0.5 * std::sin(2.0 * std::numbers::pi * frequency *
+                                              static_cast<double>(i) / static_cast<double>(rate)));
     }
     return samples;
 }

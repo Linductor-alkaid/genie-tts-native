@@ -34,9 +34,7 @@ TEST_F(SchedulerTest, RunsSubmittedTask) {
 TEST_F(SchedulerTest, TaskReceivesCancellationToken) {
     std::atomic<bool> saw_token{false};
     const auto id = Scheduler::instance().submit(
-        [&saw_token](const CancellationToken& token) {
-            saw_token.store(!token.cancelled());
-        });
+        [&saw_token](const CancellationToken& token) { saw_token.store(!token.cancelled()); });
     EXPECT_TRUE(Scheduler::instance().wait(id, 5s));
     EXPECT_TRUE(saw_token.load());
 }
@@ -78,9 +76,8 @@ TEST_F(SchedulerTest, FailedTaskIsCounted) {
 }
 
 TEST_F(SchedulerTest, InFlightReturnsToZero) {
-    const auto id = Scheduler::instance().submit([](const CancellationToken&) {
-        std::this_thread::sleep_for(20ms);
-    });
+    const auto id = Scheduler::instance().submit(
+        [](const CancellationToken&) { std::this_thread::sleep_for(20ms); });
     EXPECT_TRUE(Scheduler::instance().wait(id, 5s));
     for (int i = 0; i < 100 && Scheduler::instance().in_flight() != 0; ++i) {
         std::this_thread::sleep_for(10ms);

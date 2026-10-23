@@ -58,7 +58,7 @@ public:
 /// @throws genie::Error  ModelLoadError —— 文件不存在或 ONNX 解析失败
 /// @throws genie::Error  BackendUnavailable —— 构建时未启用 ONNX Runtime
 [[nodiscard]] std::unique_ptr<ModelSession> create_session(const std::string& model_path,
-                                                            const SessionConfig& config);
+                                                           const SessionConfig& config);
 
 /// 当前构建是否具备真实推理能力。
 [[nodiscard]] bool has_onnxruntime_backend() noexcept;
