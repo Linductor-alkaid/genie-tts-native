@@ -118,9 +118,9 @@ void Scheduler::initialize(const SchedulerConfig& config) {
             for (;;) {
                 std::packaged_task<void()> job;
                 {
-                    std::unique_lock<std::mutex> lock(impl_->mutex);
+                    std::unique_lock<std::mutex> queue_lock(impl_->mutex);
                     impl_->queue_cv.wait(
-                        lock, [this] { return impl_->stopping || !impl_->queue.empty(); });
+                        queue_lock, [this] { return impl_->stopping || !impl_->queue.empty(); });
                     if (impl_->stopping && impl_->queue.empty()) {
                         return;
                     }
@@ -322,12 +322,13 @@ struct AudioChunkChannel::Impl {
     bool closed = false;
 #endif
 
-    explicit Impl(std::size_t capacity)
+    explicit Impl(std::size_t initial_capacity)
 #if defined(GENIE_HAVE_KAIRO)
-        : channel(kairo::comm::ChannelOptions{capacity, kairo::comm::DropPolicy::RejectNewest, true,
+        : channel(kairo::comm::ChannelOptions{initial_capacity,
+                                              kairo::comm::DropPolicy::RejectNewest, true,
                                               "genie.audio.stream"})
 #else
-        : capacity(capacity)
+        : capacity(initial_capacity)
 #endif
     {
     }

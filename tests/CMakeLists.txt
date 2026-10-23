@@ -2,13 +2,16 @@
 #
 # 分层（对应里程碑 M4.1）：
 #   unit        —— 纯逻辑：文本、音符、张量、采样、音频
-#   component  —— 各 ONNX 子模型的输入输出契约
-#   integration —— 完整 TTS 合成链路
-#   regression —— 多语言、音色、异常输入
+#   component   —— 各 ONNX 子模型的输入输出契约
+#   integration —— ONNX Runtime 运行时路径
+#   regression  —— 多语言、音色、异常输入（M4 起）
 #
-# component / integration 需要真实模型。仓库内置了上游 Genie-TTS 的六个 ONNX
-# 模型（MIT，见 third_party/genie-tts-models/LICENSE），因此这些测试开箱即跑。
-# 若模型缺失，对应测试会自动跳过而不是失败。
+# 模型说明：
+#   - 上游发布的六个 ONNX 模型是"图壳"（权重在外部 .bin 里，合计约 1.1 GB，
+#     不在仓库中），因此**不能**被 ONNX Runtime 加载。
+#   - 契约测试因此直接解析 ONNX protobuf（genie::read_onnx_graph），
+#     不需要权重、不需要 ORT —— 在任何构建下都能跑。
+#   - 运行时路径测试用自包含的合成模型 tests/models/synthetic/echo.onnx。
 
 set(GENIE_TEST_MODEL_DIR_DEFAULT "${CMAKE_SOURCE_DIR}/third_party/genie-tts-models"
     CACHE PATH "默认测试模型目录")
@@ -16,7 +19,8 @@ set(GENIE_TEST_MODEL_DIR_DEFAULT "${CMAKE_SOURCE_DIR}/third_party/genie-tts-mode
 add_library(genie_test_support INTERFACE)
 target_include_directories(genie_test_support INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(genie_test_support INTERFACE
-    "GENIE_TEST_MODEL_DIR_DEFAULT=\"${GENIE_TEST_MODEL_DIR_DEFAULT}\"")
+    "GENIE_TEST_MODEL_DIR_DEFAULT=\"${GENIE_TEST_MODEL_DIR_DEFAULT}\""
+    "GENIE_TEST_SOURCE_DIR_DEFAULT=\"${CMAKE_SOURCE_DIR}\"")
 target_link_libraries(genie_test_support INTERFACE genie::genie ${GENIE_GTEST_TARGET})
 
 # --------------------------------------------------------------------------------------
@@ -28,23 +32,22 @@ add_executable(genie_unit_tests
     unit/test_tensor.cpp
     unit/test_audio.cpp
     unit/test_scheduler.cpp
+    unit/test_onnx_graph.cpp
 )
 target_link_libraries(genie_unit_tests PRIVATE genie_test_support)
 add_test(NAME genie_unit COMMAND genie_unit_tests)
 
 # --------------------------------------------------------------------------------------
-# component —— 模型 I/O 契约（需要 ONNX Runtime）
+# component —— 模型 I/O 契约（不需要 ONNX Runtime，也不需要权重）
 # --------------------------------------------------------------------------------------
-if(GENIE_ENABLE_ORT)
-    add_executable(genie_component_tests
-        component/test_model_contract.cpp
-    )
-    target_link_libraries(genie_component_tests PRIVATE genie_test_support)
-    add_test(NAME genie_component COMMAND genie_component_tests)
-endif()
+add_executable(genie_component_tests
+    component/test_model_contract.cpp
+)
+target_link_libraries(genie_component_tests PRIVATE genie_test_support)
+add_test(NAME genie_component COMMAND genie_component_tests)
 
 # --------------------------------------------------------------------------------------
-# integration —— 端到端推理链路
+# integration —— ONNX Runtime 运行时路径
 # --------------------------------------------------------------------------------------
 if(GENIE_ENABLE_ORT)
     add_executable(genie_integration_tests

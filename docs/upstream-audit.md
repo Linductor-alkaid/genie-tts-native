@@ -29,6 +29,8 @@
 上游仓库**随源码发布了全部六个 ONNX 模型**（`src/genie_tts/Data/`），
 本项目已按 MIT 协议收录到 `third_party/genie-tts-models/`。
 
+> 注意：这些文件是**图壳**，权重在外部 .bin 里（见 §2.1）。
+
 | 模型 | 文件 | 大小 |
 |---|---|---|
 | T2S encoder | `v2/t2s_encoder_fp32.onnx` | 14 KB |
@@ -37,6 +39,44 @@
 | VITS 声码器（V2） | `v2/vits_fp32.onnx` | 1.6 MB |
 | prompt encoder | `v2ProPlus/prompt_encoder_fp32.onnx` | 43 KB |
 | VITS 声码器（V2ProPlus） | `v2ProPlus/vits_fp32.onnx` | 1.6 MB |
+
+### 2.1 ⚠️ 关键发现：这些模型是「图壳」，权重不在仓库里
+
+上游仓库随源码发布的六个 ONNX 模型**不包含权重**。它们是「relink」之后的图：
+每个 initializer 都指向一个**外部 .bin 文件**（`data_location = EXTERNAL`）。
+
+| 模型 | 外部权重文件 | 权重总量 |
+|---|---|---|
+| `t2s_encoder_fp32.onnx` | `t2s_encoder_fp32.bin` | 11.5 MB |
+| `t2s_first_stage_decoder_fp32.onnx` | `t2s_first_stage_decoder_fp32_weights.bin` | 306.8 MB |
+| `t2s_stage_decoder_fp32.onnx` | `t2s_stage_decoder_fp32_weights.bin` | 306.8 MB |
+| `vits_fp32.onnx` | `vits_fp32.bin` | 161.7 MB |
+| `prompt_encoder_fp32.onnx` | `prompt_encoder_weights.bin` | 88.5 MB |
+| `v2ProPlus/vits_fp32.onnx` | `vits_weights.bin` | 248.7 MB |
+| **合计** | | **约 1.12 GB** |
+
+这些 .bin 由上游的**模型转换流程**从原始 GPT-SoVITS 模型生成
+（见 `src/genie_tts/Converter/v2/T2SConverter.py` 的
+`step1_create_fp16_bin_with_key_mapping` → `step2_relink_onnx_for_fp32`），
+**不在 Git 仓库中**。
+
+**这意味着**：
+
+1. 这些 ONNX 文件**无法**被 ONNX Runtime 直接加载 ——
+   会报 `filesystem error: cannot get file size: No such file or directory`。
+2. 但**图结构是完整的**：输入输出的名字、类型、维度全都在。
+   因此 I/O 契约可以被**可执行地**锁定，而不需要 1.1 GB 的权重。
+3. 本项目的做法：
+   - 契约测试直接解析 ONNX protobuf（`genie::read_onnx_graph`），
+     **不需要权重、不需要 ONNX Runtime**，因此在任何构建下都能跑；
+   - ONNX Runtime 的运行时路径（加载 → 按名字绑定 → 推理 → 解析输出）
+     用自包含的**合成模型**验证（`tests/models/synthetic/echo.onnx`）；
+   - 真实权重的端到端推理需要用户自行跑一遍上游转换流程产出 .bin，
+     属于部署侧的事，不在本仓库范围内。
+
+> 对应代码：`include/genie/onnx_graph.hpp`（最小 protobuf 读取器）、
+> `tests/component/test_model_contract.cpp`（契约断言）、
+> `tools/make_synthetic_model.py`（合成模型生成器）。
 
 **仓库里没有**的两个模型（上游从用户数据目录加载）：
 

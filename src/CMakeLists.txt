@@ -23,6 +23,7 @@ set(GENIE_CORE_SOURCES
     runtime/version.cpp
     runtime/config.cpp
     runtime/tensor.cpp
+    runtime/onnx_graph.cpp
     runtime/session_factory.cpp
     audio/audio.cpp
 )

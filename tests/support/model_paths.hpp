@@ -43,6 +43,19 @@ inline std::filesystem::path v2proplus_model(const std::string& name) {
     return model_root() / "v2ProPlus" / name;
 }
 
+/// 合成测试模型路径。
+///
+/// 上游发布的 ONNX 模型是"图壳"（权重在外部 .bin 里，不在仓库中），
+/// 无法被 ONNX Runtime 加载；真正跑运行时路径用的是这个自包含的合成模型。
+inline std::filesystem::path synthetic_model(const std::string& name = "echo.onnx") {
+#ifdef GENIE_TEST_SOURCE_DIR_DEFAULT
+    return std::filesystem::path(GENIE_TEST_SOURCE_DIR_DEFAULT) / "tests" / "models" / "synthetic" /
+           name;
+#else
+    return model_root().parent_path().parent_path() / "tests" / "models" / "synthetic" / name;
+#endif
+}
+
 }  // namespace genie::test
 
 #endif  // GENIE_TESTS_SUPPORT_MODEL_PATHS_HPP
