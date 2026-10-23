@@ -37,21 +37,24 @@ TEST(Errors, UnknownStringMapsToInternal) {
 }
 
 TEST(Errors, ThrownErrorCarriesCode) {
+    bool caught = false;
     try {
         throw_error(ErrorCode::NotFound, "missing thing");
-        FAIL() << "throw_error should have thrown";
     } catch (const Error& error) {
+        caught = true;
         EXPECT_EQ(error.code(), ErrorCode::NotFound);
         EXPECT_STREQ(error.what(), "missing thing");
     }
+    EXPECT_TRUE(caught);
 }
 
 TEST(Errors, ErrorIsARuntimeError) {
+    bool caught = false;
     try {
         throw_error(ErrorCode::Internal, "boom");
     } catch (const std::runtime_error& error) {
+        caught = true;
         EXPECT_STREQ(error.what(), "boom");
-        return;
     }
-    FAIL() << "expected std::runtime_error";
+    EXPECT_TRUE(caught);
 }
