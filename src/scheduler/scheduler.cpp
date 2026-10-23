@@ -324,9 +324,8 @@ struct AudioChunkChannel::Impl {
 
     explicit Impl(std::size_t initial_capacity)
 #if defined(GENIE_HAVE_KAIRO)
-        : channel(kairo::comm::ChannelOptions{initial_capacity,
-                                              kairo::comm::DropPolicy::RejectNewest, true,
-                                              "genie.audio.stream"})
+        : channel(kairo::comm::ChannelOptions{
+              initial_capacity, kairo::comm::DropPolicy::RejectNewest, true, "genie.audio.stream"})
 #else
         : capacity(initial_capacity)
 #endif
