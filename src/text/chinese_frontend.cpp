@@ -33,10 +33,18 @@ public:
         std::size_t offset = 0;
         utf8::Char ch;
         while (utf8::decode_next(normalized, offset, ch)) {
-            const std::string_view piece = normalized.substr(ch.offset, ch.length);
+            // 注意：不能把 `normalized.substr(...)` 的结果直接绑给 string_view ——
+            // substr() 返回的是**临时 std::string**，语句结束就析构，
+            // string_view 随即指向已释放的内存。
+            //
+            // 这个坑是 Windows CI 抓到的：MSVC 上这块内存被回收后查字典必然落空，
+            // 音素数变成 0；Linux 上则可能"碰巧"还能查到，ASAN 也看不见
+            // （单个汉字只有 3 字节，走 SSO，数据在对象内部，没有堆释放可查）。
+            // 直接从 normalized 里取视图，没有临时对象。
+            const std::string_view piece(normalized.data() + ch.offset, ch.length);
 
             if (utf8::is_han(ch.codepoint)) {
-                const auto pinyin = pinyin::lookup(piece);
+                const auto pinyin = pinyin::lookup(ch.codepoint);
                 if (!pinyin) {
                     // 词典里没有这个字。跳过 —— 上游同样会跳过查不到拼音的字。
                     continue;

@@ -16,6 +16,7 @@
 #include <string>
 
 #include "genie/pinyin_table.hpp"
+#include "genie/utf8.hpp"
 
 namespace genie::pinyin {
 namespace {
@@ -247,19 +248,29 @@ void replace_all(std::string& value, std::string_view from, std::string_view to)
     return finals;
 }
 
-/// 拼音词典：汉字 → tone3 拼音。
-[[nodiscard]] const std::map<std::string, std::string, std::less<>>& pinyin_table() {
-    static const std::map<std::string, std::string, std::less<>> kTable = [] {
-        std::map<std::string, std::string, std::less<>> table;
+/// 拼音词典：汉字码位 → tone3 拼音。
+///
+/// 用码位做键而不是 UTF-8 字符串：查字典是文本前端最频繁的操作，
+/// 而且码位比较没有"字符串视图怎么比"这种平台差异。
+[[nodiscard]] const std::map<std::uint32_t, std::string>& pinyin_table() {
+    static const std::map<std::uint32_t, std::string> kTable = [] {
+        std::map<std::uint32_t, std::string> table;
         std::string_view text = detail::kPinyinTable;
         while (!text.empty()) {
             const auto newline = text.find('\n');
-            const std::string_view line =
+            std::string_view line =
                 text.substr(0, newline == std::string_view::npos ? text.size() : newline);
+            // Windows 上 checkout 出来的文件是 CRLF 行尾，行末的 \r 要去掉。
+            if (!line.empty() && line.back() == '\r') {
+                line.remove_suffix(1);
+            }
             const auto space = line.find(' ');
             if (space != std::string_view::npos) {
-                table.emplace(std::string(line.substr(0, space)),
-                              std::string(line.substr(space + 1)));
+                std::size_t offset = 0;
+                utf8::Char ch;
+                if (utf8::decode_next(line, offset, ch) && ch.length == space) {
+                    table.emplace(ch.codepoint, std::string(line.substr(space + 1)));
+                }
             }
             if (newline == std::string_view::npos) {
                 break;
@@ -313,13 +324,22 @@ Syllable split(std::string_view tone3) noexcept {
     return result;
 }
 
-std::optional<std::string> lookup(std::string_view utf8_char) {
+std::optional<std::string> lookup(std::uint32_t codepoint) {
     const auto& table = pinyin_table();
-    const auto it = table.find(utf8_char);
+    const auto it = table.find(codepoint);
     if (it == table.end()) {
         return std::nullopt;
     }
     return it->second;
+}
+
+std::optional<std::string> lookup(std::string_view utf8_char) {
+    std::size_t offset = 0;
+    utf8::Char ch;
+    if (!utf8::decode_next(utf8_char, offset, ch) || ch.length != utf8_char.size()) {
+        return std::nullopt;
+    }
+    return lookup(ch.codepoint);
 }
 
 std::vector<std::string> syllable_to_phones(const Syllable& syllable) {

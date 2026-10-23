@@ -73,14 +73,28 @@ TEST(Frontend, ConvertsChineseToPhonemeIds) {
     auto frontend = chinese_frontend();
     ASSERT_NE(frontend, nullptr);
 
-    const auto sequence = frontend->convert("\xE4\xBD\xA0\xE5\xA5\xBD");
-    ASSERT_EQ(sequence.ids.size(), 4U);
+    // 故意用**长**文本：短于 16 字节的 std::string 走 SSO（数据在对象内部），
+    // 悬垂引用读到的还是旧数据，ASAN 也抓不到。超过 16 字节才会落到堆上，
+    // use-after-free 才能被 ASAN 逮住。
+    const auto sequence = frontend->convert(
+        "\xE4\xBD\xA0\xE5\xA5\xBD\xE4\xB8\x96\xE7\x95\x8C"
+        "\xE4\xBD\xA0\xE5\xA5\xBD\xE4\xB8\x96\xE7\x95\x8C");  // 你好世界（两遍）
+    ASSERT_EQ(sequence.ids.size(), 16U);
     // 你 → n + i3
     EXPECT_EQ(sequence.symbols[0], "n");
     EXPECT_EQ(sequence.symbols[1], "i3");
     // 好 → h + ao3
     EXPECT_EQ(sequence.symbols[2], "h");
     EXPECT_EQ(sequence.symbols[3], "ao3");
+    // 世 → sh + i4
+    EXPECT_EQ(sequence.symbols[4], "sh");
+    EXPECT_EQ(sequence.symbols[5], "i4");
+    // 界 → j + ie4
+    EXPECT_EQ(sequence.symbols[6], "j");
+    EXPECT_EQ(sequence.symbols[7], "ie4");
+    // 第二遍重复
+    EXPECT_EQ(sequence.symbols[8], "n");
+    EXPECT_EQ(sequence.symbols[15], "ie4");
 
     for (const auto id : sequence.ids) {
         EXPECT_GE(id, 0);
@@ -92,12 +106,15 @@ TEST(Frontend, KeepsPunctuationAsPhonemes) {
     auto frontend = chinese_frontend();
     ASSERT_NE(frontend, nullptr);
 
-    const auto sequence = frontend->convert("\xE4\xBD\xA0\xE3\x80\x82");
-    ASSERT_EQ(sequence.ids.size(), 3U);
+    const auto sequence = frontend->convert("\xE4\xBD\xA0\xE5\xA5\xBD\xE3\x80\x82");
+    // 你(n i3) 好(h ao3) 。(.)
+    ASSERT_EQ(sequence.ids.size(), 5U);
     EXPECT_EQ(sequence.symbols[0], "n");
     EXPECT_EQ(sequence.symbols[1], "i3");
-    EXPECT_EQ(sequence.symbols[2], ".");
-    EXPECT_EQ(sequence.ids[2], symbols::id_of("."));
+    EXPECT_EQ(sequence.symbols[2], "h");
+    EXPECT_EQ(sequence.symbols[3], "ao3");
+    EXPECT_EQ(sequence.symbols[4], ".");
+    EXPECT_EQ(sequence.ids[4], symbols::id_of("."));
 }
 
 TEST(Frontend, EmptyTextYieldsEmptySequence) {
@@ -119,11 +136,14 @@ TEST(Frontend, Word2PhCountsPhonesPerCharacter) {
     auto frontend = chinese_frontend();
     ASSERT_NE(frontend, nullptr);
 
-    const auto sequence = frontend->convert("\xE4\xBD\xA0\xE5\xA5\xBD");
-    // 两个汉字，每个两个音素。
-    ASSERT_EQ(sequence.word2ph.size(), 2U);
-    EXPECT_EQ(sequence.word2ph[0], 2);
-    EXPECT_EQ(sequence.word2ph[1], 2);
+    const auto sequence = frontend->convert(
+        "\xE4\xBD\xA0\xE5\xA5\xBD\xE4\xB8\x96\xE7\x95\x8C"
+        "\xE4\xBD\xA0\xE5\xA5\xBD\xE4\xB8\x96\xE7\x95\x8C");  // 你好世界（两遍）
+    // 八个汉字，每个两个音素。
+    ASSERT_EQ(sequence.word2ph.size(), 8U);
+    for (const auto count : sequence.word2ph) {
+        EXPECT_EQ(count, 2);
+    }
 }
 
 TEST(Frontend, ReportsItsLanguage) {

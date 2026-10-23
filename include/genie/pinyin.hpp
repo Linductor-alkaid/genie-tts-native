@@ -42,6 +42,11 @@ struct Syllable {
 
 /// 汉字 → tone3 拼音。词典里没有则返回空。
 ///
+/// @param codepoint 汉字的 Unicode 码位。
+[[nodiscard]] std::optional<std::string> lookup(std::uint32_t codepoint);
+
+/// 汉字 → tone3 拼音。词典里没有则返回空。
+///
 /// @param utf8_char 单个汉字的 UTF-8 编码。
 [[nodiscard]] std::optional<std::string> lookup(std::string_view utf8_char);
 
