@@ -131,3 +131,12 @@ else()
     set(GENIE_KAIRO_STATUS "fetched (${GENIE_KAIRO_TAG})")
     set(GENIE_KAIRO_TARGET kairo)
 endif()
+
+# kairo 是静态库，而 C ABI 的共享库（libgenie_tts.so）要把它链进去 ——
+# 静态库必须编成 PIC，否则链接共享库会报
+# "relocation R_X86_64_TPOFF32 ... recompile with -fPIC"。
+if(GENIE_ENABLE_KAIRO)
+    if(TARGET kairo)
+        set_target_properties(kairo PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
+endif()

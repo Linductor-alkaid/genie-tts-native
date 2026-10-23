@@ -20,6 +20,10 @@
 
 ### Added
 
+- **C ABI 共享库**（`libgenie_tts.so` / `genie_tts.dll`）：纯 C 头文件，
+  Go / Rust / Python ctypes 直接 dlopen 即可，不需要链接 C++ 运行时。
+  新增 `genie_engine_synthesize_wav()` 与 `genie_phonemize()`。
+  错误码与 C++ 侧 `genie::ErrorCode` 是同一套枚举值，编译期静态断言钉死。
 - **合成引擎**（`genie::Engine`）：把音色包、模型会话、文本前端与调度层
   串成一次完整合成。`synthesize()` 同步，`synthesize_streaming()` 走 kairo
   执行器并通过 `AudioChunkChannel` 交付音频块。

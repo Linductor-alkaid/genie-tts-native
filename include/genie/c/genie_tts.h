@@ -94,6 +94,30 @@ GENIE_API genie_status genie_engine_synthesize(genie_engine* engine, const char*
                                                int* out_rate);
 
 /**
+ * 合成并直接写成 WAV 文件。
+ *
+ * 比 genie_engine_synthesize 更省事：调用方不用管浮点缓冲区与采样率。
+ *
+ * @param output_path 输出 WAV 路径
+ * @return 状态码
+ */
+GENIE_API genie_status genie_engine_synthesize_wav(genie_engine* engine, const char* text,
+                                                   genie_language language, uint64_t seed,
+                                                   const char* output_path);
+
+/**
+ * 把文本转成音素符号 ID —— **不需要模型**。
+ *
+ * 排查文本前端的问题时很有用：直接看到模型会收到的 text_seq。
+ *
+ * @param out_ids 输出的符号 ID 数组（用 genie_free 释放）
+ * @param out_count 输出元素个数
+ * @return 状态码；语言不受支持时返回 GENIE_ERROR_UNSUPPORTED
+ */
+GENIE_API genie_status genie_phonemize(const char* text, genie_language language, int64_t** out_ids,
+                                       size_t* out_count);
+
+/**
  * 释放由本库分配的缓冲区。
  */
 GENIE_API void genie_free(void* ptr);

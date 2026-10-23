@@ -207,6 +207,19 @@ genie::symbols::master_v2()   →  732 个符号，顺序即 ID
 > 它让进程**带着就绪的调度器退出**。别的调度器测试都在 TearDown 里
 > `shutdown()`，反而绕开了它。
 
+### 2.9 C ABI：单独编成共享库
+
+`libgenie_tts.so` / `genie_tts.dll` 是**独立的共享库**，不是静态库。
+理由：Go / Rust / Python ctypes 的调用方通常不链接 C++ 静态库，
+而是 dlopen 一个共享库 —— 让他们链接 C++ 运行时是个不必要的负担。
+
+- 头文件 `include/genie/c/genie_tts.h` 是**纯 C**，不含任何 C++ 语法；
+- 编译符号可见性设为 hidden，只导出 `genie_*`；
+- 错误码与 C++ 侧 `genie::ErrorCode` 是**同一套枚举值**，
+  编译期用 `static_assert` 钉死 —— 两套语义漂移是最难查的一类 bug；
+- **异常绝不穿过 ABI 边界**：所有入口 try/catch，C++ 异常转成 `genie_status`；
+- `tests/c/test_c_api.c` **用 C 编译器编译** —— 头文件里混进 C++ 语法会直接失败。
+
 ---
 
 ## 3. 推理链路与上游的对齐点

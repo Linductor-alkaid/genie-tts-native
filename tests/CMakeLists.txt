@@ -48,6 +48,20 @@ target_link_libraries(genie_unit_tests PRIVATE genie_test_support)
 add_test(NAME genie_unit COMMAND genie_unit_tests)
 
 # --------------------------------------------------------------------------------------
+# c —— C ABI
+#
+# 用 **C 编译器**编译：头文件里混进 C++ 语法的话这里会直接编译失败。
+# ABI 的使用者（Go / Rust / Python ctypes）拿到的就是纯 C 头文件，
+# 这个约束必须由测试来守。
+# --------------------------------------------------------------------------------------
+add_executable(genie_c_api_test
+    c/test_c_api.c
+)
+target_link_libraries(genie_c_api_test PRIVATE genie::c)
+target_include_directories(genie_c_api_test PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME genie_c_api COMMAND genie_c_api_test)
+
+# --------------------------------------------------------------------------------------
 # component —— 模型 I/O 契约（不需要 ONNX Runtime，也不需要权重）
 # --------------------------------------------------------------------------------------
 add_executable(genie_component_tests
