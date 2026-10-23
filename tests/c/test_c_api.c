@@ -17,6 +17,12 @@
 #include <stdio.h>
 #include <string.h>
 
+/* 挂死时 stdout 缓冲区里的内容会丢 —— 每步都 flush，才知道卡在哪。 */
+static void step(const char* name) {
+    printf("[%s]\n", name);
+    fflush(stdout);
+}
+
 static int g_failures = 0;
 
 #define CHECK(cond, message)                                              \
@@ -106,11 +112,17 @@ static void test_engine_create_without_backend(void) {
 }
 
 int main(void) {
+    step("start");
     test_version();
+    step("version");
     test_status_string();
+    step("status_string");
     test_null_arguments();
+    step("null_arguments");
     test_phonemize();
+    step("phonemize");
     test_engine_create_without_backend();
+    step("engine_create");
 
     if (g_failures != 0) {
         printf("\n%d check(s) FAILED\n", g_failures);

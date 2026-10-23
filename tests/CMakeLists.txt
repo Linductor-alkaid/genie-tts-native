@@ -63,7 +63,16 @@ add_executable(genie_c_api_test
 target_link_libraries(genie_c_api_test PRIVATE genie::c)
 target_include_directories(genie_c_api_test PRIVATE ${CMAKE_SOURCE_DIR}/include)
 add_test(NAME genie_c_api COMMAND genie_c_api_test)
-set_tests_properties(genie_c_api PROPERTIES TIMEOUT 60)
+# Windows 上共享库必须能被找到，否则加载器会弹一个**模态错误框** ——
+# 无头 CI 里那个框会永远挂着（表现就是测试超时、没有任何输出）。
+#
+# CMake **不会**自动把构建树里的共享库目录加进测试的 PATH，
+# 所以这里显式设置：工作目录指向 DLL 所在目录（当前目录在 DLL 搜索顺序里），
+# 同时把该目录加进 PATH。
+set_tests_properties(genie_c_api PROPERTIES
+    TIMEOUT 60
+    WORKING_DIRECTORY $<TARGET_FILE_DIR:genie_c>
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:genie_c>\;$ENV{PATH}")
 
 # --------------------------------------------------------------------------------------
 # component —— 模型 I/O 契约（不需要 ONNX Runtime，也不需要权重）
