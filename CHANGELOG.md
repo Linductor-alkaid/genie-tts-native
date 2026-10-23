@@ -23,6 +23,10 @@
 
 ### Added
 
+- **V2ProPlus 全局说话人嵌入**：`speaker_verification`（16 kHz 波形 → `sv_emb`）
+  接 `prompt_encoder`（32 kHz 波形 + `sv_emb` → `ge` / `ge_advanced`），
+  与上游 `ReferenceAudio.update_global_emb` 同序。
+  说话人验证模型缺失时**在加载期报错** —— V2ProPlus 的硬依赖。
 - **参考音频条件**（`genie::load_reference`）：从音色包的 `reference/` 装配
   `ref_seq` / `ref_bert` / `ssl_content` / `ref_audio`。
   RoBERTa 与 HuBERT 缺失时退化为**全零特征**（与上游一致）。

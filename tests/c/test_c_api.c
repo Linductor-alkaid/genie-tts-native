@@ -25,12 +25,12 @@ static void step(const char* name) {
 
 static int g_failures = 0;
 
-#define CHECK(cond, message)                                              \
-    do {                                                                  \
-        if (!(cond)) {                                                     \
-            printf("FAIL: %s (%s:%d)\n", (message), __FILE__, __LINE__);  \
-            ++g_failures;                                                 \
-        }                                                                 \
+#define CHECK(cond, message)                                             \
+    do {                                                                 \
+        if (!(cond)) {                                                   \
+            printf("FAIL: %s (%s:%d)\n", (message), __FILE__, __LINE__); \
+            ++g_failures;                                                \
+        }                                                                \
     } while (0)
 
 static void test_version(void) {
