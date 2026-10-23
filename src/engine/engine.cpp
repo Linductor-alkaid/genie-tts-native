@@ -39,6 +39,17 @@ constexpr std::int32_t kMaxT2SIterations = 500;
     return Tensor::from_int64({1, 1, static_cast<std::int64_t>(tokens.size())}, tokens);
 }
 
+/// 音素序列张量：**秩是 2**，形状 `[1, N]`。
+///
+/// 上游的 `phones_seq = np.array([phones], dtype=np.int64)` → `[1, N]`。
+/// 这个张量喂给 t2s_encoder 的 `text_seq` 和 vits 的 `text_seq` —— 两处都是秩 2。
+///
+/// 别和 `pred_semantic` 搞混：那个是秩 3（`[1, 1, L]`），
+/// 因为上游对它做了 `np.expand_dims(y[:, -idx:], axis=0)`。
+[[nodiscard]] Tensor make_phones_tensor(const std::vector<std::int64_t>& phonemes) {
+    return Tensor::from_int64({1, static_cast<std::int64_t>(phonemes.size())}, phonemes);
+}
+
 /// 截掉第一个 EOS 之后的 token。
 ///
 /// 上游：
@@ -262,13 +273,15 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     // 上游喂的是两段不同的韵律特征。这里在 RoBERTa 缺失时都是零张量，
     // 但形状按各自的音素长度给。
     const auto& reference = impl_->reference;
+    // text_bert 是 [音素数, 1024]（**秩 2**，没有 batch 维）——
+    // 上游 ONNX 图声明的是 `text_bert: [text_length, 1024]`。
     const auto text_bert = Tensor::zeros(
-        ElementType::Float32, {1, static_cast<std::int64_t>(phonemes.ids.size()), kBertDimension});
+        ElementType::Float32, {static_cast<std::int64_t>(phonemes.ids.size()), kBertDimension});
     const auto ref_seq = Tensor::from_int64(
         {1, static_cast<std::int64_t>(reference.phoneme_ids.size())}, reference.phoneme_ids);
 
     TensorFeed encoder_feed;
-    encoder_feed.emplace_back("text_seq", make_pred_semantic(phonemes.ids));
+    encoder_feed.emplace_back("text_seq", make_phones_tensor(phonemes.ids));
     encoder_feed.emplace_back("ref_seq", ref_seq);
     encoder_feed.emplace_back("text_bert", text_bert);
     encoder_feed.emplace_back("ref_bert", reference.bert);
@@ -285,7 +298,7 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
 
     // 3) 声码器：语义 token → 波形。
     TensorFeed vocoder_feed;
-    vocoder_feed.emplace_back("text_seq", make_pred_semantic(phonemes.ids));
+    vocoder_feed.emplace_back("text_seq", make_phones_tensor(phonemes.ids));
     vocoder_feed.emplace_back("pred_semantic", make_pred_semantic(semantic));
     if (impl_->v2proplus()) {
         vocoder_feed.emplace_back("ge", impl_->global_emb);

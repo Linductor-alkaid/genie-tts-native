@@ -5,21 +5,9 @@
 
 ## [Unreleased]
 
-### Fixed
+## [0.1.0] - 2026-10-23
 
-- **引擎喂给模型的参考特征是空张量**：形状错的输入模型不会报错，只会输出垃圾。
-  现在所有特征张量都显式构造，`text_bert` 与 `ref_bert` 也分开了
-  （之前是同一个张量复制过去）。
-- **调度器退出路径的 use-after-free**：kairo 的 `Executor` 是函数级静态，
-  在 `Scheduler::initialize()` 里才被首次引用，因此比 `Scheduler` 单例
-  **更晚构造、更早析构**。进程退出时 `Executor` 已经没了，而
-  `Scheduler` 的析构函数仍会调 `request_task_cancel()` —— 症状不是崩溃，
-  而是**挂住**（kairo 的 shutdown 最多等在途任务 300 秒）。
-  析构现在只做 genie 侧的收尾（置取消标志 + 等任务收尾），
-  不再触碰 kairo。
-- **流式合成的生命周期**：后台任务捕获了引擎指针，而引擎可能在任务还在跑的
-  时候被析构；音频通道也是裸指针，调用方先放手就会悬垂。现在引擎析构时
-  会取消并**等待**任务收尾，通道改由任务与调用方共同持有（shared_ptr）。
+首个版本。完整 C++ 推理链路 + C ABI + CLI，不依赖 Python / PyTorch。
 
 ### Added
 
@@ -67,9 +55,41 @@
 - **音频**：自带 RIFF/WAV 编解码（PCM 8/16/24/32 + IEEE float）、窗函数法带限 sinc 重采样。
 - **调度与并发**：基于自有库 [kairo](https://github.com/Linductor-alkaid/kairo) 的
   `genie::Scheduler`（可取消任务）与 `genie::AudioChunkChannel`（有界流式音频通道）。
-- **测试**：unit（46 例）/ component（模型 I/O 契约）/ integration（T2S 端到端链路）。
+- **测试**：unit（140 例）/ component（模型 I/O 契约）/ regression（黄金数据）/
+  integration（T2S 端到端链路）/ C ABI（纯 C 编译器编译）。
 - **工程化**：CI（core / kairo / ort / asan+ubsan / tsan / windows / format）、
   `AGENTS.md` 管理规范、`CODEOWNERS`、PR 模板。
+
+### Fixed
+
+- **`text_seq` / `ref_bert` / `text_bert` 的秩错了**（秩 3 → 秩 2）。
+  上游的真实 ONNX 图声明的是：
+  - `text_seq: [1, text_length]`
+  - `ref_bert: [ref_length, 1024]`
+  - `text_bert: [text_length, 1024]`
+  之前喂的是 `[1, 1, L]` / `[1, L, 1024]` —— 真模型会直接拒绝输入。
+  注意 `pred_semantic` **确实是**秩 3（`[1, 1, L]`），别跟 `text_seq` 搞混。
+- **引擎喂给模型的参考特征是空张量**：形状错的输入模型不会报错，只会输出垃圾。
+  现在所有特征张量都显式构造，`text_bert` 与 `ref_bert` 也分开了
+  （之前是同一个张量复制过去）。
+- **调度器退出路径的 use-after-free**：kairo 的 `Executor` 是函数级静态，
+  在 `Scheduler::initialize()` 里才被首次引用，因此比 `Scheduler` 单例
+  **更晚构造、更早析构**。进程退出时 `Executor` 已经没了，而
+  `Scheduler` 的析构函数仍会调 `request_task_cancel()` —— 症状不是崩溃，
+  而是**挂住**（kairo 的 shutdown 最多等在途任务 300 秒）。
+  析构现在只做 genie 侧的收尾（置取消标志 + 等任务收尾），
+  不再触碰 kairo。
+- **流式合成的生命周期**：后台任务捕获了引擎指针，而引擎可能在任务还在跑的
+  时候被析构；音频通道也是裸指针，调用方先放手就会悬垂。现在引擎析构时
+  会取消并**等待**任务收尾，通道改由任务与调用方共同持有（shared_ptr）。
+
+### 已知限制
+
+- **英文 / 日文 / 韩文 G2P 未实现** —— 只做了中文。接口留成了可插拔的
+  `TextFrontend`，见 `docs/upstream-audit.md` §9.4。
+- **多音字取最常用读音** —— 上游用 g2pM 做上下文判定，本项目用词频兜底。
+- **变调 / 儿化 / 分词 / 繁简 / 日期时间量词未实现**。
+- **RoBERTa / HuBERT 缺失时降级为全零特征** —— 能合成，但韵律会差。
 
 ### 已知差异（与上游 Genie-TTS）
 
@@ -78,5 +98,5 @@
   ONNX Runtime 的全局随机种子。
 - 重采样使用自带的窗函数法带限 sinc 实现，非上游的 `soxr 'hq'`。
   量化差异见 `docs/architecture.md`。
-
 [Unreleased]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Linductor-alkaid/genie-tts-native/releases/tag/v0.1.0

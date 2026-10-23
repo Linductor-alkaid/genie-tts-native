@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -72,8 +73,9 @@ public:
         std::vector<TensorSpec> inputs;
         inputs.push_back({"ref_seq", ElementType::Int64, {1, -1}});
         inputs.push_back({"text_seq", ElementType::Int64, {1, -1}});
-        inputs.push_back({"ref_bert", ElementType::Float32, {1, -1, 1024}});
-        inputs.push_back({"text_bert", ElementType::Float32, {1, -1, 1024}});
+        // ref_bert / text_bert 是 **秩 2**（[长度, 1024]，没有 batch 维）。
+        inputs.push_back({"ref_bert", ElementType::Float32, {-1, 1024}});
+        inputs.push_back({"text_bert", ElementType::Float32, {-1, 1024}});
         inputs.push_back({"ssl_content", ElementType::Float32, {1, 768, -1}});
 
         FakeSessionConfig config;
@@ -189,10 +191,44 @@ public:
         return std::make_unique<FakeSession>(std::move(inputs), std::move(config));
     }
 
+    /// 校验喂进来的张量是否符合声明的契约。
+    ///
+    /// 这一步**不是装饰** —— 形状错位（秩不对、长度不对）在真模型上
+    /// 要么报错、要么安静地输出垃圾。假会话照着真模型的 spec 校验，
+    /// 就能在单测阶段把这类错误抓出来。
+    ///
+    /// spec 里 -1 表示动态维（那一维不校验）。
+    void validate_feed(const TensorFeed& feed) const {
+        for (const auto& [name, tensor] : feed) {
+            const auto it = std::find_if(inputs_.begin(), inputs_.end(),
+                                         [&name](const auto& spec) { return spec.name == name; });
+            if (it == inputs_.end()) {
+                throw std::runtime_error("fake session: unknown input '" + name + "'");
+            }
+            if (it->type != tensor.type()) {
+                throw std::runtime_error("fake session: input '" + name + "' has wrong dtype");
+            }
+            if (it->shape.size() != tensor.rank()) {
+                throw std::runtime_error("fake session: input '" + name + "' has rank " +
+                                         std::to_string(tensor.rank()) + ", expected " +
+                                         std::to_string(it->shape.size()));
+            }
+            for (std::size_t d = 0; d < it->shape.size(); ++d) {
+                if (it->shape[d] >= 0 && it->shape[d] != tensor.dim(d)) {
+                    throw std::runtime_error("fake session: input '" + name + "' dim " +
+                                             std::to_string(d) + " is " +
+                                             std::to_string(tensor.dim(d)) + ", expected " +
+                                             std::to_string(it->shape[d]));
+                }
+            }
+        }
+    }
+
     [[nodiscard]] const std::vector<TensorSpec>& inputs() const override { return inputs_; }
     [[nodiscard]] const std::vector<TensorSpec>& outputs() const override { return output_specs_; }
 
     [[nodiscard]] std::vector<Tensor> run(const TensorFeed& feed) override {
+        validate_feed(feed);
         ++config_.run_count;
         config_.last_feed = feed;
         config_.feeds.push_back(feed);

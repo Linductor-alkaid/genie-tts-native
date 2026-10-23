@@ -204,8 +204,10 @@ TEST(T2S, FullDecodeProducesSemanticTokens) {
     TensorFeed feed;
     feed.emplace_back("ref_seq", Tensor::from_int64({1, 1}, {1}));
     feed.emplace_back("text_seq", Tensor::from_int64({1, 4}, {1, 2, 3, 4}));
-    feed.emplace_back("ref_bert", Tensor::zeros(ElementType::Float32, {1, 1, 1024}));
-    feed.emplace_back("text_bert", Tensor::zeros(ElementType::Float32, {1, 4, 1024}));
+    // ref_bert / text_bert 是 **秩 2**（[长度, 1024]，没有 batch 维）——
+    // 上游 ONNX 图声明的就是这个形状。
+    feed.emplace_back("ref_bert", Tensor::zeros(ElementType::Float32, {1, 1024}));
+    feed.emplace_back("text_bert", Tensor::zeros(ElementType::Float32, {4, 1024}));
     feed.emplace_back("ssl_content", Tensor::zeros(ElementType::Float32, {1, 768, 10}));
 
     T2SDecoder decoder;

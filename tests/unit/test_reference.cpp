@@ -106,11 +106,10 @@ TEST(Reference, FeatureShapesAreExplicit) {
 
     const auto condition = load_reference(package.root(), *frontend);
 
-    // ref_bert：[1, 音素数, 1024]
-    ASSERT_EQ(condition.bert.rank(), 3);
-    EXPECT_EQ(condition.bert.dim(0), 1);
-    EXPECT_EQ(condition.bert.dim(1), static_cast<std::int64_t>(condition.phoneme_ids.size()));
-    EXPECT_EQ(condition.bert.dim(2), kBertDimension);
+    // ref_bert：[音素数, 1024] —— **秩 2**，上游 ONNX 图就是这么声明的。
+    ASSERT_EQ(condition.bert.rank(), 2);
+    EXPECT_EQ(condition.bert.dim(0), static_cast<std::int64_t>(condition.phoneme_ids.size()));
+    EXPECT_EQ(condition.bert.dim(1), kBertDimension);
 
     // ssl_content：[1, 768, 帧数]
     ASSERT_EQ(condition.ssl.rank(), 3);
@@ -143,7 +142,7 @@ TEST(Reference, MissingTextIsAllowed) {
     EXPECT_TRUE(condition.usable());
     EXPECT_TRUE(condition.phoneme_ids.empty());
     // 音素数缺失时 bert 的长度维也要有值（不能是 0）。
-    EXPECT_EQ(condition.bert.dim(1), 1);
+    EXPECT_EQ(condition.bert.dim(0), 1);
 }
 
 }  // namespace

@@ -66,12 +66,15 @@ ReferenceCondition load_reference(const std::string& root, const text::TextFront
     // （见上游 GetPhonesAndBert.py 的降级分支）。
     //
     // 形状必须显式给对 —— 形状错了模型不会报错，只会输出垃圾：
-    //   ref_bert     [1, T, 1024]   T = 参考音素数（没有则 1）
+    //   ref_bert     [T, 1024]     T = 参考音素数（没有则 1）—— **秩 2**
     //   ssl_content  [1, 768, T']   T' = 参考音频帧数
+    //
+    // 注意 ref_bert 是秩 2：上游 ONNX 图声明的是 `ref_bert: [ref_length, 1024]`，
+    // 前面**没有** batch 维。
     const auto phoneme_length = condition.phoneme_ids.empty()
                                     ? std::int64_t{1}
                                     : static_cast<std::int64_t>(condition.phoneme_ids.size());
-    condition.bert = Tensor::zeros(ElementType::Float32, {1, phoneme_length, kBertDimension});
+    condition.bert = Tensor::zeros(ElementType::Float32, {phoneme_length, kBertDimension});
 
     const auto frames =
         std::max<std::int64_t>(1, static_cast<std::int64_t>(condition.audio.frame_count()) / 320);

@@ -105,7 +105,9 @@
 - ✅ C ABI 共享库（纯 C 头文件，C 编译器编译的测试守着）
 - ✅ `genie-tts` CLI（version / info / g2p / inspect / synth）
 - ⏳ 内存泄漏、模型重复加载、异常恢复、长文本稳定性、连续推理检查
-- ⏳ regression 层（Golden Dataset：文本 / 音素 / 中间张量 / 语义 token / PCM）
+- ✅ regression 层（Golden Dataset：模型 I/O 契约快照，见 `docs/regression.md`）
+  - 锁住每个模型收到的全部输入（名字 / dtype / 形状 / 秩）
+  - 立刻抓出了 `text_seq` / `ref_bert` / `text_bert` 三处**秩错**
 - ⏳ 跨平台构建（Linux x86-64 → Windows x86-64 → Linux ARM64）
 - ⏳ **v0.1.0 发布**
 
