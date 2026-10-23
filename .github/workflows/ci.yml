@@ -28,8 +28,8 @@ jobs:
   core:
     name: core (no ort, no kairo)
     runs-on: ubuntu-latest
-    # 退出阶段挂死（比如退出时碰到已析构的执行器）会让 job 一直耗到
-    # GitHub 的默认 6 小时超时。给它一个明确的上限，早点失败早点看见。
+    # 挂死（比如退出阶段碰到已析构的执行器）会让 job 耗到 GitHub 的默认 6 小时。
+    # 给一个明确的上限，早点失败早点看见。
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +52,9 @@ jobs:
   kairo:
     name: kairo scheduler
     runs-on: ubuntu-latest
+    # 挂死（比如退出阶段碰到已析构的执行器）会让 job 耗到 GitHub 的默认 6 小时。
+    # 给一个明确的上限，早点失败早点看见。
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -70,6 +73,9 @@ jobs:
   ort:
     name: onnxruntime ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # 挂死（比如退出阶段碰到已析构的执行器）会让 job 耗到 GitHub 的默认 6 小时。
+    # 给一个明确的上限，早点失败早点看见。
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -109,6 +115,9 @@ jobs:
   sanitize:
     name: asan + ubsan
     runs-on: ubuntu-latest
+    # 挂死（比如退出阶段碰到已析构的执行器）会让 job 耗到 GitHub 的默认 6 小时。
+    # 给一个明确的上限，早点失败早点看见。
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -130,6 +139,9 @@ jobs:
   thread:
     name: tsan
     runs-on: ubuntu-latest
+    # 挂死（比如退出阶段碰到已析构的执行器）会让 job 耗到 GitHub 的默认 6 小时。
+    # 给一个明确的上限，早点失败早点看见。
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -150,6 +162,9 @@ jobs:
   windows:
     name: windows
     runs-on: windows-latest
+    # 挂死（比如退出阶段碰到已析构的执行器）会让 job 耗到 GitHub 的默认 6 小时。
+    # 给一个明确的上限，早点失败早点看见。
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -180,6 +195,9 @@ jobs:
   format:
     name: clang-format
     runs-on: ubuntu-latest
+    # 挂死（比如退出阶段碰到已析构的执行器）会让 job 耗到 GitHub 的默认 6 小时。
+    # 给一个明确的上限，早点失败早点看见。
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 

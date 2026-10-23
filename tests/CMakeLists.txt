@@ -46,6 +46,9 @@ add_executable(genie_unit_tests
 )
 target_link_libraries(genie_unit_tests PRIVATE genie_test_support)
 add_test(NAME genie_unit COMMAND genie_unit_tests)
+# 每个测试都有超时：挂死时 ctest 会杀掉它并报出是哪个，
+# 而不是让 CI job 一直耗到 6 小时上限。
+set_tests_properties(genie_unit PROPERTIES TIMEOUT 120)
 
 # --------------------------------------------------------------------------------------
 # c —— C ABI
@@ -60,6 +63,7 @@ add_executable(genie_c_api_test
 target_link_libraries(genie_c_api_test PRIVATE genie::c)
 target_include_directories(genie_c_api_test PRIVATE ${CMAKE_SOURCE_DIR}/include)
 add_test(NAME genie_c_api COMMAND genie_c_api_test)
+set_tests_properties(genie_c_api PROPERTIES TIMEOUT 60)
 
 # --------------------------------------------------------------------------------------
 # component —— 模型 I/O 契约（不需要 ONNX Runtime，也不需要权重）
