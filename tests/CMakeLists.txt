@@ -33,6 +33,9 @@ add_executable(genie_unit_tests
     unit/test_audio.cpp
     unit/test_scheduler.cpp
     unit/test_onnx_graph.cpp
+    unit/test_json.cpp
+    unit/test_sha256.cpp
+    unit/test_voice_package.cpp
 )
 target_link_libraries(genie_unit_tests PRIVATE genie_test_support)
 add_test(NAME genie_unit COMMAND genie_unit_tests)

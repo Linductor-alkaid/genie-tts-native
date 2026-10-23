@@ -20,6 +20,7 @@
 #include "genie/scheduler.hpp"
 #include "genie/session.hpp"
 #include "genie/version.hpp"
+#include "genie/voice_package.hpp"
 
 namespace {
 
@@ -155,9 +156,31 @@ int inspect_onnx(const std::string& path) {
     return kExitOk;
 }
 
+/// 打印一个音色包的清单。
+int inspect_voice_package(const std::string& root) {
+    const auto package = genie::VoicePackage::load(root, /*verify_hash=*/true);
+    const auto& manifest = package.manifest();
+
+    std::cout << "voice package: " << root << "\n";
+    std::cout << "  name:          " << manifest.name << "\n";
+    std::cout << "  model_version: " << manifest.model_version << "\n";
+    std::cout << "  language:      " << genie::language_to_string(manifest.language) << "\n";
+    std::cout << "  sample_rate:   " << manifest.sample_rate << "\n";
+    std::cout << "  v2proplus:     " << (manifest.capabilities.v2proplus ? "yes" : "no") << "\n";
+    std::cout << "  roberta:       " << (manifest.capabilities.roberta ? "yes" : "no") << "\n";
+    std::cout << "  models:\n";
+    for (const auto& [role, entry] : manifest.models) {
+        const std::string verified =
+            entry.sha256.empty() ? std::string("(no checksum)") : std::string("(sha256 ok)");
+        std::cout << "    " << genie::to_string(role) << ": " << entry.file << "  " << verified
+                  << "\n";
+    }
+    return kExitOk;
+}
+
 int command_inspect(const Options& options) {
     if (options.model_dir.empty()) {
-        std::cerr << "inspect requires --model <dir>\n";
+        std::cerr << "inspect requires a model file or voice package directory\n";
         return kExitUsage;
     }
 
@@ -166,7 +189,11 @@ int command_inspect(const Options& options) {
         return inspect_onnx(options.model_dir);
     }
 
-    // 传入的是目录 → 打印其中的 .onnx 文件。
+    // 传入的是目录 → 优先当作音色包；没有 manifest 就退回列出 .onnx 文件。
+    if (std::filesystem::exists(std::filesystem::path(options.model_dir) / "manifest.json")) {
+        return inspect_voice_package(options.model_dir);
+    }
+
     std::cout << "voice package: " << options.model_dir << "\n";
     std::vector<std::filesystem::path> models;
     for (const auto& entry : std::filesystem::directory_iterator(options.model_dir)) {

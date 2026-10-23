@@ -7,6 +7,11 @@
 
 ### Added
 
+- **音色包（voice package）**：`genie::VoicePackage` 解析并校验 manifest.json，
+  支持按角色定位模型、**SHA-256 完整性校验**、必需角色的加载期检查。
+  示例见 `examples/voice-package/`。
+- **自带 JSON 解析器**（`genie::json`）：RFC 8259 最小子集，带嵌套深度上限。
+- **自带 SHA-256**（`genie::sha256`）：用于模型完整性校验。
 - **项目骨架**：CMake 体系（`CMakePresets.json` + `cmake/` 模块）、C++20 编译基线、
   告警策略、sanitizer 开关。
 - **核心类型**：`genie::Error` / `genie::ErrorCode`、`genie::Tensor`（float32 / int64 / bool）、

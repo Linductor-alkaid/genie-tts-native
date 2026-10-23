@@ -28,8 +28,18 @@
 |---|---|---|
 | `genie_core` | 仅标准库 | 永远 |
 | `genie_ort` | ONNX Runtime | `GENIE_ENABLE_ORT=ON` 且能找到 ORT |
-| `genie_sched` | kairo | `GENIE_ENABLE_KAIRO=ON` |
-| `genie` | 聚合 | 永远（接口库） |
+| `genie_sched` | kairo（可降级为标准库实现） | 永远编入；kairo 决定用哪套实现 |
+| `genie` | 聚合（静态库） | 永远 |
+
+**零第三方依赖的自带实现**（端侧部署的依赖越少越好）：
+
+| 能力 | 自带实现 | 为什么不引第三方 |
+|---|---|---|
+| JSON 解析 | `genie::json` | 只需要解析音色包清单，不值得引入 nlohmann/json |
+| SHA-256 | `genie::sha256` | 只为一个摘要算法引入 OpenSSL 不划算 |
+| ONNX 图元信息 | `genie::read_onnx_graph` | 需要在没有权重、没有 ORT 的情况下锁定 I/O 契约 |
+| WAV 编解码 | `genie::WavCodec` | 需求只覆盖 PCM WAV + 32k↔16k 重采样 |
+| 重采样 | `genie::resample` | 见 §2.5 |
 
 拆分的理由：让**纯逻辑**（文本、音频、张量、调度语义）在没有 ORT 的环境里也能编译和测试。
 CI 的 `core` 任务就是这条路径的守卫。

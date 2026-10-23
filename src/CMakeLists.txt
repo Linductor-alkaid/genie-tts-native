@@ -24,6 +24,9 @@ set(GENIE_CORE_SOURCES
     runtime/config.cpp
     runtime/tensor.cpp
     runtime/onnx_graph.cpp
+    runtime/json.cpp
+    runtime/sha256.cpp
+    runtime/voice_package.cpp
     runtime/session_factory.cpp
     audio/audio.cpp
 )
