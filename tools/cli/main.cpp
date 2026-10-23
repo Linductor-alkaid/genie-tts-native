@@ -5,6 +5,7 @@
 //   info               打印构建信息与可用后端
 //   synth              合成语音（需要模型包）
 //   inspect            检查模型包的 manifest 并列出模型
+//   g2p                把文本转成音素序列并打印（不需要模型）
 
 #include <algorithm>
 #include <cstdlib>
@@ -19,6 +20,8 @@
 #include "genie/onnx_graph.hpp"
 #include "genie/scheduler.hpp"
 #include "genie/session.hpp"
+#include "genie/symbols.hpp"
+#include "genie/text.hpp"
 #include "genie/version.hpp"
 #include "genie/voice_package.hpp"
 
@@ -39,6 +42,7 @@ Commands:
   info                 Print build information
   synth                Synthesize speech from text
   inspect <model-dir>  Inspect a voice package manifest
+  g2p --text <text>    Convert text to a phoneme sequence (no model needed)
 
 Options:
   --model <dir>        Voice package directory (contains manifest.json)
@@ -110,6 +114,40 @@ bool parse_options(int argc, char** argv, Options& options) {
         }
     }
     return true;
+}
+
+/// 把文本转成音素序列并打印。
+///
+/// 排查文本前端的问题时用得上：不需要模型就能看到模型会收到的
+/// text_seq 到底长什么样。
+int command_g2p(const Options& options) {
+    if (options.text.empty()) {
+        std::cerr << "g2p requires --text <text>\n";
+        return kExitUsage;
+    }
+
+    const auto requested = genie::language_from_string(options.language);
+    if (!requested) {
+        std::cerr << "unknown language: " << options.language << "\n";
+        return kExitUsage;
+    }
+
+    const auto language = genie::detect_language(options.text, *requested);
+    auto frontend = genie::text::make_frontend(language);
+    if (!frontend) {
+        std::cerr << "no text frontend for language: " << genie::language_to_string(language)
+                  << "\n";
+        return kExitUsage;
+    }
+
+    const auto sequence = frontend->convert(options.text);
+    std::cout << "language: " << genie::language_to_string(language) << "\n";
+    std::cout << "normalized: " << genie::text::normalize(options.text, language) << "\n";
+    std::cout << "phonemes (" << sequence.ids.size() << "):\n";
+    for (std::size_t i = 0; i < sequence.symbols.size(); ++i) {
+        std::cout << "  " << i << "\t" << sequence.symbols[i] << "\t" << sequence.ids[i] << "\n";
+    }
+    return kExitOk;
 }
 
 int command_version() {
@@ -258,6 +296,9 @@ int main(int argc, char** argv) {
         }
         if (options.command == "synth") {
             return command_synth(options);
+        }
+        if (options.command == "g2p") {
+            return command_g2p(options);
         }
     } catch (const genie::Error& error) {
         std::cerr << "error [" << genie::to_string(error.code()) << "]: " << error.what() << "\n";

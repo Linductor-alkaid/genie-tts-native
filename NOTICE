@@ -31,7 +31,21 @@ Copyright (c) 2026 Linductor-alkaid
 
    本项目的推理后端。构建期链接，不随本仓库分发。
 
-4. GoogleTest (https://github.com/google/googletest)
+4. pypinyin (https://github.com/mozillazg/python-pinyin)
+   Copyright (c) 2016 mozillazg, 闲耘 <hotoo.cn@gmail.com>
+   MIT License
+
+   src/text/pinyin_table.cpp 的单字拼音数据来自 pypinyin 的拼音表，
+   由 tools/g2p/generate_pinyin_table.py 生成。pypinyin 本身不随本仓库分发。
+
+5. jieba (https://github.com/fxsjy/jieba)
+   Copyright (c) 2013 fxsjy <hotoo.cn@gmail.com>
+   MIT License
+
+   拼音词典的**字表范围**（12,010 个常用汉字）由 jieba 词典的词频决定。
+   jieba 本身不随本仓库分发。
+
+6. GoogleTest (https://github.com/google/googletest)
    Copyright (c) 2008, Google Inc.
    BSD 3-Clause License
 
