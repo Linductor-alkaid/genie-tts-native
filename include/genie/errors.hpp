@@ -47,7 +47,7 @@ private:
     ErrorCode code_;
 };
 
-/// 便捷构造。
+/// 便捷构造。抛出即终止，不会返回。
 [[noreturn]] void throw_error(ErrorCode code, std::string message);
 
 }  // namespace genie
