@@ -45,6 +45,19 @@ public:
         write_model("t2s_stage_decoder.onnx");
         write_model("vits.onnx");
 
+        // 参考音频与参考文本 —— T2S 编码器需要它们（上游的 prompt_audio）。
+        std::filesystem::create_directories(root_ / "reference");
+        {
+            genie::AudioBuffer audio;
+            audio.sample_rate = 32000;
+            audio.samples.assign(32000, 0.1F);  // 1 秒
+            genie::WavCodec::write_pcm16((root_ / "reference" / "audio.wav").string(), audio);
+        }
+        {
+            std::ofstream reference_text(root_ / "reference" / "text.txt");
+            reference_text << "\xE5\x8F\x82\xE8\x80\x83";  // 参考
+        }
+
         std::ofstream manifest(root_ / "manifest.json");
         manifest << R"({
   "name": "fake",

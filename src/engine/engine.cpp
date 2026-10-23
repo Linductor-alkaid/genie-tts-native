@@ -14,6 +14,7 @@
 
 #include "genie/errors.hpp"
 #include "genie/onnx_graph.hpp"
+#include "genie/reference.hpp"
 #include "genie/symbols.hpp"
 
 namespace genie {
@@ -83,11 +84,11 @@ struct Engine::Impl {
     std::atomic<Scheduler::TaskId> streaming_task{0};
 
     /// 参考音频条件（来自音色包）。
-    /// 没有参考音频时退化为零张量 —— 与上游 `ssl_content` 的缺省行为一致。
-    Tensor ref_seq;
-    Tensor ref_bert;
-    Tensor ssl_content;
-    Tensor ref_audio;
+    ///
+    /// **形状必须显式给对** —— 形状错了模型不会报错，只会输出垃圾。
+    /// 韵律 / HuBERT 特征在对应的可选模型缺失时是零张量，
+    /// 与上游的降级行为一致。
+    ReferenceCondition reference;
 
     /// V2ProPlus 的全局 embedding。
     Tensor global_emb;
@@ -137,6 +138,11 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     // 3) 文本前端。
     impl->frontend = text::make_frontend(impl->manifest.language);
     impl->decoder = T2SDecoder(T2SOptions{kMaxT2SIterations, kEosThreshold});
+
+    // 4) 参考音频条件。
+    if (impl->frontend != nullptr) {
+        impl->reference = load_reference(impl->root, *impl->frontend, impl->sample_rate);
+    }
 
     impl_ = std::move(impl);
 }
@@ -197,12 +203,22 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     }
 
     // 2) T2S：音素 + 参考条件 → 语义 token。
+    //
+    // 注意 text_bert 与 ref_bert 是**两个不同的张量** ——
+    // 上游喂的是两段不同的韵律特征。这里在 RoBERTa 缺失时都是零张量，
+    // 但形状按各自的音素长度给。
+    const auto& reference = impl_->reference;
+    const auto text_bert = Tensor::zeros(
+        ElementType::Float32, {1, static_cast<std::int64_t>(phonemes.ids.size()), kBertDimension});
+    const auto ref_seq = Tensor::from_int64(
+        {1, static_cast<std::int64_t>(reference.phoneme_ids.size())}, reference.phoneme_ids);
+
     TensorFeed encoder_feed;
     encoder_feed.emplace_back("text_seq", make_pred_semantic(phonemes.ids));
-    encoder_feed.emplace_back("ref_seq", impl_->ref_seq);
-    encoder_feed.emplace_back("text_bert", impl_->ref_bert);
-    encoder_feed.emplace_back("ref_bert", impl_->ref_bert);
-    encoder_feed.emplace_back("ssl_content", impl_->ssl_content);
+    encoder_feed.emplace_back("ref_seq", ref_seq);
+    encoder_feed.emplace_back("text_bert", text_bert);
+    encoder_feed.emplace_back("ref_bert", reference.bert);
+    encoder_feed.emplace_back("ssl_content", reference.ssl);
 
     auto semantic = impl_->decoder.decode(*impl_->encoder, *impl_->first_stage, *impl_->stage,
                                           encoder_feed, cancelled);
@@ -221,7 +237,11 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
         vocoder_feed.emplace_back("ge", impl_->global_emb);
         vocoder_feed.emplace_back("ge_advanced", impl_->global_emb_advanced);
     } else {
-        vocoder_feed.emplace_back("ref_audio", impl_->ref_audio);
+        // 参考波形：32 kHz 单声道。
+        vocoder_feed.emplace_back(
+            "ref_audio",
+            Tensor::from_float32({1, static_cast<std::int64_t>(reference.audio.samples.size())},
+                                 reference.audio.samples));
     }
 
     const auto audio = impl_->vocoder->run(vocoder_feed);

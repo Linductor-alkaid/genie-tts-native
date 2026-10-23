@@ -7,6 +7,9 @@
 
 ### Fixed
 
+- **引擎喂给模型的参考特征是空张量**：形状错的输入模型不会报错，只会输出垃圾。
+  现在所有特征张量都显式构造，`text_bert` 与 `ref_bert` 也分开了
+  （之前是同一个张量复制过去）。
 - **调度器退出路径的 use-after-free**：kairo 的 `Executor` 是函数级静态，
   在 `Scheduler::initialize()` 里才被首次引用，因此比 `Scheduler` 单例
   **更晚构造、更早析构**。进程退出时 `Executor` 已经没了，而
@@ -20,6 +23,9 @@
 
 ### Added
 
+- **参考音频条件**（`genie::load_reference`）：从音色包的 `reference/` 装配
+  `ref_seq` / `ref_bert` / `ssl_content` / `ref_audio`。
+  RoBERTa 与 HuBERT 缺失时退化为**全零特征**（与上游一致）。
 - **C ABI 共享库**（`libgenie_tts.so` / `genie_tts.dll`）：纯 C 头文件，
   Go / Rust / Python ctypes 直接 dlopen 即可，不需要链接 C++ 运行时。
   新增 `genie_engine_synthesize_wav()` 与 `genie_phonemize()`。
