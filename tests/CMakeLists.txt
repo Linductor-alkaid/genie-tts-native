@@ -46,6 +46,33 @@ add_executable(genie_unit_tests
 )
 target_link_libraries(genie_unit_tests PRIVATE genie_test_support)
 add_test(NAME genie_unit COMMAND genie_unit_tests)
+# 每个测试都有超时：挂死时 ctest 会杀掉它并报出是哪个，
+# 而不是让 CI job 一直耗到 6 小时上限。
+set_tests_properties(genie_unit PROPERTIES TIMEOUT 120)
+
+# --------------------------------------------------------------------------------------
+# c —— C ABI
+#
+# 用 **C 编译器**编译：头文件里混进 C++ 语法的话这里会直接编译失败。
+# ABI 的使用者（Go / Rust / Python ctypes）拿到的就是纯 C 头文件，
+# 这个约束必须由测试来守。
+# --------------------------------------------------------------------------------------
+add_executable(genie_c_api_test
+    c/test_c_api.c
+)
+target_link_libraries(genie_c_api_test PRIVATE genie::c)
+target_include_directories(genie_c_api_test PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME genie_c_api COMMAND genie_c_api_test)
+# Windows 上共享库必须能被找到，否则加载器会弹一个**模态错误框** ——
+# 无头 CI 里那个框会永远挂着（表现就是测试超时、没有任何输出）。
+#
+# CMake **不会**自动把构建树里的共享库目录加进测试的 PATH，
+# 所以这里显式设置：工作目录指向 DLL 所在目录（当前目录在 DLL 搜索顺序里），
+# 同时把该目录加进 PATH。
+set_tests_properties(genie_c_api PROPERTIES
+    TIMEOUT 60
+    WORKING_DIRECTORY $<TARGET_FILE_DIR:genie_c>
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:genie_c>\;$ENV{PATH}")
 
 # --------------------------------------------------------------------------------------
 # component —— 模型 I/O 契约（不需要 ONNX Runtime，也不需要权重）

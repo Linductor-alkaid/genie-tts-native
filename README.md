@@ -4,7 +4,7 @@
 **运行时不依赖 Python / PyTorch / 任何推理服务**。
 
 > 上游参考：<https://github.com/High-Logic/Genie-TTS>（MIT）
-> 本项目把上游的 Python 推理链路完整迁移到 C++20，并针对 CPU 端侧部署做系统���优化。
+> 本项目把上游的 Python 推理链路完整迁移到 C++20，并针对 CPU 端侧部署做系统性优化。
 
 ---
 
@@ -14,7 +14,7 @@
 有几个硬伤：
 
 - **运行时依赖链太长**：Python → onnxruntime → tokenizers → pypinyin / g2pM / nltk /
-  pyopenjtalk / jamo / ko_pron / g2pk2 / eunjeon …… 端侧部署时这些都得装上
+  pyopenjtalk / jamo / ko_pron / g2pk2 …… 端侧部署时这些都得装上
 - **多语言 G2P 无法在 C++ 侧复用**：中文靠 pypinyin + g2pM + jieba_fast，英文靠 nltk，
   日文靠 pyopenjtalk-plus，韩文靠 g2pk2 —— 每一项都是独立的 Python 生态
 - **性能不可控**：Python 层的 GIL、对象分配、numpy 拷贝都在热路径上
@@ -25,15 +25,14 @@
 
 ## 当前状态
 
-**v0.1.0 之前的早期阶段。** 已完成的部分：
-
 | 里程碑 | 状态 |
 |---|---|
 | M0 上游审计与基线 | ✅ 推理链路、模型 I/O 契约、依赖清单已固化到 [`docs/upstream-audit.md`](docs/upstream-audit.md) |
-| M1 C++ Runtime 基础设施 | 🚧 CMake 体系、ONNX Runtime 封装、张量抽象、模型加载 |
-| M2 文本与音频前处理 | ⏳ 音频已完成（WAV IO + 重采样）；文本前端待做 |
-| M3 完整推理迁移 | ⏳ T2S 链路已跑通（`tests/integration/`），声学部分待做 |
-| M4–M7 | ⏳ |
+| M1 C++ Runtime 基础设施 | ✅ CMake 体系、ONNX Runtime 封装、张量抽象、音色包、JSON / SHA-256 / UTF-8 自带实现 |
+| M2 文本与音频前处理 | 🚧 音频完成；中文文本前端完成（符号表与上游逐字一致、拼音切分与 pypinyin 全量比对一致）；英文 / 日文 / 韩文 G2P 留成可插拔接口 |
+| M3 完整推理迁移 | 🚧 T2S 自回归解码、VITS、端到端引擎、流式流水线完成；参考音频条件与 V2ProPlus 待做 |
+| M4 原生 SDK | ✅ C++ SDK + C ABI 共享库 + CLI |
+| M5–M7 | ⏳ 性能优化、发布 |
 
 进度详见 [`docs/roadmap.md`](docs/roadmap.md)。
 
@@ -50,16 +49,23 @@ cmake --build --preset debug
 ctest --preset debug --output-on-failure
 ```
 
+> 不带 ONNX Runtime 也能构建与测试（`GENIE_ENABLE_ORT=OFF`）——
+> 纯逻辑部分（符号表、拼音切分、文本规范化、解码控制流）都不依赖推理后端。
+
 ### CLI
 
 ```bash
-genie-tts version
-genie-tts info
+genie-tts version                  # 版本与构建特性
+genie-tts info                     # 构建信息与可用后端
+genie-tts g2p --text "你好"         # 文本 → 音素（不需要模型）
+genie-tts inspect voice-package/   # 音色包清单与校验
+genie-tts synth --model voice-package/ --text "你好" --output out.wav
 ```
 
 ### C++ SDK
 
 ```cpp
+#include <genie/audio.hpp>
 #include <genie/engine.hpp>
 
 genie::Engine engine("voice-package");
@@ -68,11 +74,34 @@ genie::SynthesisOptions options;
 options.language = genie::Language::Chinese;
 options.seed = 42;
 
-auto result = engine.synthesize("你好，我是 Mira。", options);
-result.save_wav("output.wav");
+const auto result = engine.synthesize("你好，我是 Mira。", options);
+genie::WavCodec::write_pcm16("output.wav", result.audio);
 ```
 
-> 该 API 为目标形态，完整实现随 M3/M4 落地。
+流式合成（后台跑在 kairo 执行器上，调用线程只取音频块）：
+
+```cpp
+auto channel = engine.synthesize_streaming("你好", options);
+genie::AudioBuffer chunk;
+while (channel->try_pop(chunk)) {
+    // 播出去
+}
+```
+
+### C ABI
+
+```c
+#include "genie/c/genie_tts.h"
+
+genie_engine* engine = NULL;
+if (genie_engine_create("voice-package", &engine) != GENIE_OK) { /* ... */ }
+
+genie_engine_synthesize_wav(engine, "你好", GENIE_LANGUAGE_CHINESE, 0, "out.wav");
+genie_engine_destroy(engine);
+```
+
+> `libgenie_tts.so` / `genie_tts.dll` 是独立的共享库，
+> Go / Rust / Python ctypes 直接 dlopen 即可，不需要链接 C++ 运行时。
 
 ---
 
@@ -82,33 +111,40 @@ result.save_wav("output.wav");
 genie-tts-native/
 ├── include/genie/        公开头（C++ SDK + C ABI）
 ├── src/
-│   ├── runtime/          ONNX Runtime 封装、张量、模型加载
-│   ├── text/             文本规范化与多语言 G2P
+│   ├── runtime/          ONNX Runtime 封装、张量、模型加载、音色包、JSON / SHA-256 / UTF-8
+│   ├── text/             文本规范化、符号表、拼音与音素转换
+│   ├── engine/           T2S 自回归解码、合成引擎
 │   ├── audio/            WAV 编解码、重采样
-│   ├── gpt/              语义 token 生成（T2S 自回归解码）
-│   ├── acoustic/         声学合成与声码器
-│   ├── pipeline/         端到端编排
+│   ├── c/                C ABI 实现
 │   └── scheduler/        基于 kairo 的调度与并发
 ├── tools/cli/            genie-tts 命令行
-├── tests/                unit / component / integration / regression
+├── tests/                unit / component / integration / c
 └── third_party/          内置的上游 ONNX 模型（MIT）
 ```
 
 **调度与并发由 [kairo](https://github.com/Linductor-alkaid/kairo) 承担** —— 线程池、
-任务优先级、有界通道、协作式取消。详见 [`AGENTS.md`](AGENTS.md) §1.3。
+任务优先级、有界通道、协作式取消。公开 API **不暴露任何 kairo 类型**。
+详见 [`AGENTS.md`](AGENTS.md) §1.3。
 
 ---
 
 ## 与上游的关键差异
 
-上游把 **T2S 采样（TopK / 温度 / 重复惩罚）实现在 ONNX 图内**，
+**采样在图内**：上游把 T2S 采样（TopK / 温度 / 重复惩罚）实现在 ONNX 图内，
 `first_stage_decoder` 与 `stage_decoder` 各含一个 `TopK` 算子。
 因此本项目**没有**主机侧的 `top_k` / `top_p` / `temperature` 参数 ——
 那些是图内常量，改动它们需要重新导出模型，而不是改配置。
-
 唯一可控的随机性来源是 ONNX Runtime 的全局随机种子。
 
-其余差异（张量名绑定方式、重采样实现等）见 [`docs/upstream-audit.md`](docs/upstream-audit.md)。
+**按名字绑定模型输入输出**：上游按位置传参（`zip(input_names, [...])`），
+而真实张量名是 `iy` / `iy_emb` / `past_k_layer_N`。位置绑定在输入顺序变化时会静默错位。
+
+**符号表与拼音规则逐字复刻**：符号表（732 个）重新实现了上游的生成规则，
+与上游**顺序完全一致**；拼音切分与 pypinyin 的 `to_initials` / `to_finals_tone3`
+对 **41,923 个汉字**全量比对一致。
+
+其余差异（文本规范化的覆盖范围、多音字处理、变调与儿化等）见
+[`docs/upstream-audit.md`](docs/upstream-audit.md)。
 
 ---
 
@@ -119,6 +155,7 @@ genie-tts-native/
 | [`AGENTS.md`](AGENTS.md) | **项目管理规范**（最高约束） |
 | [`docs/architecture.md`](docs/architecture.md) | 架构与关键设计决策 |
 | [`docs/upstream-audit.md`](docs/upstream-audit.md) | 上游推理链路审计结论 |
+| [`docs/usage.md`](docs/usage.md) | CLI / C++ SDK / C ABI 使用说明 |
 | [`docs/roadmap.md`](docs/roadmap.md) | 里程碑与进度 |
 | [`docs/conventions.md`](docs/conventions.md) | 命名、格式、提交规范 |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | 开发环境与提交流程 |

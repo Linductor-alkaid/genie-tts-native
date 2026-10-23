@@ -99,11 +99,13 @@
 - ⏳ 随机数生成与确定性测试
 - ⏳ V2ProPlus 适配（`prompt_encoder` / `ge` / `ge_advanced`）
 
-### M4 正确性验证与原生 SDK — ⏳
+### M4 正确性验证与原生 SDK — 🚧
 
-- ⏳ 四级测试体系补全（unit / component / integration / regression）
+- ✅ 四级测试体系（unit / component / integration / c）
+- ✅ C ABI 共享库（纯 C 头文件，C 编译器编译的测试守着）
+- ✅ `genie-tts` CLI（version / info / g2p / inspect / synth）
 - ⏳ 内存泄漏、模型重复加载、异常恢复、长文本稳定性、连续推理检查
-- ⏳ `genie-tts` CLI 完整实现
+- ⏳ regression 层（Golden Dataset：文本 / 音素 / 中间张量 / 语义 token / PCM）
 - ⏳ 跨平台构建（Linux x86-64 → Windows x86-64 → Linux ARM64）
 - ⏳ **v0.1.0 发布**
 

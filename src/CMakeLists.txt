@@ -40,6 +40,9 @@ set(GENIE_CORE_SOURCES
 
 add_library(genie_core STATIC ${GENIE_CORE_SOURCES})
 
+# 静态库要能被链进共享库（genie_c），必须编成 PIC。
+set_target_properties(genie_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 target_include_directories(genie_core
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
@@ -73,6 +76,7 @@ if(GENIE_ENABLE_ORT)
     add_library(genie_ort STATIC
         runtime/ort_backend.cpp
     )
+    set_target_properties(genie_ort PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_link_libraries(genie_ort
         PUBLIC
             genie_core
@@ -99,6 +103,7 @@ add_library(genie_sched STATIC
     engine/t2s.cpp
     engine/engine.cpp
 )
+set_target_properties(genie_sched PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(genie_sched
     PUBLIC
         genie_core
@@ -142,6 +147,38 @@ endif()
 add_library(genie::genie ALIAS genie)
 
 # --------------------------------------------------------------------------------------
+# genie_c —— C ABI 共享库
+#
+# 单独编成 .so / .dll：Go / Rust / Python ctypes 的调用方通常不链接
+# C++ 静态库，而是 dlopen 这个共享库。
+#
+# 头文件是纯 C，不含任何 C++ 类型。
+# --------------------------------------------------------------------------------------
+add_library(genie_c SHARED
+    c/c_api.cpp
+)
+target_link_libraries(genie_c
+    PRIVATE
+        genie_sched
+        genie_core
+)
+target_compile_definitions(genie_c PRIVATE GENIE_SHARED=1)
+set_target_properties(genie_c PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+    OUTPUT_NAME genie_tts
+)
+if(GENIE_ENABLE_ORT)
+    target_link_libraries(genie_c PRIVATE $<BUILD_INTERFACE:genie_ort>)
+    target_compile_definitions(genie_c PRIVATE GENIE_HAVE_ONNXRUNTIME=1)
+endif()
+if(GENIE_ENABLE_KAIRO)
+    target_link_libraries(genie_c PRIVATE $<BUILD_INTERFACE:${GENIE_KAIRO_TARGET}>)
+    target_compile_definitions(genie_c PRIVATE GENIE_HAVE_KAIRO=1)
+endif()
+add_library(genie::c ALIAS genie_c)
+
+# --------------------------------------------------------------------------------------
 # 安装
 # --------------------------------------------------------------------------------------
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/genie
@@ -152,7 +189,7 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/genie
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/genie/version.hpp"
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/genie)
 
-set(GENIE_INSTALL_TARGETS genie_core genie_sched genie)
+set(GENIE_INSTALL_TARGETS genie_core genie_sched genie genie_c)
 if(GENIE_ENABLE_ORT)
     list(APPEND GENIE_INSTALL_TARGETS genie_ort)
 endif()
