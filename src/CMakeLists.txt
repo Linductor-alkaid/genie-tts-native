@@ -28,7 +28,14 @@ set(GENIE_CORE_SOURCES
     runtime/sha256.cpp
     runtime/voice_package.cpp
     runtime/session_factory.cpp
+    runtime/symbols.cpp
+    runtime/text.cpp
+    runtime/utf8.cpp
     audio/audio.cpp
+    text/chinese_frontend.cpp
+    text/chinese_g2p.cpp
+    text/frontend_factory.cpp
+    text/pinyin_table.cpp
 )
 
 add_library(genie_core STATIC ${GENIE_CORE_SOURCES})

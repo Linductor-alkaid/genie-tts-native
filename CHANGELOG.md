@@ -7,6 +7,17 @@
 
 ### Added
 
+- **音素符号表**（`genie::symbols`）：重新实现上游 `SymbolsV2.py` 的生成规则，
+  732 个符号与上游**逐字一致**（顺序 + 全表摘要双重锁定）。
+  符号 ID 错一位不会报错、只会合成出乱码，所以这一层必须硬锁。
+- **拼音 → 音素**（`genie::pinyin`）：复刻 pypinyin 的 `to_initials()` /
+  `to_finals_tone3()` 规则，已对 **41,923 个汉字**与 pypinyin 全量比对一致。
+- **中文文本前端**（`genie::text::TextFrontend`）：汉字 → 音素符号 → 符号 ID。
+  多音字取最常用读音；变调 / 儿化 / 分词未实现，差异记录在 docs/upstream-audit.md。
+- **文本规范化**（`genie::text::normalize`）：全角→半角、阿拉伯数字→中文读法、
+  标点映射与折叠、目标语言字符过滤。
+- **内置 UTF-8 工具**（`genie::utf8`）：逐字符解码、码点编码、全半角转换。
+- **CLI `g2p` 子命令**：不需要模型就能看到模型会收到的 text_seq。
 - **音色包（voice package）**：`genie::VoicePackage` 解析并校验 manifest.json，
   支持按角色定位模型、**SHA-256 完整性校验**、必需角色的加载期检查。
   示例见 `examples/voice-package/`。
