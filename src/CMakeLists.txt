@@ -27,6 +27,7 @@ set(GENIE_CORE_SOURCES
     runtime/json.cpp
     runtime/sha256.cpp
     runtime/voice_package.cpp
+    runtime/reference.cpp
     runtime/session_factory.cpp
     runtime/symbols.cpp
     runtime/text.cpp

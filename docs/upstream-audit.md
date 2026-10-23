@@ -500,7 +500,35 @@ if len(eos_indices[0]) > 0:
 
 ---
 
-## 11. 待补充（M0 剩余项）
+## 11. 参考音频条件
+
+上游的 `tts(text, prompt_audio, ...)` 必须传 `prompt_audio` —— 它是
+`Audio/ReferenceAudio.py` 里的 `ReferenceAudio`，装着四样东西：
+
+| 字段 | 喂给 | 来源 | 缺失时 |
+|---|---|---|---|
+| `phonemes_seq` | `t2s_encoder` 的 `ref_seq` | 参考文本走文本前端 | 空序列 |
+| `text_bert` | `t2s_encoder` 的 `ref_bert` | Chinese RoBERTa | **全零特征** |
+| `ssl_content` | `t2s_encoder` 的 `ssl_content` | chinese-hubert-base.onnx | **全零特征** |
+| `audio_32k` | `vits` 的 `ref_audio` | 参考音频重采样到 32 kHz | 无（必需） |
+
+**降级路径照搬**：RoBERTa 与 HuBERT 都是可选模型，缺了就用全零特征。
+上游的 `GetPhonesAndBert.py` 就是这么降级的。
+
+本实现的对应关系：
+
+```
+voice-package/reference/audio.wav   → ref_audio（重采样到 32 kHz）
+voice-package/reference/text.txt    → 文本前端 → ref_seq
+（缺 RoBERTa / HuBERT）             → 全零特征，形状与真特征一致
+```
+
+> **形状必须显式给对**。形状错了模型不会报错，只会输出垃圾。
+> `ref_bert` 是 `[1, 音素数, 1024]`，`ssl_content` 是 `[1, 768, 帧数]`。
+
+---
+
+## 12. 待补充（M0 剩余项）
 
 - [ ] Golden Dataset：文本 / 音素 / 中间张量 / 语义 token / PCM 的 Python 参考输出
   - 音素部分已完成：见 §9.2 的 41,923 字全量比对

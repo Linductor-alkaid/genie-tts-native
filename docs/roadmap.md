@@ -94,7 +94,7 @@
 - ✅ EOS 检测与最大长度限制（逐行对齐上游语义）
 - ✅ 声学合成（VITS）与端到端流水线
 - ✅ 目标 API：`genie::Engine::synthesize()` / `synthesize_streaming()`
-- ⏳ 参考语义条件构建（参考音频的 phoneme / bert / ssl 特征）
+- ✅ 参考语义条件构建（参考音频的 phoneme / bert / ssl 特征）
 - ⏳ 文本与音素条件编码（text_bert）
 - ⏳ 随机数生成与确定性测试
 - ⏳ V2ProPlus 适配（`prompt_encoder` / `ge` / `ge_advanced`）
