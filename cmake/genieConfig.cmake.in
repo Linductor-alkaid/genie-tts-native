@@ -3,14 +3,31 @@
 include(CMakeFindDependencyMacro)
 find_dependency(Threads REQUIRED)
 
-if(@GENIE_ENABLE_ORT@)
-    find_dependency(onnxruntime CONFIG QUIET)
-endif()
-
+# 外部依赖不属于本项目的导出集（它们由各自的包提供），
+# 因此在安装后的配置里重新把实现层的链接关系补回来。
+# 注意：必须在 include(genieTargets.cmake) **之后**做 —— 目标要先存在。
 if(@GENIE_ENABLE_KAIRO@)
     find_dependency(kairo CONFIG QUIET)
 endif()
 
+if(@GENIE_ENABLE_ORT@)
+    find_dependency(onnxruntime CONFIG QUIET)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/genieTargets.cmake")
+
+if(@GENIE_ENABLE_KAIRO@ AND TARGET kairo::kairo)
+    set_property(TARGET genie::genie_sched APPEND PROPERTY
+        INTERFACE_LINK_LIBRARIES kairo::kairo)
+    set_property(TARGET genie::genie APPEND PROPERTY
+        INTERFACE_LINK_LIBRARIES kairo::kairo)
+endif()
+
+if(@GENIE_ENABLE_ORT@ AND TARGET onnxruntime::onnxruntime)
+    set_property(TARGET genie::genie_ort APPEND PROPERTY
+        INTERFACE_LINK_LIBRARIES onnxruntime::onnxruntime)
+    set_property(TARGET genie::genie APPEND PROPERTY
+        INTERFACE_LINK_LIBRARIES onnxruntime::onnxruntime)
+endif()
 
 check_required_components(genie)

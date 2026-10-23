@@ -106,6 +106,9 @@ void Scheduler::initialize(const SchedulerConfig& config) {
         impl_->kairo_executor_initialized.store(true);
     }
 #else
+    // 降级实现：自己拥有线程池。shutdown() 之后可以再次 initialize()，
+    // 因此必须把停止标志复位，否则新起的 worker 会立刻退出。
+    impl_->stopping = false;
     const std::size_t worker_count =
         config.max_threads > 0 ? config.max_threads
                                : std::max<std::size_t>(2, std::thread::hardware_concurrency());
@@ -238,17 +241,21 @@ Scheduler::TaskId Scheduler::submit(std::function<void(const CancellationToken&)
     record.handle = submission.handle;
     record.future = std::shared_future<void>(submission.future.share());
 #else
+    // promise 必须由任务闭包**共同持有**：如果只有 shared_ptr 在 submit() 里
+    // 存活，函数返回时 promise 会被析构，future 随即失去关联状态。
     auto promise = std::make_shared<std::promise<void>>();
     record.future = promise->get_future().share();
-    auto* raw_promise = promise.get();
-    impl_->queue.push_back([task = std::move(task), token, raw_promise, counted] {
+    // 注意：std::packaged_task 的 callable 构造函数是 explicit 的，
+    // 必须用直接初始化（花括号），不能用 = 拷贝初始化。
+    std::packaged_task<void()> job{[task = std::move(task), token, promise, counted] {
         try {
             counted([&task, &token] { task(token); });
-            raw_promise->set_value();
+            promise->set_value();
         } catch (...) {
-            raw_promise->set_exception(std::current_exception());
+            promise->set_exception(std::current_exception());
         }
-    });
+    }};
+    impl_->queue.push_back(std::move(job));
     impl_->queue_cv.notify_one();
 #endif
 

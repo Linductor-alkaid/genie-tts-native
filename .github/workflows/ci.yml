@@ -14,7 +14,12 @@ concurrency:
 env:
   # 上游 Genie-TTS 固定 onnxruntime==1.22.1（注明避免 1.23 的性能回退）。
   # 这里的版本选择是"复现上游基线"，不是"永远钉死" —— 见 docs/upstream-audit.md。
-  ONNXRUNTIME_VERSION: "1.22.1"
+  #
+  # 用 1.22.0 而非 1.22.1：1.22.1 这个补丁版**没有发布 Linux 预编译包**
+  # （release 资产里只有 Windows 与 nupkg），1.22.0 才有
+  # onnxruntime-linux-x64-1.22.0.tgz。两者同属 1.22.x，本项目用到的
+  # ORT C++ API 在这两个版本之间没有变化。
+  ONNXRUNTIME_VERSION: "1.22.0"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -145,19 +150,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 把 MSVC 工具链放进环境变量后再用 Ninja 构建。
+      # 不用 "Visual Studio 17 2022" 生成器：runner 上的 VS 实例探测不稳定，
+      # 会报 "could not find any instance of Visual Studio"。
+      - uses: ilammy/msvc-dev-cmd@v1
+
       - name: Configure
-        # 不用 preset：preset 固定了 Ninja 生成器，Windows 需要 MSVC 多配置生成器。
         run: >
-          cmake -S . -B build/windows
-          -G "Visual Studio 17 2022" -A x64
+          cmake -S . -B build/windows -G Ninja
           -DGENIE_ENABLE_ORT=OFF
           -DGENIE_ENABLE_KAIRO=OFF
 
       - name: Build
-        run: cmake --build build/windows --config Debug --parallel
+        run: cmake --build build/windows --parallel
 
       - name: Test
-        run: ctest --test-dir build/windows -C Debug --output-on-failure
+        run: ctest --test-dir build/windows --output-on-failure
 
   # ---------------------------------------------------------------------------
   # 格式检查

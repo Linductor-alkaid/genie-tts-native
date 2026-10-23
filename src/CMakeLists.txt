@@ -3,7 +3,7 @@
 # 目标分层：
 #   genie_core   —— 纯 C++ 核心，不依赖任何外部推理后端，始终可构建
 #   genie_ort    —— ONNX Runtime 后端（可选）
-#   genie_sched  —— kairo 调度层（可选）
+#   genie_sched  —— 调度层（后端为 kairo，可降级为标准库实现）
 #   genie        —— 聚合上面三者的最终库
 
 find_package(Threads REQUIRED)
@@ -66,28 +66,37 @@ if(GENIE_ENABLE_ORT)
         PUBLIC
             genie_core
         PRIVATE
-            onnxruntime::onnxruntime
+            $<BUILD_INTERFACE:onnxruntime::onnxruntime>
     )
     target_compile_definitions(genie_ort PUBLIC GENIE_HAVE_ONNXRUNTIME=1)
     add_library(genie::ort ALIAS genie_ort)
 endif()
 
 # --------------------------------------------------------------------------------------
-# genie_sched —— kairo 调度层
+# genie_sched —— 调度层
+#
+# 始终构建。kairo 只是它的**后端**：启用时用 kairo 的 Executor / MpscChannel，
+# 未启用时退化为标准库实现（src/scheduler/scheduler.cpp 内部按 GENIE_HAVE_KAIRO 分支）。
+#
+# 注意不要把这一层放到 GENIE_ENABLE_KAIRO 的条件里 —— 否则关闭 kairo 时
+# genie::Scheduler / genie::AudioChunkChannel 会没有实现，链接期才炸。
 # --------------------------------------------------------------------------------------
+add_library(genie_sched STATIC
+    scheduler/scheduler.cpp
+)
+target_link_libraries(genie_sched
+    PUBLIC
+        genie_core
+    PRIVATE
+        $<BUILD_INTERFACE:Threads::Threads>
+)
 if(GENIE_ENABLE_KAIRO)
-    add_library(genie_sched STATIC
-        scheduler/scheduler.cpp
-    )
-    target_link_libraries(genie_sched
-        PUBLIC
-            genie_core
-        PRIVATE
-            ${GENIE_KAIRO_TARGET}
-    )
+    # 用 BUILD_INTERFACE 限定：外部依赖（kairo / onnxruntime）不属于本项目
+    # 的导出集，安装后的消费者由 genieConfig.cmake 负责重新绑定。
+    target_link_libraries(genie_sched PRIVATE $<BUILD_INTERFACE:${GENIE_KAIRO_TARGET}>)
     target_compile_definitions(genie_sched PUBLIC GENIE_HAVE_KAIRO=1)
-    add_library(genie::sched ALIAS genie_sched)
 endif()
+add_library(genie::sched ALIAS genie_sched)
 
 # --------------------------------------------------------------------------------------
 # genie —— 聚合库
@@ -104,12 +113,12 @@ target_link_libraries(genie
     PRIVATE
         $<BUILD_INTERFACE:Threads::Threads>
 )
+target_link_libraries(genie PRIVATE genie_sched)
 if(GENIE_ENABLE_ORT)
-    target_link_libraries(genie PRIVATE genie_ort)
+    target_link_libraries(genie PRIVATE $<BUILD_INTERFACE:genie_ort>)
     target_compile_definitions(genie PRIVATE GENIE_HAVE_ONNXRUNTIME=1)
 endif()
 if(GENIE_ENABLE_KAIRO)
-    target_link_libraries(genie PRIVATE genie_sched)
     target_compile_definitions(genie PRIVATE GENIE_HAVE_KAIRO=1)
 endif()
 if(GENIE_ENABLE_SANITIZERS)
@@ -124,12 +133,13 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/genie
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h")
 
-set(GENIE_INSTALL_TARGETS genie_core genie)
+# version.hpp 是构建期生成的（版本号单一来源），不在源码树里，要单独安装。
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/genie/version.hpp"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/genie)
+
+set(GENIE_INSTALL_TARGETS genie_core genie_sched genie)
 if(GENIE_ENABLE_ORT)
     list(APPEND GENIE_INSTALL_TARGETS genie_ort)
-endif()
-if(GENIE_ENABLE_KAIRO)
-    list(APPEND GENIE_INSTALL_TARGETS genie_sched)
 endif()
 
 install(TARGETS ${GENIE_INSTALL_TARGETS}

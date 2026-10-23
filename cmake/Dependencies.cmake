@@ -102,6 +102,13 @@ endif()
 set(GENIE_KAIRO_TAG "e8976652019b66f6b18a3a8eba29e3b492b8726f"
     CACHE STRING "kairo git ref (完整 commit SHA)")
 
+if(NOT GENIE_ENABLE_KAIRO)
+    # 明确关闭时不去拉 kairo —— 调度层会退化为标准库实现。
+    set(GENIE_KAIRO_STATUS "disabled")
+    set(GENIE_KAIRO_TARGET "")
+    return()
+endif()
+
 find_package(kairo CONFIG QUIET)
 
 if(kairo_FOUND)
