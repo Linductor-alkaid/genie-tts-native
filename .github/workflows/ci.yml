@@ -1,0 +1,190 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 上游 Genie-TTS 固定 onnxruntime==1.22.1（注明避免 1.23 的性能回退）。
+  # 这里的版本选择是"复现上游基线"，不是"永远钉死" —— 见 docs/upstream-audit.md。
+  #
+  # 用 1.22.0 而非 1.22.1：1.22.1 这个补丁版**没有发布 Linux 预编译包**
+  # （release 资产里只有 Windows 与 nupkg），1.22.0 才有
+  # onnxruntime-linux-x64-1.22.0.tgz。两者同属 1.22.x，本项目用到的
+  # ORT C++ API 在这两个版本之间没有变化。
+  ONNXRUNTIME_VERSION: "1.22.0"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 最小闭环：不依赖任何外部推理后端，验证核心库与测试框架本身是健康的。
+  # ---------------------------------------------------------------------------
+  core:
+    name: core (no ort, no kairo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake --preset debug
+          -DGENIE_ENABLE_ORT=OFF
+          -DGENIE_ENABLE_KAIRO=OFF
+
+      - name: Build
+        run: cmake --build --preset debug --parallel
+
+      - name: Test
+        run: ctest --preset debug --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # 默认构建：启用 kairo 调度层。
+  # ---------------------------------------------------------------------------
+  kairo:
+    name: kairo scheduler
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release --parallel
+
+      - name: Test
+        run: ctest --preset release --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # 真实推理：下载官方 ONNX Runtime 预编译包，跑模型契约与端到端链路测试。
+  # ---------------------------------------------------------------------------
+  ort:
+    name: onnxruntime ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ONNX Runtime (Linux x64)
+        run: |
+          set -euo pipefail
+          ORT_DIR="$RUNNER_TEMP/onnxruntime"
+          mkdir -p "$ORT_DIR"
+          curl -fsSL --retry 3 --retry-delay 2 \
+            -o "$RUNNER_TEMP/ort.tgz" \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}.tgz"
+          tar -xzf "$RUNNER_TEMP/ort.tgz" -C "$ORT_DIR" --strip-components=1
+          test -f "$ORT_DIR/include/onnxruntime_cxx_api.h"
+          test -f "$ORT_DIR/lib/libonnxruntime.so" || test -f "$ORT_DIR/lib/libonnxruntime.so.${ONNXRUNTIME_VERSION}"
+          echo "GENIE_ONNXRUNTIME_ROOT=$ORT_DIR" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$ORT_DIR/lib" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake --preset release -DGENIE_ONNXRUNTIME_ROOT="$GENIE_ONNXRUNTIME_ROOT"
+
+      - name: Build
+        run: cmake --build --preset release --parallel
+
+      - name: Test
+        run: ctest --preset release --output-on-failure
+
+      - name: Smoke test the CLI
+        run: ./build/release/tools/genie-tts version
+
+  # ---------------------------------------------------------------------------
+  # Sanitizer：ASan + UBSan。
+  # ---------------------------------------------------------------------------
+  sanitize:
+    name: asan + ubsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake --preset asan
+          -DGENIE_ENABLE_ORT=OFF
+          -DGENIE_ENABLE_KAIRO=OFF
+
+      - name: Build
+        run: cmake --build --preset asan --parallel
+
+      - name: Test
+        run: ctest --preset asan --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # 线程安全：TSan 覆盖调度层。
+  # ---------------------------------------------------------------------------
+  thread:
+    name: tsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake --preset tsan
+          -DGENIE_ENABLE_ORT=OFF
+
+      - name: Build
+        run: cmake --build --preset tsan --parallel
+
+      - name: Test
+        run: ctest --preset tsan --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # 跨平台：Windows 构建（不跑 ORT，CI 时间预算有限）。
+  # ---------------------------------------------------------------------------
+  windows:
+    name: windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 把 MSVC 工具链放进环境变量后再用 Ninja 构建。
+      # 不用 "Visual Studio 17 2022" 生成器：runner 上的 VS 实例探测不稳定，
+      # 会报 "could not find any instance of Visual Studio"。
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        run: >
+          cmake -S . -B build/windows -G Ninja
+          -DGENIE_ENABLE_ORT=OFF
+          -DGENIE_ENABLE_KAIRO=OFF
+
+      - name: Build
+        run: cmake --build build/windows --parallel
+
+      - name: Test
+        run: ctest --test-dir build/windows --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # 格式检查
+  #
+  # clang-format 的**版本**会影响输出，因此必须钉死 —— 否则 apt 装的版本一升级
+  # 就会让整个仓库"格式不达标"。这里用 PyPI 的 clang-format 包锁定版本，
+  # 与本地开发保持一致。
+  # ---------------------------------------------------------------------------
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: pip install --user "clang-format==18.1.8"
+
+      - name: Check formatting
+        run: |
+          set -euo pipefail
+          find include src tools tests \( -name '*.hpp' -o -name '*.cpp' -o -name '*.h' \) \
+            -print0 | xargs -0 clang-format --dry-run --Werror

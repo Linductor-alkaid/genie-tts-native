@@ -1,0 +1,37 @@
+third_party/genie-tts-models
+==========================
+
+本目录下的 ONNX 模型文件直接取自 Genie-TTS 仓库：
+
+    https://github.com/High-Logic/Genie-TTS
+    路径：src/genie_tts/Data/v2/Models/ 与 src/genie_tts/Data/v2ProPlus/Models/
+    Copyright (c) 2025 High_Logic
+    MIT License —— 完整文本见本目录下的 LICENSE
+
+这些模型由上游仓库随源码一同发布，因此可以直接按 MIT 协议收录。
+
+文件清单
+--------
+
+    v2/t2s_encoder_fp32.onnx
+    v2/t2s_first_stage_decoder_fp32.onnx
+    v2/t2s_stage_decoder_fp32.onnx
+    v2/vits_fp32.onnx
+    v2ProPlus/prompt_encoder_fp32.onnx
+    v2ProPlus/vits_fp32.onnx
+
+用途
+----
+
+这些模型是 tests/component 与 tests/integration 的测试夹具，
+用来锁定模型 I/O 契约并跑通 T2S 推理链路。
+**它们不构成一个可用的音色** —— 用户自己的 voice package 需要另行获取。
+
+授权
+----
+
+这些模型源自 GPT-SoVITS 项目。模型的**技术**授权见上方 MIT 协议；
+使用这些模型生成/分发语音内容时，涉及的**音色**授权由相应作者决定，
+本项目不为此提供任何授权。
+
+本项目与 High_Logic 无隶属关系。
