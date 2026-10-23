@@ -77,17 +77,32 @@ TEST_F(ModelContract, EncoderSignature) {
     const auto* ref_bert = find(spec.inputs, "ref_bert");
     ASSERT_NE(ref_bert, nullptr);
     EXPECT_EQ(ref_bert->type, OnnxElementType::Float);
+    // **秩 2**：[ref_length, 1024] —— 前面没有 batch 维。
+    // 秩错了 ONNX Runtime 会直接拒绝，秩对了但维度错了只会输出垃圾。
+    EXPECT_EQ(ref_bert->shape.size(), 2U);
     EXPECT_EQ(static_dim(*ref_bert, 1), 1024);  // BERT 特征维度
 
     const auto* text_bert = find(spec.inputs, "text_bert");
     ASSERT_NE(text_bert, nullptr);
+    EXPECT_EQ(text_bert->shape.size(), 2U);  // [text_length, 1024]
     EXPECT_EQ(static_dim(*text_bert, 1), 1024);
 
     const auto* ssl = find(spec.inputs, "ssl_content");
     ASSERT_NE(ssl, nullptr);
     EXPECT_EQ(ssl->type, OnnxElementType::Float);
+    EXPECT_EQ(ssl->shape.size(), 3U);     // [1, 768, ssl_length]
     EXPECT_EQ(static_dim(*ssl, 1), 768);  // HuBERT 隐层维度
     EXPECT_EQ(static_dim(*ssl, 0), 1);
+
+    // 音素序列是 [1, 长度]（**秩 2**）。
+    const auto* text_seq = find(spec.inputs, "text_seq");
+    ASSERT_NE(text_seq, nullptr);
+    EXPECT_EQ(text_seq->shape.size(), 2U);
+    EXPECT_EQ(static_dim(*text_seq, 0), 1);
+    const auto* ref_seq_spec = find(spec.inputs, "ref_seq");
+    ASSERT_NE(ref_seq_spec, nullptr);
+    EXPECT_EQ(ref_seq_spec->shape.size(), 2U);
+    EXPECT_EQ(static_dim(*ref_seq_spec, 0), 1);
 }
 
 TEST_F(ModelContract, FirstStageDecoderSignature) {
@@ -151,6 +166,13 @@ TEST_F(ModelContract, VitsSignature) {
     EXPECT_EQ(spec.inputs[0].name, "text_seq");
     EXPECT_EQ(spec.inputs[1].name, "pred_semantic");
     EXPECT_EQ(spec.inputs[2].name, "ref_audio");
+
+    // text_seq 是 [1, text_length]（**秩 2**）——
+    // 别和 pred_semantic 的 [1, 1, pred_length] 搞混。
+    const auto* text_seq = find(spec.inputs, "text_seq");
+    ASSERT_NE(text_seq, nullptr);
+    EXPECT_EQ(text_seq->shape.size(), 2U);
+    EXPECT_EQ(static_dim(*text_seq, 0), 1);
 
     // pred_semantic 是 [1, 1, pred_length] —— 中间有一个 singleton 维。
     const auto* semantic = find(spec.inputs, "pred_semantic");

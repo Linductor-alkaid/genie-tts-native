@@ -44,6 +44,9 @@ struct ReferenceCondition {
     /// 参考音频的音素符号 ID（喂给 t2s_encoder 的 `ref_seq`）。
     std::vector<std::int64_t> phoneme_ids;
     /// 参考音频的韵律特征（`ref_bert`）。没有 RoBERTa 时是零张量。
+    ///
+    /// 形状是 **[音素数, 1024]（秩 2）** —— 上游的 ONNX 图就是这么声明的
+    /// （`ref_bert: [ref_length, 1024]`），不是 `[1, L, 1024]`。
     Tensor bert;
     /// 参考音频的 HuBERT 特征（`ssl_content`）。没有 HuBERT 时是零张量。
     Tensor ssl;

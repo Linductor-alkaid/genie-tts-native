@@ -85,6 +85,18 @@ target_link_libraries(genie_component_tests PRIVATE genie_test_support)
 add_test(NAME genie_component COMMAND genie_component_tests)
 
 # --------------------------------------------------------------------------------------
+# regression —— 黄金数据（模型 I/O 契约的"快照"）
+# --------------------------------------------------------------------------------------
+add_executable(genie_regression_tests
+    regression/test_regression.cpp
+)
+target_link_libraries(genie_regression_tests PRIVATE genie_test_support)
+target_compile_definitions(genie_regression_tests PRIVATE
+    GENIE_REGRESSION_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/regression/golden")
+add_test(NAME genie_regression COMMAND genie_regression_tests)
+set_tests_properties(genie_regression PROPERTIES TIMEOUT 120)
+
+# --------------------------------------------------------------------------------------
 # integration —— ONNX Runtime 运行时路径
 # --------------------------------------------------------------------------------------
 if(GENIE_ENABLE_ORT)

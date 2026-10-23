@@ -1,0 +1,173 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "name": "chinese_basic",
+      "text": "你好，世界。",
+      "models": [
+        {
+          "model": "t2s_encoder",
+          "inputs": [
+            {"name": "ref_bert", "dtype": "float32", "shape": [4, 1024]},
+            {"name": "ref_seq", "dtype": "int64", "shape": [1, 4]},
+            {"name": "ssl_content", "dtype": "float32", "shape": [1, 768, 100]},
+            {"name": "text_bert", "dtype": "float32", "shape": [11, 1024]},
+            {"name": "text_seq", "dtype": "int64", "shape": [1, 11]}
+          ]
+        },
+        {
+          "model": "t2s_first_stage_decoder",
+          "inputs": [
+            {"name": "prompts", "dtype": "int64", "shape": [1, 3]},
+            {"name": "x", "dtype": "float32", "shape": [1, 4, 512]}
+          ]
+        },
+        {
+          "model": "t2s_stage_decoder",
+          "inputs": [
+            {"name": "iy", "dtype": "int64", "shape": [1, 7]},
+            {"name": "iy_emb", "dtype": "float32", "shape": [1, 3, 512]},
+            {"name": "past_k_layer_0", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_k_layer_1", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_v_layer_0", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_v_layer_1", "dtype": "float32", "shape": [1, 1, 512]}
+          ]
+        },
+        {
+          "model": "vits",
+          "inputs": [
+            {"name": "pred_semantic", "dtype": "int64", "shape": [1, 1, 3]},
+            {"name": "ref_audio", "dtype": "float32", "shape": [1, 32000]},
+            {"name": "text_seq", "dtype": "int64", "shape": [1, 11]}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "chinese_single",
+      "text": "啊",
+      "models": [
+        {
+          "model": "t2s_encoder",
+          "inputs": [
+            {"name": "ref_bert", "dtype": "float32", "shape": [4, 1024]},
+            {"name": "ref_seq", "dtype": "int64", "shape": [1, 4]},
+            {"name": "ssl_content", "dtype": "float32", "shape": [1, 768, 100]},
+            {"name": "text_bert", "dtype": "float32", "shape": [3, 1024]},
+            {"name": "text_seq", "dtype": "int64", "shape": [1, 3]}
+          ]
+        },
+        {
+          "model": "t2s_first_stage_decoder",
+          "inputs": [
+            {"name": "prompts", "dtype": "int64", "shape": [1, 3]},
+            {"name": "x", "dtype": "float32", "shape": [1, 4, 512]}
+          ]
+        },
+        {
+          "model": "t2s_stage_decoder",
+          "inputs": [
+            {"name": "iy", "dtype": "int64", "shape": [1, 7]},
+            {"name": "iy_emb", "dtype": "float32", "shape": [1, 3, 512]},
+            {"name": "past_k_layer_0", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_k_layer_1", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_v_layer_0", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_v_layer_1", "dtype": "float32", "shape": [1, 1, 512]}
+          ]
+        },
+        {
+          "model": "vits",
+          "inputs": [
+            {"name": "pred_semantic", "dtype": "int64", "shape": [1, 1, 3]},
+            {"name": "ref_audio", "dtype": "float32", "shape": [1, 32000]},
+            {"name": "text_seq", "dtype": "int64", "shape": [1, 3]}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "chinese_digits",
+      "text": "一二三",
+      "models": [
+        {
+          "model": "t2s_encoder",
+          "inputs": [
+            {"name": "ref_bert", "dtype": "float32", "shape": [4, 1024]},
+            {"name": "ref_seq", "dtype": "int64", "shape": [1, 4]},
+            {"name": "ssl_content", "dtype": "float32", "shape": [1, 768, 100]},
+            {"name": "text_bert", "dtype": "float32", "shape": [6, 1024]},
+            {"name": "text_seq", "dtype": "int64", "shape": [1, 6]}
+          ]
+        },
+        {
+          "model": "t2s_first_stage_decoder",
+          "inputs": [
+            {"name": "prompts", "dtype": "int64", "shape": [1, 3]},
+            {"name": "x", "dtype": "float32", "shape": [1, 4, 512]}
+          ]
+        },
+        {
+          "model": "t2s_stage_decoder",
+          "inputs": [
+            {"name": "iy", "dtype": "int64", "shape": [1, 7]},
+            {"name": "iy_emb", "dtype": "float32", "shape": [1, 3, 512]},
+            {"name": "past_k_layer_0", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_k_layer_1", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_v_layer_0", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_v_layer_1", "dtype": "float32", "shape": [1, 1, 512]}
+          ]
+        },
+        {
+          "model": "vits",
+          "inputs": [
+            {"name": "pred_semantic", "dtype": "int64", "shape": [1, 1, 3]},
+            {"name": "ref_audio", "dtype": "float32", "shape": [1, 32000]},
+            {"name": "text_seq", "dtype": "int64", "shape": [1, 6]}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mixed_punctuation",
+      "text": "你好！世界？",
+      "models": [
+        {
+          "model": "t2s_encoder",
+          "inputs": [
+            {"name": "ref_bert", "dtype": "float32", "shape": [4, 1024]},
+            {"name": "ref_seq", "dtype": "int64", "shape": [1, 4]},
+            {"name": "ssl_content", "dtype": "float32", "shape": [1, 768, 100]},
+            {"name": "text_bert", "dtype": "float32", "shape": [11, 1024]},
+            {"name": "text_seq", "dtype": "int64", "shape": [1, 11]}
+          ]
+        },
+        {
+          "model": "t2s_first_stage_decoder",
+          "inputs": [
+            {"name": "prompts", "dtype": "int64", "shape": [1, 3]},
+            {"name": "x", "dtype": "float32", "shape": [1, 4, 512]}
+          ]
+        },
+        {
+          "model": "t2s_stage_decoder",
+          "inputs": [
+            {"name": "iy", "dtype": "int64", "shape": [1, 7]},
+            {"name": "iy_emb", "dtype": "float32", "shape": [1, 3, 512]},
+            {"name": "past_k_layer_0", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_k_layer_1", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_v_layer_0", "dtype": "float32", "shape": [1, 1, 512]},
+            {"name": "past_v_layer_1", "dtype": "float32", "shape": [1, 1, 512]}
+          ]
+        },
+        {
+          "model": "vits",
+          "inputs": [
+            {"name": "pred_semantic", "dtype": "int64", "shape": [1, 1, 3]},
+            {"name": "ref_audio", "dtype": "float32", "shape": [1, 32000]},
+            {"name": "text_seq", "dtype": "int64", "shape": [1, 11]}
+          ]
+        }
+      ]
+    }
+  ]
+}
