@@ -41,6 +41,9 @@ inline constexpr std::uint32_t kReplacementCodepoint = 0xFFFD;
 /// 码点 → UTF-8。非法码位返回替换字符的编码。
 [[nodiscard]] std::string encode(std::uint32_t codepoint);
 
+/// 码点 → UTF-8 的**字节长度**（不解码、不分配）。
+[[nodiscard]] std::size_t encoded_length(std::uint32_t codepoint) noexcept;
+
 /// 是否是汉字（CJK 统一表意文字基本区 + 扩展 A + 兼容表意文字）。
 [[nodiscard]] bool is_han(std::uint32_t codepoint) noexcept;
 

@@ -44,10 +44,14 @@ add_executable(genie_unit_tests
     unit/test_t2s.cpp
     unit/test_engine.cpp
     unit/test_reference.cpp
+    unit/test_normalizer.cpp
     # 必须排在最后：它要覆盖"调度器就绪状态下进程退出"这条路径。
     unit/test_scheduler_lifetime.cpp
 )
 target_link_libraries(genie_unit_tests PRIVATE genie_test_support)
+# 黄金语料目录（由 tools/verify_normalizer.py 用上游 Python 生成）
+target_compile_definitions(genie_unit_tests PRIVATE
+    GENIE_NORMALIZER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden")
 # RoBERTa 分词器是 src/ 内部实现，测试直接包含内部头。
 target_include_directories(genie_unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME genie_unit COMMAND genie_unit_tests)

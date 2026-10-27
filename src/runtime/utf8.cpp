@@ -67,6 +67,23 @@ bool decode_next(std::string_view text, std::size_t& offset, Char& out) noexcept
     return true;
 }
 
+std::size_t encoded_length(std::uint32_t codepoint) noexcept {
+    // 与 encode() 保持一致：非法码位按替换字符（U+FFFD，3 字节）算。
+    if (codepoint > 0x10FFFFU || (codepoint >= 0xD800U && codepoint <= 0xDFFFU)) {
+        return 3;
+    }
+    if (codepoint <= 0x7F) {
+        return 1;
+    }
+    if (codepoint <= 0x7FF) {
+        return 2;
+    }
+    if (codepoint <= 0xFFFF) {
+        return 3;
+    }
+    return 4;
+}
+
 std::string encode(std::uint32_t codepoint) {
     std::string out;
     if (codepoint > 0x10FFFFU || (codepoint >= 0xD800U && codepoint <= 0xDFFFU)) {

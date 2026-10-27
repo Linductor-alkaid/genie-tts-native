@@ -60,3 +60,18 @@ third_party/genie-tts-models/ 下的 ONNX 模型由 Genie-TTS 仓库以 MIT 协�
 
 这些模型源自 GPT-SoVITS 项目，**用户自己的音色模型**（voice package）不随本仓库
 分发，其授权由相应作者决定。详见 docs/architecture.md 的「模型授权」一节。
+
+4. PaddlePaddle / WeTextProcessing 文本规范化规则与繁简转换表
+   Copyright (c) 2020 PaddlePaddle Authors. All Rights Reserved.
+   Apache License 2.0
+
+   本项目的 `src/text/normalizer.cpp`（中文文本规范化规则）与
+   `src/text/char_convert_table.cpp`（繁简转换表，10,737 组）移植自
+   Genie-TTS 的 `G2P/Chinese/Normalization/`（其源头为 PaddlePaddle 的
+   WeTextProcessing，Apache-2.0）。
+
+   改动：Python 正则改为手写的 C++ 扫描（上游有两个模式带反向先行断言，
+   ECMAScript 不支持）；数据一字未改。生成脚本
+   `tools/g2p/generate_char_convert.py` 逐字保留了原始版权与许可声明。
+
+   Apache-2.0 原文见 https://www.apache.org/licenses/LICENSE-2.0

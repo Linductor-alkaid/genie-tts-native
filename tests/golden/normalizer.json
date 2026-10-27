@@ -1,0 +1,321 @@
+{
+  "schema": 1,
+  "source": "Genie-TTS G2P/Chinese/Normalization (PaddlePaddle / WeTextProcessing)",
+  "cases": [
+    {
+      "name": "plain",
+      "input": "你好，世界。",
+      "expected": "你好,世界."
+    },
+    {
+      "name": "simple",
+      "input": "今天天气不错。",
+      "expected": "今天天气不错."
+    },
+    {
+      "name": "no_punct",
+      "input": "没有标点的文本",
+      "expected": "没有标点的文本"
+    },
+    {
+      "name": "english",
+      "input": "hello world",
+      "expected": ""
+    },
+    {
+      "name": "mixed",
+      "input": "我有12个苹果和3.5个橘子",
+      "expected": "我有十二个苹果和三点五个橘子"
+    },
+    {
+      "name": "int_small",
+      "input": "我有3个苹果",
+      "expected": "我有三个苹果"
+    },
+    {
+      "name": "int_two_digit",
+      "input": "一共24个人",
+      "expected": "一共二十四个人"
+    },
+    {
+      "name": "int_three_digit",
+      "input": "编号00078",
+      "expected": "编号零零零七八"
+    },
+    {
+      "name": "year",
+      "input": "2024年",
+      "expected": "二零二四年"
+    },
+    {
+      "name": "year_short",
+      "input": "24年",
+      "expected": "二四年"
+    },
+    {
+      "name": "big_number",
+      "input": "1234567",
+      "expected": "幺二三四五六七"
+    },
+    {
+      "name": "huge_number",
+      "input": "123456789012",
+      "expected": "幺二三四五六七八九零幺二"
+    },
+    {
+      "name": "decimal",
+      "input": "3.14的圆周率",
+      "expected": "三点一四的圆周率"
+    },
+    {
+      "name": "decimal_trailing_zero",
+      "input": "3.20元",
+      "expected": "三点二零元"
+    },
+    {
+      "name": "decimal_leading_dot",
+      "input": ".22秒",
+      "expected": "零点二二秒"
+    },
+    {
+      "name": "negative",
+      "input": "温度是-5度",
+      "expected": "温度是零下五度"
+    },
+    {
+      "name": "percent",
+      "input": "增长了50%",
+      "expected": "增长了百分之五十"
+    },
+    {
+      "name": "percent_decimal",
+      "input": "增长了12.5%",
+      "expected": "增长了百分之十二点五"
+    },
+    {
+      "name": "frac",
+      "input": "3/4的圆",
+      "expected": "四分之三的圆"
+    },
+    {
+      "name": "frac_negative",
+      "input": "-3/4的圆",
+      "expected": "负四分之三的圆"
+    },
+    {
+      "name": "range",
+      "input": "3-5个",
+      "expected": "三减五个"
+    },
+    {
+      "name": "range_decimal",
+      "input": "3.5-5.5个",
+      "expected": "三点五减五点五个"
+    },
+    {
+      "name": "to_range",
+      "input": "20~30cm",
+      "expected": "二十到三十厘米"
+    },
+    {
+      "name": "power",
+      "input": "x²",
+      "expected": "的二次方"
+    },
+    {
+      "name": "version",
+      "input": "版本1.2.3",
+      "expected": "版本一点二点三"
+    },
+    {
+      "name": "asmd",
+      "input": "1+2=3",
+      "expected": "一加二等于三"
+    },
+    {
+      "name": "asmd_chain",
+      "input": "1+2+3=6",
+      "expected": "一加二加三等于六"
+    },
+    {
+      "name": "date_full",
+      "input": "2024年3月15日",
+      "expected": "二零二四年三月十五日"
+    },
+    {
+      "name": "date_month",
+      "input": "2024年3月",
+      "expected": "二零二四年三月"
+    },
+    {
+      "name": "date_year_only",
+      "input": "2024年",
+      "expected": "二零二四年"
+    },
+    {
+      "name": "date_slash",
+      "input": "2024/03/15",
+      "expected": "二零二四年三月十五日"
+    },
+    {
+      "name": "date_dash",
+      "input": "2024-03-15",
+      "expected": "二零二四年三月十五日"
+    },
+    {
+      "name": "time",
+      "input": "下午3点30分",
+      "expected": "下午三点三十分"
+    },
+    {
+      "name": "time_full",
+      "input": "15:30:45",
+      "expected": "十五点半四十五秒"
+    },
+    {
+      "name": "time_range",
+      "input": "8:30-12:30",
+      "expected": "八点半至十二点半"
+    },
+    {
+      "name": "time_half",
+      "input": "8:30",
+      "expected": "八点半"
+    },
+    {
+      "name": "mobile",
+      "input": "13812345678",
+      "expected": "幺三八幺二三四五六七八"
+    },
+    {
+      "name": "mobile_86",
+      "input": "+8613812345678",
+      "expected": "八六幺三八幺二三四五六七八"
+    },
+    {
+      "name": "telephone",
+      "input": "010-12345678",
+      "expected": "零幺零减幺二三四五六七八"
+    },
+    {
+      "name": "national_400",
+      "input": "400-123-4567",
+      "expected": "四零零减幺二三减四五六七"
+    },
+    {
+      "name": "measure_cm",
+      "input": "长5cm",
+      "expected": "长五厘米"
+    },
+    {
+      "name": "measure_km",
+      "input": "距离3km",
+      "expected": "距离三千米"
+    },
+    {
+      "name": "measure_m2",
+      "input": "面积10m2",
+      "expected": "面积十平方米"
+    },
+    {
+      "name": "temperature",
+      "input": "25度",
+      "expected": "二十五度"
+    },
+    {
+      "name": "temperature_c",
+      "input": "25°C",
+      "expected": "二十五度"
+    },
+    {
+      "name": "temperature_negative",
+      "input": "-3摄氏度",
+      "expected": "零下三度"
+    },
+    {
+      "name": "quantifier",
+      "input": "3个人",
+      "expected": "三个人"
+    },
+    {
+      "name": "quantifier_multi",
+      "input": "5个苹果和2本书",
+      "expected": "五个苹果和两本书"
+    },
+    {
+      "name": "traditional",
+      "input": "這個時間點我們需要重新評估",
+      "expected": "这个时间点我们需要重新评估"
+    },
+    {
+      "name": "traditional_mixed",
+      "input": "繁體中文和简体中文混排",
+      "expected": "繁体中文和简体中文混排"
+    },
+    {
+      "name": "circled",
+      "input": "①②③",
+      "expected": "一二三"
+    },
+    {
+      "name": "greek",
+      "input": "α和β",
+      "expected": "阿尔法和贝塔"
+    },
+    {
+      "name": "math",
+      "input": "1+1",
+      "expected": "一加一"
+    },
+    {
+      "name": "slash",
+      "input": "每/天",
+      "expected": "每每天"
+    },
+    {
+      "name": "ellipsis",
+      "input": "等等...",
+      "expected": "等等…"
+    },
+    {
+      "name": "wave",
+      "input": "a~b",
+      "expected": "…"
+    },
+    {
+      "name": "spaces",
+      "input": "有 空格 的 文本",
+      "expected": "有空格的文本"
+    },
+    {
+      "name": "ideographic_space",
+      "input": "有　全角空格的文本",
+      "expected": "有全角空格的文本"
+    },
+    {
+      "name": "fullwidth_digits",
+      "input": "２０２４年",
+      "expected": "二零二四年"
+    },
+    {
+      "name": "fullwidth_letters",
+      "input": "ＡＢＣ",
+      "expected": ""
+    },
+    {
+      "name": "repeated_punct",
+      "input": "你好！！！世界？？？",
+      "expected": "你好!世界?"
+    },
+    {
+      "name": "quotes",
+      "input": "他说：“你好。”然后走了。",
+      "expected": "他说,你好.然后走了."
+    },
+    {
+      "name": "english_mix",
+      "input": "这是 test 123 测试",
+      "expected": "这是秒幺二三测试"
+    }
+  ]
+}

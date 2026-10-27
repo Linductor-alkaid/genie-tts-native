@@ -44,6 +44,7 @@ Commands:
   synth                Synthesize speech from text
   inspect <model-dir>  Inspect a voice package manifest
   g2p --text <text>    Convert text to a phoneme sequence (no model needed)
+  normalize --text <t> Normalize Chinese text (upstream TextNormalizer rules)
 
 Options:
   --model <dir>        Voice package directory (contains manifest.json)
@@ -160,6 +161,26 @@ int command_g2p(const Options& options) {
     for (std::size_t i = 0; i < sequence.symbols.size(); ++i) {
         std::cout << "  " << i << "\t" << sequence.symbols[i] << "\t" << sequence.ids[i] << "\n";
     }
+    return kExitOk;
+}
+
+/// 文本规范化 —— 看看模型会收到的规范化文本。
+///
+/// 与上游 TextNormalizer 一致：日期读"二零二四年"、手机号读"幺三八…"。
+int command_normalize(const Options& options) {
+    if (options.text.empty()) {
+        std::cerr << "normalize requires --text <text>\n";
+        return kExitUsage;
+    }
+    const auto requested = genie::language_from_string(options.language);
+    if (!requested) {
+        std::cerr << "unknown language: " << options.language << "\n";
+        return kExitUsage;
+    }
+    // 这里**不做**语言自动检测：normalize 是给排查用的，
+    // 要能直接看到"中文规范化"这一步的结果。
+    // （g2p 命令才需要 detect_language —— 混读模式要切分。）
+    std::cout << genie::text::normalize(options.text, *requested) << "\n";
     return kExitOk;
 }
 
@@ -347,6 +368,9 @@ int main(int argc, char** argv) {
         }
         if (options.command == "g2p") {
             return command_g2p(options);
+        }
+        if (options.command == "normalize") {
+            return command_normalize(options);
         }
     } catch (const genie::Error& error) {
         std::cerr << "error [" << genie::to_string(error.code()) << "]: " << error.what() << "\n";
