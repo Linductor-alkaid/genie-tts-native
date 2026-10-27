@@ -39,6 +39,7 @@ add_executable(genie_unit_tests
     unit/test_symbols.cpp
     unit/test_pinyin.cpp
     unit/test_text.cpp
+    unit/test_roberta.cpp
     unit/test_t2s.cpp
     unit/test_engine.cpp
     unit/test_reference.cpp
@@ -46,6 +47,8 @@ add_executable(genie_unit_tests
     unit/test_scheduler_lifetime.cpp
 )
 target_link_libraries(genie_unit_tests PRIVATE genie_test_support)
+# RoBERTa 分词器是 src/ 内部实现，测试直接包含内部头。
+target_include_directories(genie_unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME genie_unit COMMAND genie_unit_tests)
 # 每个测试都有超时：挂死时 ctest 会杀掉它并报出是哪个，
 # 而不是让 CI job 一直耗到 6 小时上限。

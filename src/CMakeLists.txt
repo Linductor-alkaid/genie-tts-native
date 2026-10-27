@@ -37,6 +37,7 @@ set(GENIE_CORE_SOURCES
     text/chinese_g2p.cpp
     text/frontend_factory.cpp
     text/pinyin_table.cpp
+    text/roberta_tokenizer.cpp
 )
 
 add_library(genie_core STATIC ${GENIE_CORE_SOURCES})
@@ -103,8 +104,11 @@ add_library(genie_sched STATIC
     scheduler/scheduler.cpp
     engine/t2s.cpp
     engine/engine.cpp
+    engine/roberta.cpp
 )
 set_target_properties(genie_sched PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# engine/ 内部头（roberta.hpp）在 src/ 下，与 genie_core 同一约定。
+target_include_directories(genie_sched PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(genie_sched
     PUBLIC
         genie_core

@@ -191,6 +191,21 @@ public:
         return std::make_unique<FakeSession>(std::move(inputs), std::move(config));
     }
 
+    /// 构造一个 RoBERTa：token id → token 级特征 [T, 1024]。
+    ///
+    /// 输出第 j 行的首元素是第 j 个 token 的 ID（其余为 0）——
+    /// 这样展开测试能验证"哪一行被重复了多少次"。
+    static std::unique_ptr<FakeSession> roberta() {
+        std::vector<TensorSpec> inputs;
+        inputs.push_back({"input_ids", ElementType::Int64, {1, -1}});
+        inputs.push_back({"attention_mask", ElementType::Int64, {1, -1}});
+        inputs.push_back({"token_type_ids", ElementType::Int64, {1, -1}});
+
+        FakeSessionConfig config;
+        config.output_specs.push_back({"output", ElementType::Float32, {-1, 1024}});
+        return std::make_unique<FakeSession>(std::move(inputs), std::move(config));
+    }
+
     /// 校验喂进来的张量是否符合声明的契约。
     ///
     /// 这一步**不是装饰** —— 形状错位（秩不对、长度不对）在真模型上
@@ -269,6 +284,23 @@ public:
             } else if (spec.name == "stop_condition_tensor") {
                 const bool stop = config_.stop_after >= 0 && config_.run_count > config_.stop_after;
                 result.push_back(Tensor::from_bool({}, {stop}));
+            } else if (spec.name == "output" && spec.type == ElementType::Float32) {
+                // RoBERTa 风格：第 j 行 = [float(input_ids[j]), 0, 0, ...]。
+                std::vector<float> rows;
+                for (const auto& entry : feed) {
+                    if (entry.first == "input_ids") {
+                        for (const auto id : entry.second.ints()) {
+                            rows.push_back(static_cast<float>(id));
+                            rows.resize(rows.size() + 1023, 0.0F);
+                        }
+                        break;
+                    }
+                }
+                // 注意：行数要在 std::move(rows) **之前**算好 ——
+                // 函数实参的求值顺序是未指定的，把 rows.size() 写进
+                // 同一个调用表达式里，可能读到已被搬空的 vector。
+                const auto row_count = static_cast<std::int64_t>(rows.size() / 1024);
+                result.push_back(Tensor::from_float32({row_count, 1024}, std::move(rows)));
             } else {
                 // KV cache：原样透传输入（真模型会把它变长）。
                 Tensor value = Tensor::zeros(spec.type, spec.shape);

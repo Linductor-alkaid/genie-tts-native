@@ -194,12 +194,22 @@ print(lib.genie_version().decode())
 ```text
 voice-package/
 ├── manifest.json
-└── models/
-    ├── t2s_encoder.onnx
-    ├── t2s_first_stage_decoder.onnx
-    ├── t2s_stage_decoder.onnx
-    └── vits.onnx
+├── models/
+│   ├── t2s_encoder.onnx
+│   ├── t2s_first_stage_decoder.onnx
+│   ├── t2s_stage_decoder.onnx
+│   ├── vits.onnx
+│   ├── roberta.onnx        # 可选：中文韵律特征（RoBERTa）
+│   └── vocab.txt           # 跟随 roberta.onnx，同目录，行号即 ID
+└── reference/
+    ├── audio.wav           # 参考音频（克隆音色的前提）
+    └── text.txt            # 参考文本（可选）
 ```
+
+> **`roberta` 角色是可选的**：有的话中文合成走真韵律特征（推荐，
+> 对中文听感影响显著），没有就退化为全零特征（与上游降级一致）。
+> 词表读模型同目录下的 `vocab.txt`（BERT 经典格式，一行一个 token）。
+> V2ProPlus 音色包另需 `prompt_encoder` 与 `speaker_verification` 两个角色。
 
 `manifest.json` 里的 `sha256` 建议填 —— 模型文件被替换是最常见的部署事故，
 而 ONNX 加载失败时的报错通常看不出根因。

@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- **中文韵律特征（RoBERTa）**：音色包新增可选 `roberta` 角色 +
+  同目录 `vocab.txt` 词表，中文合成的 `text_bert` / `ref_bert`
+  从全零降级升级为真 RoBERTa 特征 —— tokenizer 编码规范化文本、
+  推理、按 word2ph 展开（判定顺序照抄上游 `_expand_roberta_output`）。
+  分词器自带 C++ 实现（BertNormalizer → BertPreTokenizer → WordPiece），
+  与 HuggingFace tokenizers 0.23.3 逐 ID 黄金对齐
+  （`tests/golden/roberta_tokenizer.json`）。没有 roberta 角色时
+  保持全零降级，与上游一致。审计记录见 docs/upstream-audit.md §14。
+
 ### Fixed
 
 - **`Engine(root, config)` 两参构造未装配会话**：它在函数体里调用 `Engine(...)`

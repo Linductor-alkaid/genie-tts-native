@@ -7,11 +7,13 @@
 #include <chrono>
 #include <cstring>
 #include <exception>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "engine/roberta.hpp"
 #include "genie/errors.hpp"
 #include "genie/onnx_graph.hpp"
 #include "genie/reference.hpp"
@@ -87,6 +89,10 @@ struct Engine::Impl {
     std::unique_ptr<ModelSession> vocoder;
     std::unique_ptr<ModelSession> prompt_encoder;    // V2ProPlus
     std::unique_ptr<ModelSession> speaker_verifier;  // V2ProPlus
+    std::unique_ptr<ModelSession> roberta;           // 中文韵律（可选）
+
+    /// RoBERTa 的分词器，跟随 roberta 会话一起加载。
+    std::unique_ptr<text::RobertaTokenizer> roberta_tokenizer;
 
     T2SDecoder decoder;
     std::unique_ptr<text::TextFrontend> frontend;
@@ -197,9 +203,29 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     impl->frontend = text::make_frontend(impl->manifest.language);
     impl->decoder = T2SDecoder(T2SOptions{kMaxT2SIterations, kEosThreshold});
 
+    // 3.5) RoBERTa（中文韵律）：模型与分词器一起加载，二者缺一不可 ——
+    // 分词器词表与模型必须配套，加载期就报清楚。
+    if (impl->package.has(ModelRole::Roberta)) {
+        const auto model_path = impl->package.model_path(ModelRole::Roberta);
+        impl->roberta = load(model_path);
+        const auto vocab_path = std::filesystem::path(model_path).parent_path() / "vocab.txt";
+        impl->roberta_tokenizer = text::RobertaTokenizer::load(vocab_path.string());
+    }
+
     // 4) 参考音频条件。
     if (impl->frontend != nullptr) {
         impl->reference = load_reference(impl->root, *impl->frontend, impl->sample_rate);
+
+        // 参考文本的韵律特征：有 RoBERTa 就算真的，没有保持全零降级
+        // （与上游 GetPhonesAndBert.py 的降级分支一致）。
+        if (impl->roberta_tokenizer && !impl->reference.text.empty()) {
+            const auto sequence = impl->frontend->convert(impl->reference.text);
+            if (!sequence.ids.empty()) {
+                impl->reference.bert = roberta::compute_text_bert(
+                    *impl->roberta_tokenizer, *impl->roberta, impl->reference.text,
+                    sequence.word2ph, sequence.ids.size());
+            }
+        }
     }
 
     // 5) V2ProPlus 的全局说话人嵌入。
@@ -271,13 +297,20 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     // 2) T2S：音素 + 参考条件 → 语义 token。
     //
     // 注意 text_bert 与 ref_bert 是**两个不同的张量** ——
-    // 上游喂的是两段不同的韵律特征。这里在 RoBERTa 缺失时都是零张量，
-    // 但形状按各自的音素长度给。
+    // 上游喂的是两段不同的韵律特征。有 RoBERTa 时各自算真的，
+    // 缺失时零张量（与上游降级一致），形状按各自的音素长度给。
     const auto& reference = impl_->reference;
     // text_bert 是 [音素数, 1024]（**秩 2**，没有 batch 维）——
     // 上游 ONNX 图声明的是 `text_bert: [text_length, 1024]`。
-    const auto text_bert = Tensor::zeros(
+    auto text_bert = Tensor::zeros(
         ElementType::Float32, {static_cast<std::int64_t>(phonemes.ids.size()), kBertDimension});
+    if (impl_->roberta_tokenizer) {
+        // 与上游一致：tokenizer 编码的是规范化后的文本（text_clean），
+        // 音素序列与 word2ph 也来自同一段文本。
+        const auto normalized = text::normalize(prepared, language);
+        text_bert = roberta::compute_text_bert(*impl_->roberta_tokenizer, *impl_->roberta,
+                                               normalized, phonemes.word2ph, phonemes.ids.size());
+    }
     const auto ref_seq = Tensor::from_int64(
         {1, static_cast<std::int64_t>(reference.phoneme_ids.size())}, reference.phoneme_ids);
 
