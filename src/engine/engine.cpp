@@ -147,12 +147,13 @@ struct Engine::Impl {
 
 Engine::Engine(std::string root) : Engine(std::move(root), SessionConfig{}) {}
 
-Engine::Engine(std::string root, const SessionConfig& config) {
-    Engine(
-        std::move(root),
-        [](const std::string& path, const SessionConfig& cfg) { return create_session(path, cfg); },
-        config);
-}
+Engine::Engine(std::string root, const SessionConfig& config)
+    : Engine(
+          std::move(root),
+          [](const std::string& path, const SessionConfig& cfg) {
+              return create_session(path, cfg);
+          },
+          config) {}
 
 Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& config) {
     auto impl = std::make_unique<Impl>();
