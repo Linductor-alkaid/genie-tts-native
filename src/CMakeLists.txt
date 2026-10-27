@@ -37,6 +37,7 @@ set(GENIE_CORE_SOURCES
     text/chinese_g2p.cpp
     text/frontend_factory.cpp
     text/pinyin_table.cpp
+    text/opencpop_table.cpp
     text/roberta_tokenizer.cpp
 )
 

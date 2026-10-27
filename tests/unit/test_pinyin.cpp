@@ -115,6 +115,53 @@ TEST(Pinyin, ProducesExpectedPhones) {
     EXPECT_EQ(liu[1], "iu4");  // 收缩成书写形式
 }
 
+TEST(Pinyin, OpencpopLexiconRepresentsSpecialsCorrectly) {
+    // 这些表示只能来自 opencpop 词表（上游 _pinyin_to_opencpop_phones），
+    // 自推规则推不出来 —— 曾经的缺陷就是在这里系统性跑偏：
+    //   翘舌韵母写成 i（应为 ir）、üe 丢成无（ve 不在自推集合里）、
+    //   二声丢了 EE 声位、"语"的 ü 写成了 u。
+    const auto phones = [](std::string_view tone3) { return syllable_to_phones(split(tone3)); };
+
+    const auto shi = phones("shi2");  // 十
+    ASSERT_EQ(shi.size(), 2U);
+    EXPECT_EQ(shi[0], "sh");
+    EXPECT_EQ(shi[1], "ir2");
+
+    const auto zi = phones("zi4");  // 字（表符号 i0 + 声调 4 → i04）
+    ASSERT_EQ(zi.size(), 2U);
+    EXPECT_EQ(zi[0], "z");
+    EXPECT_EQ(zi[1], "i04");
+
+    const auto yue = phones("yue4");  // 月
+    ASSERT_EQ(yue.size(), 2U);
+    EXPECT_EQ(yue[0], "y");
+    EXPECT_EQ(yue[1], "ve4");
+
+    const auto yu = phones("yu3");  // 语
+    ASSERT_EQ(yu.size(), 2U);
+    EXPECT_EQ(yu[0], "y");
+    EXPECT_EQ(yu[1], "v3");
+
+    const auto er = phones("er4");  // 二：带 EE 声位
+    ASSERT_EQ(er.size(), 2U);
+    EXPECT_EQ(er[0], "EE");
+    EXPECT_EQ(er[1], "er4");
+}
+
+TEST(Pinyin, UnknownLexiconKeyYieldsEmpty) {
+    // 查不到的键等价于上游的 KeyError → 返回空，由前端跳过该字。
+    // 零声母 "ong" 不在任何 rep 映射里、词表也没有这个键
+    // （标准拼音里 ong 永远跟声母，opencpop 词表只收实际组合）。
+    const auto ong = syllable_to_phones(split("ong4"));
+    EXPECT_TRUE(ong.empty());
+
+    // 对照：零声母 "en"（嗯）经 single_rep_map 的 e→e 走到表项 "en → EE en"。
+    const auto en = syllable_to_phones(split("en4"));
+    ASSERT_EQ(en.size(), 2U);
+    EXPECT_EQ(en[0], "EE");
+    EXPECT_EQ(en[1], "en4");
+}
+
 TEST(Pinyin, LookupFindsCommonCharacters) {
     EXPECT_EQ(lookup("\xE4\xB8\xAD").value_or(""), "zhong1");  // 中
     EXPECT_EQ(lookup("\xE5\x9B\xBD").value_or(""), "guo2");    // 国
@@ -172,7 +219,12 @@ TEST(Pinyin, TableDigestIsStable) {
         }
         blob += '\n';
     }
-    EXPECT_EQ(sha256_hex(blob), "b381f96bef76453f2a00a1fe83779c14cf85878e55a24b7e32d69c8cee40b83a");
+    // 摘要锁定的是"全部汉字 → 音素符号"的转换输出。2026-10-27 起
+    // syllable_to_phones 改为查 opencpop 词表（对齐上游
+    // _pinyin_to_opencpop_phones），翘舌 ir / ü 的 v / 二声 EE 等
+    // 表示与上游逐字一致（12,010 字与 Python 参考实现全量比对 0 差异）。
+    // 旧摘要锁的是自推规则的错误输出（i 而非 ir、丢 ve/EE）。
+    EXPECT_EQ(sha256_hex(blob), "6cd3335543d7a20d315ab9e9c96704ff569d73c14f7b3095e1266acedfa0af1c");
 }
 
 }  // namespace

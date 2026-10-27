@@ -86,9 +86,9 @@ TEST(Frontend, ConvertsChineseToPhonemeIds) {
     // 好 → h + ao3
     EXPECT_EQ(sequence.symbols[2], "h");
     EXPECT_EQ(sequence.symbols[3], "ao3");
-    // 世 → sh + i4
+    // 世 → sh + ir4（翘舌韵母来自 opencpop 词表：shi → "sh ir"）
     EXPECT_EQ(sequence.symbols[4], "sh");
-    EXPECT_EQ(sequence.symbols[5], "i4");
+    EXPECT_EQ(sequence.symbols[5], "ir4");
     // 界 → j + ie4
     EXPECT_EQ(sequence.symbols[6], "j");
     EXPECT_EQ(sequence.symbols[7], "ie4");

@@ -23,6 +23,15 @@
 
 ### Fixed
 
+- **中文音素转换系统性跑偏（重大，读字不准的根源）**：音节 → 音素
+  一步此前用自推规则替代上游的 opencpop 词表查询，导致
+  翘舌韵母全部错成普通 i（十/是/字/次…约 1/6 常用音节）、
+  `üe` 韵母丢字（"月"整个没有韵母）、"二"丢 EE 声位、
+  "语"的 ü 错成 u。已内嵌上游 opencpop-strict.txt 词表（429 条，
+  `tools/g2p/generate_opencpop_table.py` 生成）并逐条对齐
+  `_pinyin_to_opencpop_phones`；12,010 字与 Python 参考实现
+  （pypinyin + 同一词表）全量比对 0 差异。
+  转换摘要与黄金契约快照同步更新。
 - **参考音频缺少上游的静音尾巴（重要）**：上游 `load_audio()` 在重采样后
   给参考波形拼接 0.3 秒静音（`SILENCE_TO_APPEND_S`），`ref_audio` 与
   HuBERT 特征都带这个尾巴；静音帧向自回归解码器标记"参考内容结束"。

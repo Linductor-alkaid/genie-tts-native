@@ -17,6 +17,7 @@
 
 #include "genie/pinyin_table.hpp"
 #include "genie/utf8.hpp"
+#include "text/opencpop_table.hpp"
 
 namespace genie::pinyin {
 namespace {
@@ -352,8 +353,14 @@ std::vector<std::string> syllable_to_phones(const Syllable& syllable) {
     const std::string tone = final_with_tone.substr(final_with_tone.size() - 1);
     const std::string final = final_with_tone.substr(0, final_with_tone.size() - 1);
 
+    // 上游 _pinyin_to_opencpop_phones：先推出 opencpop 词表的**键**，
+    // 再查表得到"声母 韵母"符号对 —— 词表是唯一权威
+    // （翘舌 shi→"sh ir"、ü 的 yu→"y v"、二的 er→"EE er" 等都在表里）。
+    // 此前的"等价规则推导"是错的：pypinyin 的韵母本身不分 ir，
+    // 自推规则丢掉了 ir / ve / EE 这一批表示，字音系统性跑偏。
+    std::string key;
     if (!initial.empty()) {
-        // 有声母：韵母收缩成书写形式（opencpop 词表里的那一套）。
+        // 有声母：韵母收缩成书写形式（v_rep_map）。
         std::string contracted = final;
         if (contracted == "uei") {
             contracted = "ui";
@@ -362,55 +369,45 @@ std::vector<std::string> syllable_to_phones(const Syllable& syllable) {
         } else if (contracted == "uen") {
             contracted = "un";
         }
-        return {initial, contracted + tone};
-    }
-
-    // 零声母：还原书写形式（上游的 pinyin_rep_map / single_rep_map）。
-    std::string written;
-    if (final == "ing") {
-        written = "ying";
-    } else if (final == "i") {
-        written = "yi";
-    } else if (final == "in") {
-        written = "yin";
-    } else if (final == "u") {
-        written = "wu";
-    } else if (!final.empty()) {
-        switch (final.front()) {
-            case 'v':
-                written = "yu" + final.substr(1);
-                break;
-            case 'e':
-                written = "e" + final.substr(1);
-                break;
-            case 'i':
-                written = "y" + final.substr(1);
-                break;
-            case 'u':
-                written = "w" + final.substr(1);
-                break;
-            default:
-                written = final;
-                break;
+        key = initial + contracted;
+    } else {
+        // 零声母：pinyin_rep_map 优先，再按首字母走 single_rep_map。
+        if (final == "ing") {
+            key = "ying";
+        } else if (final == "i") {
+            key = "yi";
+        } else if (final == "in") {
+            key = "yin";
+        } else if (final == "u") {
+            key = "wu";
+        } else if (!final.empty()) {
+            switch (final.front()) {
+                case 'v':
+                    key = "yu" + final.substr(1);
+                    break;
+                case 'i':
+                    key = "y" + final.substr(1);
+                    break;
+                case 'u':
+                    key = "w" + final.substr(1);
+                    break;
+                case 'e':
+                    key = "e" + final.substr(1);
+                    break;
+                default:
+                    key = final;
+                    break;
+            }
         }
     }
 
-    if (written.empty()) {
+    // 查表。查不到等价于上游的 KeyError → 跳过该字。
+    const auto& lexicon = detail::opencpop_lexicon();
+    const auto it = lexicon.find(key);
+    if (it == lexicon.end()) {
         return {};
     }
-    if (written.front() == 'y') {
-        return {"y", written.substr(1) + tone};
-    }
-    if (written.front() == 'w') {
-        return {"w", written.substr(1) + tone};
-    }
-    // 真正的元音开头：opencpop 词表里写作 "<元音> <整个音节>"，
-    // 例如 "a" → "a a"、"ao" → "a ao"。
-    // "er" 是特例 —— opencpop 里写作 "er er"。
-    if (written == "er") {
-        return {"er", "er" + tone};
-    }
-    return {written.substr(0, 1), written + tone};
+    return {it->second.first, it->second.second + tone};
 }
 
 }  // namespace genie::pinyin
