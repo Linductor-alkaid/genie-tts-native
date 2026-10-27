@@ -46,9 +46,10 @@ TEST(Text, NormalizeCollapsesRepeatedPunctuation) {
 }
 
 TEST(Text, NormalizeReadsNumbersAsChinese) {
-    // "123" → 一百二十三
-    EXPECT_EQ(normalize("123", Language::Chinese),
-              "\xE4\xB8\x80\xE7\x99\xBE\xE4\xBA\x8C\xE5\x8D\x81\xE4\xB8\x89");
+    // 三位以上的数字**逐位**读（"一"读成"幺"）—— 与上游一致。
+    // 上游的 RE_DEFAULT_NUM = `\d{3}\d*` 在 RE_NUMBER 之前跑，
+    // 所以 "123" 读作 "幺二三" 而不是 "一百二十三"。
+    EXPECT_EQ(normalize("123", Language::Chinese), "\xE5\xB9\xBA\xE4\xBA\x8C\xE4\xB8\x89");
     // "0" → 零
     EXPECT_EQ(normalize("0", Language::Chinese), "\xE9\x9B\xB6");
     // "10" → 十（一十缩写）

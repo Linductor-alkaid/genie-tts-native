@@ -10,6 +10,7 @@
 // 这些依赖上游 65KB 词表的规则没有实现，差异记录在 docs/upstream-audit.md。
 
 #include "genie/text.hpp"
+#include "genie/normalizer.hpp"
 
 #include <algorithm>
 #include <array>
@@ -19,9 +20,12 @@
 #include <vector>
 
 #include "genie/utf8.hpp"
+#include "text/punctuation.hpp"
 
 namespace genie::text {
 namespace {
+
+using detail::collapse_punctuation;
 
 // "…" 的码位。不能用字符字面量 —— 它在 UTF-8 里是 3 字节。
 constexpr std::uint32_t kEllipsis = 0x2026;
@@ -250,28 +254,6 @@ void replace_numbers(std::string& text) {
 }
 
 /// 连续标点折叠成一个（上游 pattern_consecutive）。
-[[nodiscard]] std::string collapse_punctuation(std::string_view text) {
-    const auto is_punctuation = [](std::uint32_t codepoint) {
-        return codepoint == '!' || codepoint == '?' || codepoint == ',' || codepoint == '.' ||
-               codepoint == '-' || codepoint == kEllipsis;
-    };
-
-    std::string result;
-    result.reserve(text.size());
-    std::size_t offset = 0;
-    utf8::Char ch;
-    std::uint32_t previous = 0;
-    bool has_previous = false;
-    while (utf8::decode_next(text, offset, ch)) {
-        if (has_previous && ch.codepoint == previous && is_punctuation(ch.codepoint)) {
-            continue;
-        }
-        result.append(text.substr(ch.offset, ch.length));
-        previous = ch.codepoint;
-        has_previous = true;
-    }
-    return result;
-}
 
 /// 只保留目标语言需要的字符（上游 pattern_filter）。
 [[nodiscard]] std::string filter_characters(std::string_view text, Language language) {
@@ -343,11 +325,19 @@ void replace_numbers(std::string& text) {
 }  // namespace
 
 std::string normalize(std::string_view text, Language language) {
+    // 中文走**上游原版**的 TextNormalizer（日期 / 电话 / 量词 / 繁简 / 分数 …），
+    // 其余语言沿用本文件里的简化实现。
+    if (language == Language::Chinese) {
+        return normalize_chinese(text);
+    }
+
     std::string result = to_halfwidth(text);
     result = map_punctuation(result);
 
     switch (language) {
         case Language::Chinese:
+            // 上面已经走上游原版的 TextNormalizer 了。
+            break;
         case Language::HybridChineseEnglish:
             replace_numbers(result);
             result = filter_characters(result, language);
