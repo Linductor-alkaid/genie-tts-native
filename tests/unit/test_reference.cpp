@@ -112,10 +112,14 @@ TEST(Reference, FeatureShapesAreExplicit) {
     EXPECT_EQ(condition.bert.dim(1), kBertDimension);
 
     // ssl_content：[1, 768, 帧数]
+    //
+    // 帧数语义与上游 HuBERT 对齐：16 kHz 波形、步长 320 → 50 帧/秒。
+    // 1 秒 32 kHz 的参考音频重采样到 16 kHz 后是 16000 采样 → 50 帧。
+    // 这里钉死数值：之前按 32 kHz 帧数除 320 会多出一倍（100 帧）。
     ASSERT_EQ(condition.ssl.rank(), 3);
     EXPECT_EQ(condition.ssl.dim(0), 1);
     EXPECT_EQ(condition.ssl.dim(1), kSslChannels);
-    EXPECT_GT(condition.ssl.dim(2), 0);
+    EXPECT_NEAR(condition.ssl.dim(2), 50, 1);
 }
 
 TEST(Reference, MissingAudioIsReported) {

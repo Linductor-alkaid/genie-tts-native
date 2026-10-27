@@ -525,6 +525,14 @@ voice-package/reference/text.txt    → 文本前端 → ref_seq
 
 > **形状必须显式给对**。形状错了模型不会报错，只会输出垃圾。
 > `ref_bert` 是 `[1, 音素数, 1024]`，`ssl_content` 是 `[1, 768, 帧数]`。
+>
+> **`ssl_content` 的帧数语义**（2026-10-24 修正）：上游由 chinese-hubert-base
+> 对 **16 kHz** 波形推理产出（`ReferenceAudio.__init__` 里
+> `cn_hubert.run(None, {'input_values': self.audio_16k})`），HuBERT 步长
+> 320 采样 → **50 帧/秒**，帧数 = 16 kHz 采样数 / 320。
+> 本实现曾按 32 kHz 帧数除 320（=100 帧/秒），零张量长度多一倍；
+> 虽然数值是零，但长度参与 t2s_encoder 对 `ssl_content` 的注意力归一化，
+> 零帧数量翻倍会稀释韵律注意力的权重分布。已改为按 16 kHz 波形计算。
 
 ---
 

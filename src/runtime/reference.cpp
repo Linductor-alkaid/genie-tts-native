@@ -76,9 +76,14 @@ ReferenceCondition load_reference(const std::string& root, const text::TextFront
                                     : static_cast<std::int64_t>(condition.phoneme_ids.size());
     condition.bert = Tensor::zeros(ElementType::Float32, {phoneme_length, kBertDimension});
 
-    const auto frames =
-        std::max<std::int64_t>(1, static_cast<std::int64_t>(condition.audio.frame_count()) / 320);
-    condition.ssl = Tensor::zeros(ElementType::Float32, {1, kSslChannels, frames});
+    // 帧数语义对齐上游 HuBERT：输入是 16 kHz 波形、步长 320 采样 →
+    // 50 帧/秒（T' = 16k 采样数 / 320）。上游的 ssl_content 由
+    // chinese-hubert-base.run({'input_values': audio_16k}) 产出
+    //（见上游 ReferenceAudio.__init__），帧数跟着 **16 kHz** 波形走 ——
+    // 不能拿 32 kHz 波形除 320，那会多出一倍的零帧，稀释韵律注意力。
+    const auto ssl_frames = std::max<std::int64_t>(
+        1, static_cast<std::int64_t>(condition.audio_16k.samples.size()) / 320);
+    condition.ssl = Tensor::zeros(ElementType::Float32, {1, kSslChannels, ssl_frames});
 
     return condition;
 }
