@@ -21,6 +21,7 @@
 #include "genie/audio.hpp"
 #include "genie/engine.hpp"
 #include "genie/errors.hpp"
+#include "genie/reference.hpp"
 #include "genie/symbols.hpp"
 #include "support/fake_session.hpp"
 
@@ -259,6 +260,88 @@ TEST(Engine, RejectsEmptyText) {
     TempVoicePackage package;
     Engine engine(package.root(), fake_factory());
     EXPECT_THROW(engine.synthesize(""), Error);
+}
+
+TEST(Engine, RobertaFeaturesFlowIntoEncoder) {
+    // 音色包带 RoBERTa 时，text_bert / ref_bert 必须换成真特征
+    // （假会话的第 j 行 = token id，据此核对"特征确实经过了
+    // 分词与展开"），而不是零张量降级。
+    TempVoicePackage package;
+
+    // RoBERTa 模型占位文件 + 精简词表（含参考文本"参考"与"你好"所需 token）。
+    {
+        std::ofstream roberta_model(package.root() + "/models/roberta.onnx");
+        roberta_model << "placeholder";
+    }
+    {
+        std::ofstream vocab(package.root() + "/models/vocab.txt");
+        vocab << "[PAD]\n[UNK]\n[CLS]\n[SEP]\n\xE5\x8F\x82\n\xE8\x80\x83\n"
+                 "\xE4\xBD\xA0\n\xE5\xA5\xBD\n,\n.\n";
+    }
+    {
+        std::ofstream manifest(package.root() + "/manifest.json");
+        manifest << R"({
+  "name": "fake",
+  "format_version": 1,
+  "model_version": "v2",
+  "language": "chinese",
+  "sample_rate": 32000,
+  "models": [
+    {"role": "t2s_encoder", "file": "models/t2s_encoder.onnx"},
+    {"role": "t2s_first_stage_decoder", "file": "models/t2s_first_stage_decoder.onnx"},
+    {"role": "t2s_stage_decoder", "file": "models/t2s_stage_decoder.onnx"},
+    {"role": "vits", "file": "models/vits.onnx"},
+    {"role": "roberta", "file": "models/roberta.onnx"}
+  ]
+})";
+    }
+
+    FakeSession* encoder = nullptr;
+    const auto factory = [&encoder](const std::string& path, const SessionConfig&) {
+        std::unique_ptr<ModelSession> session;
+        if (path.find("t2s_encoder") != std::string::npos) {
+            auto fake = FakeSession::encoder();
+            encoder = fake.get();
+            session = std::move(fake);
+        } else if (path.find("first_stage") != std::string::npos) {
+            session = FakeSession::first_stage();
+        } else if (path.find("stage_decoder") != std::string::npos) {
+            session = FakeSession::stage(3);
+        } else if (path.find("vits") != std::string::npos) {
+            session = FakeSession::vocoder(64);
+        } else if (path.find("roberta") != std::string::npos) {
+            session = FakeSession::roberta();
+        }
+        return session;
+    };
+
+    Engine engine(package.root(), factory);
+    const auto result = engine.synthesize("\xE4\xBD\xA0\xE5\xA5\xBD");
+    ASSERT_NE(encoder, nullptr);
+
+    // 找到 ref_bert 与 text_bert 绑定。
+    bool has_ref_bert = false;
+    bool has_text_bert = false;
+    for (const auto& [name, tensor] : encoder->last_feed()) {
+        if (name == "ref_bert") {
+            has_ref_bert = true;
+            ASSERT_EQ(tensor.rank(), 2);
+            EXPECT_EQ(tensor.dim(1), kBertDimension);
+            // 参考文本"参考" → [CLS] 参 考 [SEP]，首行是 [CLS] 的 token id。
+            // 迷你词表：0=[PAD] 1=[UNK] 2=[CLS] 3=[SEP]。
+            EXPECT_FLOAT_EQ(tensor.floats()[0], 2.0F);
+        }
+        if (name == "text_bert") {
+            has_text_bert = true;
+            ASSERT_EQ(tensor.rank(), 2);
+            EXPECT_EQ(tensor.dim(1), kBertDimension);
+            // "。你好" → 规范化为 ".你好" → [CLS] . 你 好 [SEP]，首行是 2。
+            EXPECT_FLOAT_EQ(tensor.floats()[0], 2.0F);
+        }
+    }
+    EXPECT_TRUE(has_ref_bert);
+    EXPECT_TRUE(has_text_bert);
+    EXPECT_GT(result.audio.frame_count(), 0U);
 }
 
 TEST(Engine, ReportsManifest) {

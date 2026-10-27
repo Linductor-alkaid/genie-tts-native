@@ -603,7 +603,67 @@ self.global_emb, self.global_emb_advanced = prompt_encoder.run(None, {
 
 ---
 
-## 14. 待补充（M0 剩余项）
+## 14. 中文韵律特征：RoBERTa 实装（2026-10-27）
+
+上游中文路径的 `text_bert` / `ref_bert` 由 Chinese RoBERTa 产出
+（`GetPhonesAndBert.py` 的 `_get_phones_and_bert_pure_lang`）：
+tokenizer 编码规范化文本 → RoBERTa 推理 → 按 `word2ph` 展开。
+本实现补齐了这条链路；**没有 RoBERTa 时仍走全零降级**（与上游一致）。
+
+音色包约定：
+
+```
+manifest.json  → {"role": "roberta", "file": "models/roberta.onnx"}
+models/vocab.txt → BERT 词表（与模型同目录，行号即 ID）
+```
+
+驱动加载的是**角色是否存在**（与 prompt_encoder 一致）；
+manifest 的 `capabilities.roberta` 只是信息性标注。
+
+### 14.1 分词器
+
+上游用 HuggingFace `tokenizers` 加载 tokenizer.json（chinese-roberta-wwm-ext
+标准流水线：BertNormalizer → BertPreTokenizer → WordPiece → [CLS]...[SEP]）。
+本实现按同一流水线自带 C++ 版（`src/text/roberta_tokenizer.cpp`），
+词表读 vocab.txt。**黄金数据**：`tests/golden/roberta_tokenizer.json`
+由 Python `tokenizers==0.23.3` 生成，C++ 逐 ID 对齐（含英文 WordPiece
+子词、标点独立、大小写与变音符剥离）。
+
+与上游的已知差异：
+
+- `strip_accents` 不做完整 NFD 分解，只覆盖 Latin-1 / Latin-Extended-A
+  常用预组合字符。TTS 中文输入里带变音符的拉丁文极罕见。
+- 标点集合是 ASCII `ispunct` + 常用 CJK 标点兜底；经文本规范化后
+  CJK 标点大多已映射为 ASCII。
+
+### 14.2 word2ph 展开
+
+复刻上游 `_expand_roberta_output` 的三布局归一化，**判定顺序照抄**：
+
+1. `T == 音素数` → 视为已是音素级，直接用
+2. `T == len(word2ph) + 2` → 去 [CLS]/[SEP] 后按 word2ph 重复
+3. `T == len(word2ph)` → 直接按 word2ph 重复
+4. 其余 → 报错（上游是 ValueError）
+
+> **上游怪癖（照抄）**：判定 1 优先于 2/3。本实现 word2ph 按单字统计
+> （见 §6 差异记录），中文二字词恰好满足 `音素数 == 字数 + 2`
+> （每字 2 音素），会命中判定 1 把 [CLS]/[SEP] 行一并透传 ——
+> 上游用同样顺序判定，行为一致，不改。
+
+RoBERTa 输入三件套：`input_ids` / `attention_mask` / `token_type_ids`
+（全零，litagin 导出需要第三个输入）。输出 `[T, 1024]`（或
+`[1, T, 1024]`，batch=1 时数据连续，按行数展开即可）。
+
+### 14.3 与上游不一致的**随机性**结论（勘误）
+
+此前文档称"唯一可控的随机性来源是 ORT 的全局随机种子"——经核实
+onnxruntime 1.31：图内采样节点未带 `seed` 属性时由 ORT 自行生成，
+session config 亦无随机种子键。**合成结果目前不可复现**，
+`SynthesisOptions.seed` 与 CLI `--seed` 是预留字段（README 已勘误）。
+
+---
+
+## 15. 待补充（M0 剩余项）
 
 - [ ] Golden Dataset：文本 / 音素 / 中间张量 / 语义 token / PCM 的 Python 参考输出
   - 音素部分已完成：见 §9.2 的 41,923 字全量比对
