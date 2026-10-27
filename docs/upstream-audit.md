@@ -383,15 +383,27 @@ $ python3 tools/g2p/verify_pinyin_rules.py /tmp/dump_pinyin
 **5 个纯鼻音特例**（㕶 呣 嗯 噷 𠮾）没有韵母：上游用带调拼音，`to_initials` 得到空；
 本实现用 tone3，得到声母。两边最终都**不产生音素**，行为一致。
 
-### 9.3 音素推导：等价于上游的 opencpop 查表
+### 9.3 音素推导：opencpop 查表（2026-10-27 修正为与上游逐条一致）
 
-上游最后一步是查 opencpop 词表（`opencpop-strict.txt`，从 HuggingFace 资源包下载）。
-沙箱访问不到 HuggingFace，因此本实现按 opencpop 的划分规则**推导**等价结果：
+上游最后一步是查 opencpop 词表（`opencpop-strict.txt`，429 条，
+HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
+本实现早期**误用自推规则**替代查表——沙箱当时访问不到 HF——
+这是错的：pypinyin 的韵母本身不分翘舌 `ir`，`ve` / `EE` 等
+表示在自推集合里也不存在，导致 zh/ch/sh/ri/zi/ci/si 一类音节的
+韵母全部错成普通 `i`、`üe`（月）整个丢字、`er`（二）丢 `EE` 声位、
+`ü`（语）错成 `u`。听感上就是"咬字不清、读音跑偏"。
 
-- 有声母：`(声母, 收缩后的韵母 + 声调)`，收缩规则 `uei→ui` / `iou→iu` / `uen→un`
-- 零声母且以 y/w 开头：`(y|w, 剩余部分 + 声调)`
-- 零声母且是元音：`(元音, 整个音节 + 声调)`（opencpop 词表就是这么写的，例如 `a a`、`ao ao`）
-- `er` 是特例：`(er, er + 声调)`
+现已内嵌词表（`src/text/opencpop_table.cpp`，429 条，由
+`tools/g2p/generate_opencpop_table.py` 生成），转换逐条对齐上游
+`_pinyin_to_opencpop_phones`：
+
+- 有声母：`uei→ui` / `iou→iu` / `uen→un` 收缩后拼声母查表
+- 零声母：`pinyin_rep_map`（`ing→ying` / `i→yi` / `in→yin` / `u→wu`）优先，
+  否则按 `single_rep_map` 首字母改写（`v→yu` / `e→e` / `i→y` / `u→w`）
+- 查表得到 `(声母符号, 韵母符号 + 声调)`；键不存在等价上游 KeyError → 跳过该字
+- **验证**：12,010 字与 Python 参考实现（pypinyin 0.55 + 同一词表）全量
+  比对 **0 差异**；`tests/golden/` 无需快照，摘要锁定在
+  `Pinyin.TableDigestIsStable`
 
 ### 9.4 ⚠️ 有偏差的部分
 

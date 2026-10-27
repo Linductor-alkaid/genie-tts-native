@@ -3,15 +3,16 @@
 // 拼音 → 音素符号的转换。
 //
 // 规则与上游 `src/genie_tts/G2P/Chinese/ChineseG2P.py` 一致：
-//   拼音（tone3）→ 声母 + 带调韵母 → 音素符号
+//   拼音（tone3）→ 声母 + 带调韵母 → 查 opencpop 词表 → 音素符号
 //
 // 其中"拼音 → 声母/韵母"的切分规则与 pypinyin 的
 // `to_initials()` / `to_finals_tone3()` **逐字等价**（已对 41,923 个汉字
 // 全量比对，见 tools/g2p/verify_pinyin_rules.py）。
 //
-// 最后一步"声母/韵母 → 音素符号"是上游自己的一层转换：
-// 上游查的是 opencpop 词表，而本实现直接按等价规则推导 ——
-// opencpop 的词素划分恰好就是"声母 + 收缩后的韵母"。
+// 最后一步是查 opencpop 词表（内嵌为 opencpop_table.cpp，429 条，
+// 由 tools/g2p/generate_opencpop_table.py 从上游词表生成）——
+// 翘舌 `ir`、`ü` 的 `v`、二声的 `EE` 声位等特殊表示全部来自这张表，
+// 规则推导推不出来（详见 docs/upstream-audit.md §9.3）。
 
 #ifndef GENIE_PINYIN_HPP
 #define GENIE_PINYIN_HPP
