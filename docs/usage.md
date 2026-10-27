@@ -26,7 +26,17 @@ genie-tts <command> [options]
 | `--text <text>` | 要合成的文本 |
 | `--output <file>` | 输出 WAV 路径 |
 | `--language <lang>` | `auto` / `chinese` / `english` / `japanese` / `korean` / `hybrid-chinese-english` |
-| `--seed <n>` | 随机种子（0 = 不固定） |
+| `--seed <n>` | 预留（见下方说明） |
+| `--threads <n>` | 每个模型会话的 ORT intra-op 线程数（默认 8） |
+
+> **`--seed` 目前不能让结果可复现**：采样（TopK / 温度）在 ONNX 图内，
+> ONNX Runtime 没有公开图内采样器的种子接口，seed 只是被透传到
+> `SynthesisOptions`（与 C ABI 同一套字段）。要可复现需要改导出图或
+> 等 ORT 提供钩子，见 `docs/upstream-audit.md`。
+>
+> **多核机器建议留意 `--threads`**：Engine 会创建多个模型会话，每个会话
+> 默认开满全部核心，合计线程数可能过百。CLI 默认每会话 8 线程；
+> 追求低延迟且核心充足时可调大。
 
 ### 文本 → 音素
 

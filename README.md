@@ -135,7 +135,9 @@ genie-tts-native/
 `first_stage_decoder` 与 `stage_decoder` 各含一个 `TopK` 算子。
 因此本项目**没有**主机侧的 `top_k` / `top_p` / `temperature` 参数 ——
 那些是图内常量，改动它们需要重新导出模型，而不是改配置。
-唯一可控的随机性来源是 ONNX Runtime 的全局随机种子。
+图内采样器的随机种子 ONNX Runtime 没有公开入口（节点未带 `seed` 属性时
+由 ORT 自行生成），所以**合成结果目前不可复现**；`SynthesisOptions.seed`
+与 CLI `--seed` 只是预留字段，如实标注，待 ORT 提供钩子后接通。
 
 **按名字绑定模型输入输出**：上游按位置传参（`zip(input_names, [...])`），
 而真实张量名是 `iy` / `iy_emb` / `past_k_layer_N`。位置绑定在输入顺序变化时会静默错位。

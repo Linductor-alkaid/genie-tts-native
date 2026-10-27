@@ -50,8 +50,13 @@ Options:
   --text <text>        Text to synthesize
   --output <file>      Output WAV path
   --language <lang>    auto | chinese | english | japanese | korean | hybrid-chinese-english
-  --seed <n>           Random seed (0 = not fixed)
+  --seed <n>           Reserved (see note below)
+  --threads <n>        ORT intra-op threads per session (default 8)
   -h, --help           Show this help
+
+Note on --seed: sampling (TopK / temperature) lives inside the ONNX graphs
+and ONNX Runtime exposes no public seed for its in-graph samplers, so the
+seed is accepted for API compatibility but cannot make runs reproducible yet.
 )";
 }
 
@@ -62,6 +67,7 @@ struct Options {
     std::string output;
     std::string language = "auto";
     std::uint64_t seed = 0;
+    int threads = 8;
     bool help = false;
 };
 
@@ -103,6 +109,12 @@ bool parse_options(int argc, char** argv, Options& options) {
                 return false;
             }
             options.seed = std::strtoull(value.c_str(), nullptr, 10);
+        } else if (arg == "--threads") {
+            std::string value;
+            if (!next(value)) {
+                return false;
+            }
+            options.threads = std::atoi(value.c_str());
         } else if (!arg.empty() && arg[0] == '-') {
             std::cerr << "unknown option: " << arg << "\n";
             return false;
@@ -272,10 +284,22 @@ int command_synth(const Options& options) {
     genie::SynthesisOptions synthesis;
     synthesis.language = *language;
     if (options.seed != 0) {
+        // 诚实语义：ORT 没有公开的图内采样种子接口，seed 目前只是透传
+        // 给 SynthesisOptions（C ABI 同一套字段），不改变随机性。
+        // 审计记录见 docs/upstream-audit.md §10。
         synthesis.seed = options.seed;
     }
 
-    genie::Engine engine(options.model_dir);
+    // 每个 ORT 会话默认开满全部核心的线程池；Engine 要建 4-6 个会话，
+    // 在多核机器上是上百个自旋线程 —— 调度器一忙就互相踩踏
+    // （实测 32 核机器上高负载时段错误/浮点异常都出在 ORT 内部）。
+    // CLI 单请求场景给一个保守的每会话预算，可用 --threads 覆盖。
+    genie::SessionConfig config;
+    if (options.threads > 0) {
+        config.intra_op_threads = options.threads;
+    }
+
+    genie::Engine engine(options.model_dir, config);
     const auto result = engine.synthesize(options.text, synthesis);
 
     if (options.output.empty()) {
