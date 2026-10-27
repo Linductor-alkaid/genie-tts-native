@@ -40,6 +40,7 @@ add_executable(genie_unit_tests
     unit/test_pinyin.cpp
     unit/test_text.cpp
     unit/test_roberta.cpp
+    unit/test_hubert.cpp
     unit/test_t2s.cpp
     unit/test_engine.cpp
     unit/test_reference.cpp

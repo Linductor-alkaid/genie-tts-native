@@ -344,6 +344,74 @@ TEST(Engine, RobertaFeaturesFlowIntoEncoder) {
     EXPECT_GT(result.audio.frame_count(), 0U);
 }
 
+TEST(Engine, HubertSslFlowsIntoEncoder) {
+    // 音色包带 chinese_hubert 角色时，ssl_content 必须换成真特征
+    // （假会话按波形均值填充，非零），而不是零张量降级。
+    TempVoicePackage package;
+
+    {
+        std::ofstream hubert_model(package.root() + "/models/hubert.onnx");
+        hubert_model << "placeholder";
+    }
+    {
+        std::ofstream manifest(package.root() + "/manifest.json");
+        manifest << R"({
+  "name": "fake",
+  "format_version": 1,
+  "model_version": "v2",
+  "language": "chinese",
+  "sample_rate": 32000,
+  "models": [
+    {"role": "t2s_encoder", "file": "models/t2s_encoder.onnx"},
+    {"role": "t2s_first_stage_decoder", "file": "models/t2s_first_stage_decoder.onnx"},
+    {"role": "t2s_stage_decoder", "file": "models/t2s_stage_decoder.onnx"},
+    {"role": "vits", "file": "models/vits.onnx"},
+    {"role": "chinese_hubert", "file": "models/hubert.onnx"}
+  ]
+})";
+    }
+
+    FakeSession* encoder = nullptr;
+    const auto factory = [&encoder](const std::string& path, const SessionConfig&) {
+        std::unique_ptr<ModelSession> session;
+        if (path.find("t2s_encoder") != std::string::npos) {
+            auto fake = FakeSession::encoder();
+            encoder = fake.get();
+            session = std::move(fake);
+        } else if (path.find("first_stage") != std::string::npos) {
+            session = FakeSession::first_stage();
+        } else if (path.find("stage_decoder") != std::string::npos) {
+            session = FakeSession::stage(3);
+        } else if (path.find("vits") != std::string::npos) {
+            session = FakeSession::vocoder(64);
+        } else if (path.find("hubert") != std::string::npos) {
+            session = FakeSession::chinese_hubert();
+        }
+        return session;
+    };
+
+    Engine engine(package.root(), factory);
+    const auto result = engine.synthesize("\xE4\xBD\xA0\xE5\xA5\xBD");
+    ASSERT_NE(encoder, nullptr);
+
+    bool has_ssl = false;
+    for (const auto& [name, tensor] : encoder->last_feed()) {
+        if (name == "ssl_content") {
+            has_ssl = true;
+            ASSERT_EQ(tensor.rank(), 3);
+            EXPECT_EQ(tensor.dim(0), 1);
+            EXPECT_EQ(tensor.dim(1), kSslChannels);
+            EXPECT_GT(tensor.dim(2), 0);
+            // 参考波形均值 ≈0.077（TempVoicePackage 夹具音频 0.1 ×
+            // 有声占比 32000/41600，含 0.3s 静音尾巴与 PCM16/重采样偏差），
+            // 零张量降级时这里是 0。
+            EXPECT_NEAR(tensor.floats()[0], 0.1F * 32000.0F / 41600.0F, 1e-3F);
+        }
+    }
+    EXPECT_TRUE(has_ssl);
+    EXPECT_GT(result.audio.frame_count(), 0U);
+}
+
 TEST(Engine, ReportsManifest) {
     TempVoicePackage package;
     Engine engine(package.root(), fake_factory());

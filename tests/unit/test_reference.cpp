@@ -79,7 +79,8 @@ TEST(Reference, LoadsAudioAndText) {
 
     EXPECT_TRUE(condition.usable());
     EXPECT_EQ(condition.audio.sample_rate, 32000);
-    EXPECT_EQ(condition.audio.frame_count(), 32000U);
+    // 1 秒音频 + 上游 load_audio() 的 0.3 秒静音尾巴 = 41600 采样。
+    EXPECT_EQ(condition.audio.frame_count(), 41600U);
     EXPECT_EQ(condition.text, "\xE5\x8F\x82\xE8\x80\x83");
     // 参考文本 "参考" → 4 个音素：
     //   参 = c + an1，考 = k + ao3
@@ -95,8 +96,8 @@ TEST(Reference, ResamplesToTargetRate) {
     const auto condition = load_reference(package.root(), *frontend);
 
     EXPECT_EQ(condition.audio.sample_rate, 32000);
-    // 1 秒的音频 → 32000 个采样。
-    EXPECT_NEAR(static_cast<double>(condition.audio.frame_count()), 32000.0, 2.0);
+    // 1 秒的音频 → 32000 采样，加 0.3 秒静音尾巴 → 41600。
+    EXPECT_NEAR(static_cast<double>(condition.audio.frame_count()), 41600.0, 2.0);
 }
 
 TEST(Reference, FeatureShapesAreExplicit) {
@@ -114,12 +115,13 @@ TEST(Reference, FeatureShapesAreExplicit) {
     // ssl_content：[1, 768, 帧数]
     //
     // 帧数语义与上游 HuBERT 对齐：16 kHz 波形、步长 320 → 50 帧/秒。
-    // 1 秒 32 kHz 的参考音频重采样到 16 kHz 后是 16000 采样 → 50 帧。
+    // 1 秒 32 kHz 的参考音频重采样到 16 kHz 后是 16000 采样，加 0.3 秒
+    // 静音尾巴（4800）共 20800 采样 → 65 帧。
     // 这里钉死数值：之前按 32 kHz 帧数除 320 会多出一倍（100 帧）。
     ASSERT_EQ(condition.ssl.rank(), 3);
     EXPECT_EQ(condition.ssl.dim(0), 1);
     EXPECT_EQ(condition.ssl.dim(1), kSslChannels);
-    EXPECT_NEAR(condition.ssl.dim(2), 50, 1);
+    EXPECT_NEAR(condition.ssl.dim(2), 65, 1);
 }
 
 TEST(Reference, MissingAudioIsReported) {
