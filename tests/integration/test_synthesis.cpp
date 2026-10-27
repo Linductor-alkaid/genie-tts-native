@@ -14,12 +14,16 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
+#include "genie/audio.hpp"
 #include "genie/config.hpp"
+#include "genie/engine.hpp"
 #include "genie/errors.hpp"
 #include "genie/onnx_graph.hpp"
 #include "genie/session.hpp"
@@ -123,4 +127,81 @@ TEST_F(OrtBackendTest, SyntheticModelGraphSpecMatchesSession) {
     for (std::size_t i = 0; i < spec.outputs.size(); ++i) {
         EXPECT_EQ(spec.outputs[i].name, session->outputs()[i].name) << "output #" << i;
     }
+}
+
+namespace {
+
+/// 用合成模型临时拼一个合法的音色包：四个角色都指向 echo.onnx。
+///
+/// Engine 构造只加载会话不推理，所以模型内容是否匹配 t2s/vits 契约无关紧要，
+/// 只要它是 ORT 能加载的有效模型 —— 这正好可以隔离地测「构造路径」本身。
+class TempPackage {
+public:
+    TempPackage() {
+        static int counter = 0;
+        const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        root_ = std::filesystem::temp_directory_path() /
+                ("genie_ort_pkg_" + std::to_string(stamp) + "_" + std::to_string(counter++));
+        std::filesystem::create_directories(root_ / "models");
+        std::filesystem::create_directories(root_ / "reference");
+        root_str_ = root_.string();
+
+        for (const char* name : {"t2s_encoder.onnx", "t2s_first_stage_decoder.onnx",
+                                 "t2s_stage_decoder.onnx", "vits.onnx"}) {
+            std::filesystem::copy_file(synthetic_model(), root_ / "models" / name);
+        }
+
+        genie::AudioBuffer audio;
+        audio.sample_rate = 32000;
+        audio.samples.assign(32000, 0.1F);
+        genie::WavCodec::write_pcm16((root_ / "reference" / "audio.wav").string(), audio);
+        std::ofstream text(root_ / "reference" / "text.txt");
+        text << "\xE5\x8F\x82\xE8\x80\x83";  // 参考
+
+        std::ofstream manifest(root_ / "manifest.json");
+        manifest << R"({
+  "name": "synthetic-package",
+  "format_version": 1,
+  "model_version": "v2",
+  "language": "chinese",
+  "sample_rate": 32000,
+  "models": [
+    {"role": "t2s_encoder", "file": "models/t2s_encoder.onnx"},
+    {"role": "t2s_first_stage_decoder", "file": "models/t2s_first_stage_decoder.onnx"},
+    {"role": "t2s_stage_decoder", "file": "models/t2s_stage_decoder.onnx"},
+    {"role": "vits", "file": "models/vits.onnx"}
+  ]
+})";
+    }
+
+    ~TempPackage() {
+        std::error_code ec;
+        std::filesystem::remove_all(root_, ec);
+    }
+
+    TempPackage(const TempPackage&) = delete;
+    TempPackage& operator=(const TempPackage&) = delete;
+
+    [[nodiscard]] const std::string& root() const noexcept { return root_str_; }
+
+private:
+    std::filesystem::path root_;
+    std::string root_str_;
+};
+
+}  // namespace
+
+TEST_F(OrtBackendTest, EngineLoadsViaConfigConstructor) {
+    // Engine(root, config) 必须把会话装配进**当前**对象。
+    //
+    // 曾经的缺陷：它在函数体里调用 Engine(...)，那只是构造又立刻析构了一个
+    // 临时对象，当前对象的 impl_ 保持未初始化 —— 用它就是未定义行为
+    // （真实模型上表现为 synth 命令在第一次触碰 impl_ 时段错误）。
+    // 委托构造必须走初始化列表。
+    const TempPackage package;
+
+    Engine engine(package.root(), SessionConfig{});
+
+    EXPECT_EQ(engine.sample_rate(), 32000);
+    EXPECT_EQ(engine.manifest().name, "synthetic-package");
 }
