@@ -7,6 +7,11 @@
 
 ### Added
 
+- **参考音频内容特征（chinese-hubert-base）**：音色包新增可选
+  `chinese_hubert` 角色（ONNX 图 + 同目录 fp32 外部权重，部署侧由
+  上游 fp16 发布文件转换），`ssl_content` 从全零降级升级为真参考
+  音频 HuBERT 特征（[1, 768, T']，图内已含转置）。审计与排查
+  记录见 docs/upstream-audit.md §14.4。
 - **中文韵律特征（RoBERTa）**：音色包新增可选 `roberta` 角色 +
   同目录 `vocab.txt` 词表，中文合成的 `text_bert` / `ref_bert`
   从全零降级升级为真 RoBERTa 特征 —— tokenizer 编码规范化文本、
@@ -17,6 +22,13 @@
   保持全零降级，与上游一致。审计记录见 docs/upstream-audit.md §14。
 
 ### Fixed
+
+- **参考音频缺少上游的静音尾巴（重要）**：上游 `load_audio()` 在重采样后
+  给参考波形拼接 0.3 秒静音（`SILENCE_TO_APPEND_S`），`ref_audio` 与
+  HuBERT 特征都带这个尾巴；静音帧向自回归解码器标记"参考内容结束"。
+  本实现此前漏掉拼接，接通真 HuBERT 特征后 T2S 在第 1 轮即采样到 EOS，
+  输出退化成参考音频的复读。已按上游补齐（32 kHz 下 9600 采样），
+  黄金契约快照同步更新（ssl 50→65 帧、ref_audio 32000→41600 采样）。
 
 - **`Engine(root, config)` 两参构造未装配会话**：它在函数体里调用 `Engine(...)`
   构造了一个临时对象又立刻析构，当前对象的 `impl_` 保持未初始化 ——

@@ -46,6 +46,13 @@ ReferenceCondition load_reference(const std::string& root, const text::TextFront
         audio.samples = resample(audio.samples, audio.sample_rate, sample_rate);
         audio.sample_rate = sample_rate;
     }
+    // 上游 load_audio() 在重采样后会**拼接 0.3 秒静音**（SILENCE_TO_APPEND_S），
+    // audio_16k / ref_audio 都带这个尾巴。静音帧不是可有可无的填充：
+    // HuBERT 特征尾部的静音帧告诉自回归解码器"参考内容到此为止"。
+    // 实测缺了它，真 ssl_content 会让 T2S 在第 1 轮就采样到 EOS
+    // （semantic 退化成 prompts 本身），整句合成变成复读参考音频。
+    const auto silence_samples = static_cast<std::size_t>(0.3 * static_cast<double>(sample_rate));
+    audio.samples.resize(audio.samples.size() + silence_samples, 0.0F);
     condition.audio = std::move(audio);
 
     // 16 kHz 版本：HuBERT 与说话人验证模型要这个采样率。

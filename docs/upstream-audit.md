@@ -512,6 +512,12 @@ if len(eos_indices[0]) > 0:
 | `ssl_content` | `t2s_encoder` 的 `ssl_content` | chinese-hubert-base.onnx | **全零特征** |
 | `audio_32k` | `vits` 的 `ref_audio` | 参考音频重采样到 32 kHz | 无（必需） |
 
+> **参考音频契约的隐藏要求（2026-10-27 补）**：上游 `load_audio()` 在重采样后
+> 会给波形**拼接 0.3 秒静音**（`SILENCE_TO_APPEND_S`，16 kHz 下 4800 采样），
+> `audio_32k` / `audio_16k` 乃至 HuBERT 特征都带这个尾巴。静音帧是契约的一部分：
+> 它告诉自回归解码器"参考内容到此为止"。本实现曾漏掉拼接，
+> 结果真 ssl_content 会让 T2S 在第 1 轮就采样到 EOS（详见 §14.4）。
+
 **降级路径照搬**：RoBERTa 与 HuBERT 都是可选模型，缺了就用全零特征。
 上游的 `GetPhonesAndBert.py` 就是这么降级的。
 
@@ -660,6 +666,25 @@ RoBERTa 输入三件套：`input_ids` / `attention_mask` / `token_type_ids`
 onnxruntime 1.31：图内采样节点未带 `seed` 属性时由 ORT 自行生成，
 session config 亦无随机种子键。**合成结果目前不可复现**，
 `SynthesisOptions.seed` 与 CLI `--seed` 是预留字段（README 已勘误）。
+
+### 14.4 参考音频内容特征：chinese-hubert-base 实装（2026-10-27）
+
+上游 `ssl_content` 由 chinese-hubert-base 对 16 kHz 波形推理产出
+（`ReferenceAudio.__init__`：`cn_hubert.run(None, {'input_values': audio_16k})[0]`），
+输出**直接**喂给 t2s_encoder —— 转置已在导出时烘进图
+（`last_hidden_state: [1, 768, T']`，T' = 16k 采样数 / 320 = 50 帧/秒）。
+本实现补齐该链路：音色包可选 `chinese_hubert` 角色（图 + 同目录外部权重
+`chinese-hubert-base_weights.bin`，fp32 字节 = fp16 发布文件 ×2，
+部署侧预转换，方法与 §14 的 RoBERTa 相同；已核验图内 209 个外部
+张量偏移 0 起点连续无缝，整文件转换与上游逐张量注入等价）。
+
+**移植时踩掉的坑（记录以飨后人）**：接通真特征后 T2S 在第 1 轮就采样到
+EOS，`y[:, -idx:]`（idx=0）把整段 prompts 当成输出 —— 合成结果变成复读
+参考音频。排查结论：不是权重（外部数据偏移连续）、不是形状（图声明
+`[1, 768, ssl_length]` 相符）、不是异常帧（216 帧范数均匀 ~7），
+而是 §11 末尾的**静音尾巴**：上游 load_audio() 拼的 0.3 秒静音帧
+给解码器提供了"参考内容结束"的边界信号。补上拼接后，
+生成 token 数恢复随文本伸缩（短句 ~50、长句 ~100）。
 
 ---
 

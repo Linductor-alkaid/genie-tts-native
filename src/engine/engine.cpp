@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "engine/hubert.hpp"
 #include "engine/roberta.hpp"
 #include "genie/errors.hpp"
 #include "genie/onnx_graph.hpp"
@@ -90,6 +91,7 @@ struct Engine::Impl {
     std::unique_ptr<ModelSession> prompt_encoder;    // V2ProPlus
     std::unique_ptr<ModelSession> speaker_verifier;  // V2ProPlus
     std::unique_ptr<ModelSession> roberta;           // 中文韵律（可选）
+    std::unique_ptr<ModelSession> hubert;            // 参考音频 ssl_content（可选）
 
     /// RoBERTa 的分词器，跟随 roberta 会话一起加载。
     std::unique_ptr<text::RobertaTokenizer> roberta_tokenizer;
@@ -212,9 +214,20 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
         impl->roberta_tokenizer = text::RobertaTokenizer::load(vocab_path.string());
     }
 
+    // 3.6) HuBERT（参考音频内容特征）：缺失时 ssl_content 保持全零降级。
+    if (impl->package.has(ModelRole::ChineseHubert)) {
+        impl->hubert = load(impl->package.model_path(ModelRole::ChineseHubert));
+    }
+
     // 4) 参考音频条件。
     if (impl->frontend != nullptr) {
         impl->reference = load_reference(impl->root, *impl->frontend, impl->sample_rate);
+
+        // 参考音频的内容特征：有 HuBERT 就算真的，没有保持全零降级
+        // （与上游 ReferenceAudio.__init__ 一致）。
+        if (impl->hubert) {
+            impl->reference.ssl = hubert::compute_ssl(*impl->hubert, impl->reference.audio_16k);
+        }
 
         // 参考文本的韵律特征：有 RoBERTa 就算真的，没有保持全零降级
         // （与上游 GetPhonesAndBert.py 的降级分支一致）。

@@ -11,6 +11,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <stdexcept>
@@ -206,6 +207,19 @@ public:
         return std::make_unique<FakeSession>(std::move(inputs), std::move(config));
     }
 
+    /// 构造一个 chinese-hubert：16 kHz 波形 → [1, 768, T']。
+    ///
+    /// 输出按帧填充波形均值的绝对值（非零、随音频变化），
+    /// 引擎接线测试据此验证"ssl_content 确实来自参考音频"。
+    static std::unique_ptr<FakeSession> chinese_hubert() {
+        std::vector<TensorSpec> inputs;
+        inputs.push_back({"input_values", ElementType::Float32, {1, -1}});
+
+        FakeSessionConfig config;
+        config.output_specs.push_back({"last_hidden_state", ElementType::Float32, {1, 768, -1}});
+        return std::make_unique<FakeSession>(std::move(inputs), std::move(config));
+    }
+
     /// 校验喂进来的张量是否符合声明的契约。
     ///
     /// 这一步**不是装饰** —— 形状错位（秩不对、长度不对）在真模型上
@@ -301,6 +315,35 @@ public:
                 // 同一个调用表达式里，可能读到已被搬空的 vector。
                 const auto row_count = static_cast<std::int64_t>(rows.size() / 1024);
                 result.push_back(Tensor::from_float32({row_count, 1024}, std::move(rows)));
+            } else if (spec.name == "last_hidden_state" && spec.type == ElementType::Float32) {
+                // HuBERT 风格：[1, 768, T']，T' = 波形采样数 / 320，
+                // 值随波形变化（非零），供接线测试验证数据流通。
+                std::size_t frames = 1;
+                for (const auto& entry : feed) {
+                    if (entry.first == "input_values") {
+                        frames = static_cast<std::size_t>(entry.second.dim(1)) / 320;
+                        break;
+                    }
+                }
+                const auto frame_count =
+                    static_cast<std::int64_t>(std::max<std::size_t>(frames, 1));
+                const auto total = static_cast<std::size_t>(768 * frame_count);
+                std::vector<float> frames_data(total, 0.0F);
+                for (const auto& entry : feed) {
+                    if (entry.first == "input_values") {
+                        const auto& wave = entry.second.floats();
+                        double sum = 0.0;
+                        for (const auto sample : wave) {
+                            sum += std::abs(sample);
+                        }
+                        const auto fill =
+                            static_cast<float>(sum / static_cast<double>(wave.size()));
+                        std::fill(frames_data.begin(), frames_data.end(), fill);
+                        break;
+                    }
+                }
+                result.push_back(
+                    Tensor::from_float32({1, 768, frame_count}, std::move(frames_data)));
             } else {
                 // KV cache：原样透传输入（真模型会把它变长）。
                 Tensor value = Tensor::zeros(spec.type, spec.shape);

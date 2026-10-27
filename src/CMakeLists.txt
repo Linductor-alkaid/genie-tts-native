@@ -105,6 +105,7 @@ add_library(genie_sched STATIC
     engine/t2s.cpp
     engine/engine.cpp
     engine/roberta.cpp
+    engine/hubert.cpp
 )
 set_target_properties(genie_sched PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # engine/ 内部头（roberta.hpp）在 src/ 下，与 genie_core 同一约定。
