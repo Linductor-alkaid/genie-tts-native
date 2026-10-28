@@ -29,7 +29,7 @@
 |---|---|
 | M0 上游审计与基线 | ✅ 推理链路、模型 I/O 契约、依赖清单已固化到 [`docs/upstream-audit.md`](docs/upstream-audit.md) |
 | M1 C++ Runtime 基础设施 | ✅ CMake 体系、ONNX Runtime 封装、张量抽象、音色包、JSON / SHA-256 / UTF-8 自带实现 |
-| M2 文本与音频前处理 | 🚧 音频完成；中文文本前端完成（符号表逐字一致、拼音全量比对一致、TextNormalizer 规范化、变调与儿化）；中文韵律特征（RoBERTa）已实装；英文 / 日文 / 韩文 G2P 留成可插拔接口 |
+| M2 文本与音频前处理 | 🚧 音频完成；中文文本前端完成（符号表逐字一致、拼音全量比对一致、TextNormalizer 规范化、变调与儿化、多音字 g2pM）；中文韵律特征（RoBERTa）已实装；英文 / 日文 / 韩文 G2P 留成可插拔接口 |
 | M3 完整推理迁移 | ✅ T2S 自回归解码、VITS、端到端引擎、流式流水线、参考音频条件、V2ProPlus |
 | M4 原生 SDK | ✅ C++ SDK + C ABI 共享库 + CLI |
 | M6 回归层 | ✅ Golden Dataset（模型 I/O 契约快照）|
@@ -166,7 +166,7 @@ genie-tts-native/
 与上游**顺序完全一致**；拼音切分与 pypinyin 的 `to_initials` / `to_finals_tone3`
 对 **41,923 个汉字**全量比对一致。
 
-其余差异（文本规范化的覆盖范围、多音字处理、变调与儿化等）见
+其余差异（文本规范化的覆盖范围、jieba 分词的 POS 依赖、词级读音修正等）见
 [`docs/upstream-audit.md`](docs/upstream-audit.md)。
 
 ---

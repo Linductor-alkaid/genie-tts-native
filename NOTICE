@@ -75,3 +75,12 @@ third_party/genie-tts-models/ 下的 ONNX 模型由 Genie-TTS 仓库以 MIT 协�
    `tools/g2p/generate_char_convert.py` 逐字保留了原始版权与许可声明。
 
    Apache-2.0 原文见 https://www.apache.org/licenses/LICENSE-2.0
+
+5. g2pM (https://github.com/kakaobrain/g2pM，pip 包由 mozillazg/pypinyin-g2pM 打包)
+   Copyright (c) 2020 Seanie Lee (Kakao Brain)
+   Apache License 2.0
+
+   src/engine/g2pm 的多音字消歧模型与词典（char2idx / class2idx /
+   digest_cedict）来自该 pip 包，经 tools/deploy/convert_g2pm.py 转换为
+   容器格式后随仓库发布于 third_party/g2pm/g2pm.bin。
+   授权原文见 third_party/g2pm/LICENSE。

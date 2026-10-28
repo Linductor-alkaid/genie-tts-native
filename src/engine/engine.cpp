@@ -13,12 +13,14 @@
 #include <utility>
 #include <vector>
 
+#include "engine/g2pm.hpp"
 #include "engine/hubert.hpp"
 #include "engine/roberta.hpp"
 #include "genie/errors.hpp"
 #include "genie/onnx_graph.hpp"
 #include "genie/reference.hpp"
 #include "genie/symbols.hpp"
+#include "text/frontend_factory_internal.hpp"
 
 namespace genie {
 namespace {
@@ -95,6 +97,7 @@ struct Engine::Impl {
 
     /// RoBERTa 的分词器，跟随 roberta 会话一起加载。
     std::unique_ptr<text::RobertaTokenizer> roberta_tokenizer;
+    std::unique_ptr<g2pm::Model> g2pm_model;  // 多音字消歧（可选角色）
 
     T2SDecoder decoder;
     std::unique_ptr<text::TextFrontend> frontend;
@@ -201,8 +204,16 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
         impl->speaker_verifier = load(impl->package.model_path(ModelRole::SpeakerVerification));
     }
 
-    // 3) 文本前端。
-    impl->frontend = text::make_frontend(impl->manifest.language);
+    // 3) 文本前端。g2pM（多音字消歧）先于前端装配 —— 前端持有它做
+    //    上下文读音判定；模型缺失时前端退化为单字最常用读音
+    //    （与 RoBERTa / HuBERT 的可选降级同款模式）。
+    if (impl->package.has(ModelRole::G2pm)) {
+        impl->g2pm_model = std::make_unique<g2pm::Model>(
+            g2pm::Model::load(impl->package.model_path(ModelRole::G2pm)));
+        impl->frontend = text::make_chinese_frontend(impl->g2pm_model.get());
+    } else {
+        impl->frontend = text::make_frontend(impl->manifest.language);
+    }
     impl->decoder = T2SDecoder(T2SOptions{kMaxT2SIterations, kEosThreshold});
 
     // 3.5) RoBERTa（中文韵律）：模型与分词器一起加载，二者缺一不可 ——

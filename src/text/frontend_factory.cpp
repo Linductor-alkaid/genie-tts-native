@@ -12,11 +12,9 @@
 #include <memory>
 
 #include "genie/text.hpp"
+#include "text/frontend_factory_internal.hpp"
 
 namespace genie::text {
-
-/// 中文前端。定义在 chinese_frontend.cpp。
-std::unique_ptr<TextFrontend> make_chinese_frontend();
 
 std::unique_ptr<TextFrontend> make_frontend(Language language) {
     switch (language) {

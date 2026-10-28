@@ -121,16 +121,23 @@ std::string to_string(ModelRole role) {
             return "chinese_hubert";
         case ModelRole::Roberta:
             return "roberta";
+        case ModelRole::G2pm:
+            return "g2pm";
     }
     return "";
 }
 
 std::optional<ModelRole> model_role_from_string(std::string_view text) {
     constexpr ModelRole kAll[] = {
-        ModelRole::T2sEncoder,      ModelRole::T2sFirstStageDecoder,
-        ModelRole::T2sStageDecoder, ModelRole::Vits,
-        ModelRole::PromptEncoder,   ModelRole::SpeakerVerification,
-        ModelRole::ChineseHubert,   ModelRole::Roberta,
+        ModelRole::T2sEncoder,
+        ModelRole::T2sFirstStageDecoder,
+        ModelRole::T2sStageDecoder,
+        ModelRole::Vits,
+        ModelRole::PromptEncoder,
+        ModelRole::SpeakerVerification,
+        ModelRole::ChineseHubert,
+        ModelRole::Roberta,
+        ModelRole::G2pm,
     };
     for (const ModelRole role : kAll) {
         if (to_string(role) == text) {

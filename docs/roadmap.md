@@ -74,6 +74,7 @@
 - ✅ 繁简转换
 - ✅ 变调（ToneSandhi）与儿化（Erhua）（词表近似，见 upstream-audit §9.6）
 - ⏳ 中文分词（`word2ph` 目前按单字统计）
+- ✅ 多音字 g2pM（2026-10-28：C++ 前向复刻，oracle 47/47，见 upstream-audit §9.7）
 - ⏳ 英文 G2P（留成可插拔接口）
 - ⏳ 日文 G2P（留成可插拔接口）
 - ⏳ 韩文 G2P（留成可插拔接口）

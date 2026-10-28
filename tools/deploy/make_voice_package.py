@@ -19,6 +19,8 @@ convert_fp16_weights.py 转好 fp32）的目录；脚本负责改名、算 SHA-2
     <dl>/GenieData/speaker_encoder.onnx                  → --speaker-encoder
     <dl>/GenieData(Optional)/RoBERTa/                    → --roberta
         RoBERTa.onnx / roberta_tokenizer/vocab.txt
+    third_party/g2pm/g2pm.bin（仓库自带，可选）          → --g2pm
+        g2pM 多音字消歧模型；缺省时多音字取最常用读音
     <voice>/prompt_wav/*.wav                             → --reference（任选一段）
 
 用法（feibi 音色完整示例见 docs/deployment.md）：
@@ -76,6 +78,9 @@ def main() -> None:
                         help="speaker_encoder.onnx 路径（可选；hubert 同给时启用 V2ProPlus）")
     parser.add_argument("--roberta", type=pathlib.Path,
                         help="RoBERTa 目录（含 RoBERTa.onnx 与 roberta_tokenizer/vocab.txt，可选）")
+    parser.add_argument("--g2pm", type=pathlib.Path,
+                        help="g2pM 容器文件（仓库 third_party/g2pm/g2pm.bin，可选；"
+                             "缺省时多音字取最常用读音）")
     parser.add_argument("--reference", required=True, type=pathlib.Path,
                         help="参考音频 wav（任意采样率，引擎会重采样到 32 kHz）")
     parser.add_argument("--reference-text", type=pathlib.Path,
@@ -135,6 +140,11 @@ def main() -> None:
             raise SystemExit(f"缺少 {vocab}（RoBERTa 分词表必须与 onnx 同目录）")
         shutil.copyfile(vocab, models_dir / "vocab.txt")
         print(f"  {'roberta vocab':<22} <- vocab.txt")
+
+    # 多音字消歧（g2pM）：单文件容器，sha256 照常进 manifest。
+    if args.g2pm:
+        place("g2pm", args.g2pm, "g2pm.bin")
+        print(f"  {'g2pm':<22} <- {args.g2pm.name}")
 
     # 参考音频与文本。
     shutil.copyfile(args.reference, ref_dir / "audio.wav")
