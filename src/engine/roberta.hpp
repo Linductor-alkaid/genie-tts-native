@@ -12,10 +12,12 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "genie/session.hpp"
 #include "genie/tensor.hpp"
+#include "genie/text.hpp"
 #include "text/roberta_tokenizer.hpp"
 
 namespace genie::roberta {
@@ -49,6 +51,18 @@ namespace genie::roberta {
                                        std::string_view text,
                                        const std::vector<std::int32_t>& word2ph,
                                        std::size_t num_phones);
+
+/// 按前端的分块结果计算韵律特征 —— 合成与参考文本共用的统一入口。
+///
+/// 混读序列（`phonemes.bert_chunks` 非空）逐块编码 + 逐块展开再拼接，
+/// 复刻上游 `np.concatenate(list_berts, axis=0)`；纯中文序列（分块为空）
+/// 用 `fallback_text` 整段算一次，与上游 'chinese' 模式一致。
+///
+/// @param fallback_text 单块路径使用的文本（合成路径传规范化文本；
+///                      参考文本路径维持历史行为传原文）
+[[nodiscard]] Tensor compute_text_bert(const text::RobertaTokenizer& tokenizer, ModelSession& model,
+                                       const text::PhonemeSequence& phonemes,
+                                       std::string_view fallback_text);
 
 }  // namespace genie::roberta
 

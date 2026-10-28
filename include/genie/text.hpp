@@ -33,6 +33,21 @@
 
 namespace genie::text {
 
+/// 混读路径的一个 BERT 分块。
+///
+/// 上游对 'hybrid-chinese-english' 文本是**按语言块**分别跑 RoBERTa 的
+/// （GetPhonesAndBert.py 对每个语言块单独调 `_get_phones_and_bert_pure_lang`
+/// 再 `np.concatenate`），块与块之间没有跨块的注意力 —— 所以韵律特征
+/// 不能拿"把所有中文块拼成一段"的文本算一次，必须逐块编码、逐块展开。
+struct BertChunk {
+    /// 该块的文本（中文块是逐块规范化后的结果，喂给 RoBERTa tokenizer）。
+    std::string text;
+    /// 该块在 `PhonemeSequence::word2ph` 里的起始下标。
+    std::size_t word_offset = 0;
+    /// 该块占的 word2ph 条数；这些条目的和 = 该块的音素数。
+    std::size_t word_count = 0;
+};
+
 /// 音素序列。
 struct PhonemeSequence {
     /// 音素符号名（"zh"、"ong1"…）。
@@ -42,6 +57,10 @@ struct PhonemeSequence {
     /// 每个"词"占几个音素。上游按分词结果统计，用于韵律特征。
     /// 本实现按**单字**统计（没有分词），见 docs/upstream-audit.md。
     std::vector<std::int32_t> word2ph;
+    /// 混读路径的 BERT 分块。各块的 [word_offset, word_offset+word_count)
+    /// 连续覆盖整个 word2ph。**空** = 单块路径：整段文本跑一次 RoBERTa
+    /// （纯中文走这条，与上游 'chinese' 模式一致）。
+    std::vector<BertChunk> bert_chunks;
 
     [[nodiscard]] bool empty() const noexcept { return ids.empty(); }
     [[nodiscard]] std::size_t size() const noexcept { return ids.size(); }
@@ -76,7 +95,9 @@ public:
 /// 创建指定语言的前端。
 ///
 /// `Language::Auto` 会按文本内容自动判断（与 `detect_language()` 一致）。
-/// `Language::HybridChineseEnglish` 目前回退到中文前端。
+/// `Language::HybridChineseEnglish` 由中文前端承担：按语言分块
+/// （`split_language`），每个中文块走完整规范化 + G2P；
+/// 英文块待英文 G2P 落地（当前丢弃，见 docs/upstream-audit.md §9.4）。
 ///
 /// @return 前端实例；语言不受支持时返回 nullptr。
 [[nodiscard]] std::unique_ptr<TextFrontend> make_frontend(Language language);

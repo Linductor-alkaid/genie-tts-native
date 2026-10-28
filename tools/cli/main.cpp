@@ -156,7 +156,17 @@ int command_g2p(const Options& options) {
 
     const auto sequence = frontend->convert(options.text);
     std::cout << "language: " << genie::language_to_string(language) << "\n";
-    std::cout << "normalized: " << genie::text::normalize(options.text, language) << "\n";
+    // 混读路径的规范化是**逐块**做的（每块各自走一遍 TextNormalizer），
+    // 整段 normalize() 的结果与实际喂给模型的分块不一致，这里照实分块显示。
+    if (sequence.bert_chunks.empty()) {
+        std::cout << "normalized: " << genie::text::normalize(options.text, language) << "\n";
+    } else {
+        std::cout << "normalized (per chunk):\n";
+        for (const auto& chunk : sequence.bert_chunks) {
+            std::cout << "  [" << chunk.word_offset << ", " << chunk.word_offset + chunk.word_count
+                      << ")  " << chunk.text << "\n";
+        }
+    }
     std::cout << "phonemes (" << sequence.ids.size() << "):\n";
     for (std::size_t i = 0; i < sequence.symbols.size(); ++i) {
         std::cout << "  " << i << "\t" << sequence.symbols[i] << "\t" << sequence.ids[i] << "\n";
