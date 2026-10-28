@@ -235,8 +235,7 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
             const auto sequence = impl->frontend->convert(impl->reference.text);
             if (!sequence.ids.empty()) {
                 impl->reference.bert = roberta::compute_text_bert(
-                    *impl->roberta_tokenizer, *impl->roberta, impl->reference.text,
-                    sequence.word2ph, sequence.ids.size());
+                    *impl->roberta_tokenizer, *impl->roberta, sequence, impl->reference.text);
             }
         }
     }
@@ -318,11 +317,11 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     auto text_bert = Tensor::zeros(
         ElementType::Float32, {static_cast<std::int64_t>(phonemes.ids.size()), kBertDimension});
     if (impl_->roberta_tokenizer) {
-        // 与上游一致：tokenizer 编码的是规范化后的文本（text_clean），
-        // 音素序列与 word2ph 也来自同一段文本。
+        // 混读序列按语言块逐块编码（前端在 bert_chunks 里给出分块与对齐），
+        // 单块（纯中文）路径用整段规范化文本 —— 两者与上游逐块 / 单块一致。
         const auto normalized = text::normalize(prepared, language);
-        text_bert = roberta::compute_text_bert(*impl_->roberta_tokenizer, *impl_->roberta,
-                                               normalized, phonemes.word2ph, phonemes.ids.size());
+        text_bert = roberta::compute_text_bert(*impl_->roberta_tokenizer, *impl_->roberta, phonemes,
+                                               normalized);
     }
     const auto ref_seq = Tensor::from_int64(
         {1, static_cast<std::int64_t>(reference.phoneme_ids.size())}, reference.phoneme_ids);

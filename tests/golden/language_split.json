@@ -1,0 +1,642 @@
+{
+  "cases": [
+    {
+      "bert_chunks": [],
+      "phones": 10,
+      "split": [
+        {
+          "content": "你好，世界。",
+          "language": "chinese"
+        }
+      ],
+      "text": "你好，世界。"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "你好",
+          "word_count": 2,
+          "word_offset": 0
+        },
+        {
+          "content": "很高兴见到你",
+          "word_count": 6,
+          "word_offset": 2
+        }
+      ],
+      "phones": 16,
+      "split": [
+        {
+          "content": "你好",
+          "language": "chinese"
+        },
+        {
+          "content": "Mira",
+          "language": "english"
+        },
+        {
+          "content": "很高兴见到你",
+          "language": "chinese"
+        }
+      ],
+      "text": "你好Mira很高兴见到你"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "你好,",
+          "word_count": 3,
+          "word_offset": 0
+        },
+        {
+          "content": ".很高兴见到你",
+          "word_count": 7,
+          "word_offset": 3
+        }
+      ],
+      "phones": 18,
+      "split": [
+        {
+          "content": "你好，",
+          "language": "chinese"
+        },
+        {
+          "content": "Mira",
+          "language": "english"
+        },
+        {
+          "content": "。很高兴见到你",
+          "language": "chinese"
+        }
+      ],
+      "text": "你好，Mira。很高兴见到你"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "打幺三八零零幺三八零零零了",
+          "word_count": 13,
+          "word_offset": 0
+        }
+      ],
+      "phones": 26,
+      "split": [
+        {
+          "content": "Mira",
+          "language": "english"
+        },
+        {
+          "content": "打13800138000了",
+          "language": "chinese"
+        }
+      ],
+      "text": "Mira打13800138000了"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "在二零二四年三月一号,",
+          "word_count": 11,
+          "word_offset": 0
+        },
+        {
+          "content": "说很卡",
+          "word_count": 3,
+          "word_offset": 11
+        }
+      ],
+      "phones": 27,
+      "split": [
+        {
+          "content": "在2024年3月1号，",
+          "language": "chinese"
+        },
+        {
+          "content": "Mira",
+          "language": "english"
+        },
+        {
+          "content": "说很卡",
+          "language": "chinese"
+        }
+      ],
+      "text": "在2024年3月1号，Mira说很卡"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "用",
+          "word_count": 1,
+          "word_offset": 0
+        },
+        {
+          "content": "写个脚本处理数据",
+          "word_count": 8,
+          "word_offset": 1
+        }
+      ],
+      "phones": 18,
+      "split": [
+        {
+          "content": "用",
+          "language": "chinese"
+        },
+        {
+          "content": "Python",
+          "language": "english"
+        },
+        {
+          "content": "写个脚本处理数据",
+          "language": "chinese"
+        }
+      ],
+      "text": "用Python写个脚本处理数据"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "打开",
+          "word_count": 2,
+          "word_offset": 0
+        },
+        {
+          "content": "设置页面",
+          "word_count": 4,
+          "word_offset": 2
+        }
+      ],
+      "phones": 12,
+      "split": [
+        {
+          "content": "打开",
+          "language": "chinese"
+        },
+        {
+          "content": "WiFi",
+          "language": "english"
+        },
+        {
+          "content": "设置页面",
+          "language": "chinese"
+        }
+      ],
+      "text": "打开WiFi设置页面"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "这个",
+          "word_count": 2,
+          "word_offset": 0
+        },
+        {
+          "content": "的",
+          "word_count": 1,
+          "word_offset": 2
+        },
+        {
+          "content": "设计不错",
+          "word_count": 4,
+          "word_offset": 3
+        }
+      ],
+      "phones": 14,
+      "split": [
+        {
+          "content": "这个",
+          "language": "chinese"
+        },
+        {
+          "content": "APP",
+          "language": "english"
+        },
+        {
+          "content": "的",
+          "language": "chinese"
+        },
+        {
+          "content": "UI",
+          "language": "english"
+        },
+        {
+          "content": "设计不错",
+          "language": "chinese"
+        }
+      ],
+      "text": "这个APP的UI设计不错"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "我昨天去",
+          "word_count": 4,
+          "word_offset": 0
+        },
+        {
+          "content": "买了书架",
+          "word_count": 4,
+          "word_offset": 4
+        }
+      ],
+      "phones": 16,
+      "split": [
+        {
+          "content": "我昨天去",
+          "language": "chinese"
+        },
+        {
+          "content": "IKEA",
+          "language": "english"
+        },
+        {
+          "content": "买了书架",
+          "language": "chinese"
+        }
+      ],
+      "text": "我昨天去IKEA买了书架"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "十五",
+          "word_count": 2,
+          "word_offset": 0
+        },
+        {
+          "content": "下个月发布",
+          "word_count": 5,
+          "word_offset": 2
+        }
+      ],
+      "phones": 14,
+      "split": [
+        {
+          "content": "iPhone",
+          "language": "english"
+        },
+        {
+          "content": "15 ",
+          "language": "chinese"
+        },
+        {
+          "content": "Pro",
+          "language": "english"
+        },
+        {
+          "content": "Max",
+          "language": "english"
+        },
+        {
+          "content": "下个月发布",
+          "language": "chinese"
+        }
+      ],
+      "text": "iPhone15 Pro Max下个月发布"
+    },
+    {
+      "bert_chunks": [],
+      "phones": 12,
+      "split": [
+        {
+          "content": "今天天气真好",
+          "language": "chinese"
+        }
+      ],
+      "text": "今天天气真好"
+    },
+    {
+      "bert_chunks": [],
+      "phones": 16,
+      "split": [
+        {
+          "content": "ＡＢＣ公司的总部在柏林",
+          "language": "chinese"
+        }
+      ],
+      "text": "ＡＢＣ公司的总部在柏林"
+    },
+    {
+      "bert_chunks": [],
+      "phones": 0,
+      "split": [
+        {
+          "content": "hello",
+          "language": "english"
+        },
+        {
+          "content": "world",
+          "language": "english"
+        }
+      ],
+      "text": "hello world"
+    },
+    {
+      "bert_chunks": [],
+      "phones": 0,
+      "split": [
+        {
+          "content": "hello",
+          "language": "english"
+        }
+      ],
+      "text": "  hello"
+    },
+    {
+      "bert_chunks": [],
+      "phones": 0,
+      "split": [
+        {
+          "content": "hello",
+          "language": "english"
+        }
+      ],
+      "text": "hello"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "是大趋势,",
+          "word_count": 5,
+          "word_offset": 0
+        },
+        {
+          "content": "还要等等",
+          "word_count": 4,
+          "word_offset": 5
+        }
+      ],
+      "phones": 17,
+      "split": [
+        {
+          "content": "AI",
+          "language": "english"
+        },
+        {
+          "content": "是大趋势，",
+          "language": "chinese"
+        },
+        {
+          "content": "AGI",
+          "language": "english"
+        },
+        {
+          "content": "还要等等",
+          "language": "chinese"
+        }
+      ],
+      "text": "AI是大趋势，AGI还要等等"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "会议室在",
+          "word_count": 4,
+          "word_offset": 0
+        },
+        {
+          "content": "栋三零二室",
+          "word_count": 5,
+          "word_offset": 4
+        }
+      ],
+      "phones": 18,
+      "split": [
+        {
+          "content": "会议室在",
+          "language": "chinese"
+        },
+        {
+          "content": "B",
+          "language": "english"
+        },
+        {
+          "content": "栋302室",
+          "language": "chinese"
+        }
+      ],
+      "text": "会议室在B栋302室"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "他考了",
+          "word_count": 3,
+          "word_offset": 0
+        },
+        {
+          "content": "和",
+          "word_count": 1,
+          "word_offset": 3
+        }
+      ],
+      "phones": 8,
+      "split": [
+        {
+          "content": "他考了",
+          "language": "chinese"
+        },
+        {
+          "content": "TOEFL",
+          "language": "english"
+        },
+        {
+          "content": "和",
+          "language": "chinese"
+        },
+        {
+          "content": "GRE",
+          "language": "english"
+        }
+      ],
+      "text": "他考了TOEFL和GRE"
+    },
+    {
+      "bert_chunks": [],
+      "phones": 41,
+      "split": [
+        {
+          "content": "客服电话是4008001688，麻烦转人工",
+          "language": "chinese"
+        }
+      ],
+      "text": "客服电话是4008001688，麻烦转人工"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "装个",
+          "word_count": 2,
+          "word_offset": 0
+        },
+        {
+          "content": "包再跑",
+          "word_count": 3,
+          "word_offset": 2
+        }
+      ],
+      "phones": 10,
+      "split": [
+        {
+          "content": "装个",
+          "language": "chinese"
+        },
+        {
+          "content": "npm",
+          "language": "english"
+        },
+        {
+          "content": "包再跑",
+          "language": "chinese"
+        },
+        {
+          "content": "yarn",
+          "language": "english"
+        },
+        {
+          "content": "build",
+          "language": "english"
+        }
+      ],
+      "text": "装个npm包再跑yarn build"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "等一,",
+          "word_count": 3,
+          "word_offset": 0
+        },
+        {
+          "content": "等二,",
+          "word_count": 3,
+          "word_offset": 3
+        },
+        {
+          "content": "等三",
+          "word_count": 2,
+          "word_offset": 6
+        }
+      ],
+      "phones": 14,
+      "split": [
+        {
+          "content": "x",
+          "language": "english"
+        },
+        {
+          "content": "=1，",
+          "language": "chinese"
+        },
+        {
+          "content": "y",
+          "language": "english"
+        },
+        {
+          "content": "=2，",
+          "language": "chinese"
+        },
+        {
+          "content": "z",
+          "language": "english"
+        },
+        {
+          "content": "=3",
+          "language": "chinese"
+        }
+      ],
+      "text": "x=1，y=2，z=3"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "我的邮箱是",
+          "word_count": 5,
+          "word_offset": 0
+        },
+        {
+          "content": ".",
+          "word_count": 1,
+          "word_offset": 5
+        },
+        {
+          "content": ",发我一份",
+          "word_count": 5,
+          "word_offset": 6
+        }
+      ],
+      "phones": 20,
+      "split": [
+        {
+          "content": "我的邮箱是",
+          "language": "chinese"
+        },
+        {
+          "content": "example",
+          "language": "english"
+        },
+        {
+          "content": "@",
+          "language": "chinese"
+        },
+        {
+          "content": "mail",
+          "language": "english"
+        },
+        {
+          "content": ".",
+          "language": "chinese"
+        },
+        {
+          "content": "com",
+          "language": "english"
+        },
+        {
+          "content": "，发我一份",
+          "language": "chinese"
+        }
+      ],
+      "text": "我的邮箱是example@mail.com，发我一份"
+    },
+    {
+      "bert_chunks": [],
+      "phones": 6,
+      "split": [
+        {
+          "content": "说 很 卡",
+          "language": "chinese"
+        }
+      ],
+      "text": "说 很 卡"
+    },
+    {
+      "bert_chunks": [
+        {
+          "content": "第二行第三个参数改成",
+          "word_count": 10,
+          "word_offset": 0
+        },
+        {
+          "content": "模式",
+          "word_count": 2,
+          "word_offset": 10
+        }
+      ],
+      "phones": 24,
+      "split": [
+        {
+          "content": "第二行第3个参数改成",
+          "language": "chinese"
+        },
+        {
+          "content": "auto",
+          "language": "english"
+        },
+        {
+          "content": "模式",
+          "language": "chinese"
+        }
+      ],
+      "text": "第二行第3个参数改成auto模式"
+    }
+  ]
+}

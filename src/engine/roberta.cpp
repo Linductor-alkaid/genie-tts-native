@@ -90,4 +90,42 @@ Tensor compute_text_bert(const text::RobertaTokenizer& tokenizer, ModelSession& 
     return expand_by_word2ph(outputs.front().floats(), word2ph, num_phones);
 }
 
+Tensor compute_text_bert(const text::RobertaTokenizer& tokenizer, ModelSession& model,
+                         const text::PhonemeSequence& phonemes, std::string_view fallback_text) {
+    if (phonemes.bert_chunks.empty()) {
+        return compute_text_bert(tokenizer, model, fallback_text, phonemes.word2ph,
+                                 phonemes.ids.size());
+    }
+
+    // 混读路径：每个语言块单独跑 RoBERTa（块间没有跨块注意力，
+    // 见 include/genie/text.hpp 的 BertChunk 说明），再按行拼接 ——
+    // 上游 np.concatenate(list_berts, axis=0) 的对应物。
+    constexpr std::int64_t kDim = kBertDimension;
+    std::vector<float> rows;
+    rows.reserve(phonemes.ids.size() * static_cast<std::size_t>(kDim));
+    std::size_t phone_total = 0;
+    for (const auto& chunk : phonemes.bert_chunks) {
+        const auto begin =
+            phonemes.word2ph.begin() + static_cast<std::ptrdiff_t>(chunk.word_offset);
+        const std::vector<std::int32_t> chunk_word2ph(
+            begin, begin + static_cast<std::ptrdiff_t>(chunk.word_count));
+        const auto chunk_phones = static_cast<std::size_t>(
+            std::accumulate(chunk_word2ph.begin(), chunk_word2ph.end(), std::int64_t{0}));
+        auto chunk_bert =
+            compute_text_bert(tokenizer, model, chunk.text, chunk_word2ph, chunk_phones);
+        const auto chunk_bytes = chunk_phones * static_cast<std::size_t>(kDim);
+        if (chunk_bert.floats().size() != chunk_bytes) {
+            throw_error(ErrorCode::InferenceError, "roberta chunk produced wrong feature count");
+        }
+        rows.insert(rows.end(), chunk_bert.floats().begin(), chunk_bert.floats().end());
+        phone_total += chunk_phones;
+    }
+    if (phone_total != phonemes.ids.size()) {
+        throw_error(ErrorCode::InferenceError, "bert chunks cover " + std::to_string(phone_total) +
+                                                   " phones, sequence has " +
+                                                   std::to_string(phonemes.ids.size()));
+    }
+    return Tensor::from_float32({static_cast<std::int64_t>(phone_total), kDim}, std::move(rows));
+}
+
 }  // namespace genie::roberta

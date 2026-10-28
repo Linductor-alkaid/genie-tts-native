@@ -7,6 +7,16 @@
 
 ### Added
 
+- **中英混读分块（`hybrid-chinese-english`）**：移植上游 `split_language`
+  （`re.split(r'[a-zA-Z]+')` 切块，与上游正则逻辑 24/24 语料逐块一致），
+  每个中文块各自走完整 TextNormalizer + G2P，RoBERTa 按块编码再拼接
+  （`PhonemeSequence::bert_chunks` 携带分块与 word2ph 对齐）。
+  此前混读文本走整段简化规则，中文块里的日期 / 电话读不到正确读法
+  （例：`"Mira打13800138000了"` 现在正确读"幺三八…"）。
+  块边界阻断变调，与上游逐块 G2P 的行为一致。
+  英文块暂且丢弃（英文 G2P 未实现，记录在案 docs/upstream-audit.md §9.4）。
+  `genie-tts g2p` 对混读文本改为按块显示规范化结果（整段显示与实际
+  喂给模型的分块不一致）。
 - **部署教程与部署脚本**：`docs/deployment.md` 手把手覆盖「下载上游权重
   （HF `High-Logic/Genie`，含 hf-mirror 镜像用法）→ fp16 外部权重转 fp32 →
   组装音色包 → 校验与首次合成」全流程，命令均可直接复制执行。

@@ -77,7 +77,7 @@
 - ⏳ 英文 G2P（留成可插拔接口）
 - ⏳ 日文 G2P（留成可插拔接口）
 - ⏳ 韩文 G2P（留成可插拔接口）
-- ⏳ 中英混合文本切分
+- ✅ 中英混合文本切分（2026-10-28：split_language 移植 + 逐块 TextNormalizer + 按块 RoBERTa，见 upstream-audit §6.3；英文块丢弃，待英文 G2P）
 - ✅ 中文 RoBERTa 特征（C++ tokenizer + 特征提取 + 对齐，见 upstream-audit §14）
 - ✅ 参考音频特征（HuBERT `ssl_content`，见 upstream-audit §14.4）
 

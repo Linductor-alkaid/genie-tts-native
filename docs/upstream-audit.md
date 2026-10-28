@@ -308,7 +308,29 @@ if language.lower() == 'chinese' and re.search(r'[a-zA-Z]', prompt_text):
 中文 G2P 的 `pattern_filter` 会**删掉所有英文字母**；混读文本若走纯中文路径，
 会得到空音素序列并产生噪声。因此显式指定中文 + 含 ASCII 字母时必须切到混读模式。
 
-本移植的 `genie::detect_language()` 已实现该规则，并有单元测试覆盖。
+混读模式的处理是**按语言切块**（`split_language`）：
+`re.split(r'[a-zA-Z]+')` 与 `re.findall` 交错拼装 —— 字母串归英文块，
+其余（汉字、数字、标点、空白）全部留在中文块，纯空白的中文块被丢弃。
+每个中文块各自走一遍完整的 `chinese_to_phones`（内含 TextNormalizer），
+英文块走英文 G2P，BERT 特征对英文块是全零行，最后逐块拼接：
+
+```python
+phones_seq = np.concatenate(list_phones, axis=1)
+text_bert = np.concatenate(list_berts, axis=0)
+```
+
+**块边界的语义副作用**：变调/儿化不跨块。上游逐块调 G2P，
+块与块之间不做三声连读 —— `"你好Mira很高兴见到你"` 切成
+`[你好][Mira][很高兴见到你]`，「你好」块内闭环（你→2）；
+若把英文删掉整段处理（`你好很高兴见到你`），变调会跨词段作用（好→2）。
+两者在**上游**就不同，移植必须保持逐块行为。
+
+本移植（2026-10-28）：`genie::detect_language()` 实现了语言切换规则；
+`src/text/language_split.cpp` 逐字移植 `split_language`（与上游正则逻辑
+24/24 语料逐块一致，黄金语料 `tests/golden/language_split.json`）；
+前端对每个中文块单独走完整 TextNormalizer + G2P，RoBERTa 按块编码再拼接
+（`PhonemeSequence::bert_chunks` 携带分块与 word2ph 对齐）。
+英文块本实现暂且丢弃 —— 上游产出英文音素（见 §9.4 英文 G2P）。
 
 ---
 
@@ -415,7 +437,8 @@ HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
 | 分词 | `jieba_fast` + 词性标注 | **未实现**，按单字统计 `word2ph` | `word2ph` 粒度变粗 | 影响韵律特征，不影响音素本身 |
 | 繁简转换 | `char_convert.py`（65KB 词表） | **已实现**（2026-10-27，10,737 组，见 §15） | 无（已对齐） | — |
 | 日期/时间/电话/量词 | `Normalization/` 的专门规则 | **已实现**（2026-10-27，见 §15） | 无（已对齐） | — |
-| 英文 G2P | `nltk` + CMU 词典（3.5MB） | **未实现**（留成可插拔接口） | 英文不能合成 | 词典过大，不适合内嵌进端侧库 |
+| 混读分块 | `split_language` 逐块 G2P + 逐块 RoBERTa | **已实现**（2026-10-28，见 §6.3；英文块丢弃） | 中文块获得完整 TextNormalizer；块边界阻断变调与上游一致 | — |
+| 英文 G2P | `nltk` + CMU 词典（3.5MB） | **未实现**（留成可插拔接口） | 英文不能合成；混读文本里的英文单词被静默丢弃 | 词典过大，不适合内嵌进端侧库 |
 | 日文 G2P | `pyopenjtalk-plus` | **未实现**（留成可插拔接口） | 日文不能合成 | 依赖 OpenJTalk 词典 |
 | 韩文 G2P | `jamo` + `ko_pron` | **未实现**（留成可插拔接口） | 韩文不能合成 | 同上 |
 
@@ -830,12 +853,15 @@ WeTextProcessing，Apache-2.0）。本实现**手写扫描**，不用 `std::rege
 上游的混读模式（`hybrid-chinese-english`）会把文本按语言**切块**，
 每个中文块各自走一遍 `TextNormalizer`。
 
-本实现的混读路径仍是**简化版**（见 §9.4）：整段文本走统一规则，
-不做分块。因此混读文本里的中文部分**没有**用上完整的 `TextNormalizer`。
+本实现已对齐该结构（2026-10-28，见 §6.3）：`split_by_language` 切块，
+每个中文块各自走完整 TextNormalizer，RoBERTa 按块编码再拼接
+（`PhonemeSequence::bert_chunks`）。纯中文输入不走分块（与上游
+'chinese' 模式一致）；混读输入里中文块的日期 / 电话 / 数字读法与
+纯中文路径完全一致（例：`"Mira打13800138000了"` → `幺三八零零幺三八零零零`）。
 
-影响面：纯中文输入（`Language::Chinese`）**完全对齐**；
-混读输入里的日期 / 电话 / 数字仍按简化规则处理。
-把混读路径也做成分块 + 逐块规范化，是 M2 剩余的工作。
+**残留偏差**：英文块上游产出英文音素（g2p_en），本实现暂且丢弃 ——
+详见 §9.4 英文 G2P 行。切分、对齐与 BERT 分块结构已就位，
+英文 G2P 落地后只需补上英文块的音素与全零 BERT 行。
 
 ### 授权
 
