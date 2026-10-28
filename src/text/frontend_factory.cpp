@@ -30,8 +30,9 @@ std::unique_ptr<TextFrontend> make_frontend(Language language) {
             // 英文前端需要词典 —— 没有资源就返回 nullptr（调用方据此报错，
             // 而不是静默产出空音素）。
             return nullptr;
-        case Language::Japanese:
         case Language::Korean:
+            return make_korean_frontend();
+        case Language::Japanese:
             return nullptr;
     }
     return nullptr;

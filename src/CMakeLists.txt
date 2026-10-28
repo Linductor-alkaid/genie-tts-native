@@ -46,6 +46,9 @@ set(GENIE_CORE_SOURCES
     text/tone_sandhi.cpp
     text/sandhi_table.cpp
     text/english_frontend.cpp
+    text/korean_frontend.cpp
+    text/korean/jamo.cpp
+    text/korean/korean.cpp
     text/english/cmu_dict.cpp
     text/english/g2p.cpp
     text/english/normalization.cpp

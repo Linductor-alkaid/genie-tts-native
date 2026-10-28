@@ -7,6 +7,19 @@
 
 ### Added
 
+- **韩语 G2P 实装**：移植上游 `G2P/Korean/KoreanG2P.py` + g2pk2 的整条链路 ——
+  拉丁字母转韩文、数字转韩文（汉字数词 / 固有数词）、惯用语表、
+  组合字母拆解、12 条特殊音变规则、402 条"받침 + 起首辅音"规则表、
+  4 组连音规则、重新组字、兼容字母输出。规则与数据全部内置
+  （`src/text/korean/`，由 `tools/g2p/generate_korean_tables.py` 从 pip 上的
+  `g2pk2` / `jamo` 包导出 ✓，Apache-2.0）。引擎按检测到的语言选前端：
+  韩文文本走韩文前端，不需要任何音色包资源。
+  oracle 用**上游的 Python 实现**当基准（mecab-ko 换成 stub ✓），
+  53 句语料逐音素一致。
+  **偏差**：g2pk2 的 mecab-ko 形态标注那一步没有移植（mecab 是 C++ 库 +
+  100 MB 词典 ✓），依赖标注的四条音变规则因此不触发 ——
+  记录在 docs/upstream-audit.md §18.3。
+
 - **英文 G2P 实装**：移植上游 `G2P/English/` 的整条英文链路 ——
   规范化（20 多条规则，手写扫描器，不引 `std::regex`）、nltk TweetTokenizer
   分词、CMU 发音词典查表、averaged perceptron 词性标注、同形异音词按 POS

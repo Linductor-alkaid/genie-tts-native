@@ -154,10 +154,16 @@ TEST(Frontend, ReportsItsLanguage) {
 }
 
 TEST(Frontend, UnsupportedLanguageReturnsNull) {
-    // 英文 / 日文 / 韩文的上游实现依赖 Python 生态，本项目暂不内置。
+    // 英文前端需要词典 —— 没有资源时返回 nullptr（不是静默产出空音素）。
     EXPECT_EQ(make_frontend(Language::English), nullptr);
+    // 日文还没做（OpenJTalk + 103 MB 词典）。
     EXPECT_EQ(make_frontend(Language::Japanese), nullptr);
-    EXPECT_EQ(make_frontend(Language::Korean), nullptr);
+}
+
+TEST(Frontend, KoreanFrontendNeedsNoResources) {
+    auto frontend = make_frontend(Language::Korean);
+    ASSERT_NE(frontend, nullptr);
+    EXPECT_EQ(frontend->language(), Language::Korean);
 }
 
 }  // namespace
