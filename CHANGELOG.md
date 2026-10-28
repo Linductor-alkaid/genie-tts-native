@@ -66,6 +66,12 @@
 
 ### Fixed
 
+- **移除两个源文件末尾的 NUL 填充**：`src/text/language_split.cpp` 与
+  `tools/g2p/dump_language_split.cpp` 的代码内容完整，但末尾被工作区文件
+  系统填充 NUL 到 4096 块边界（约 2 KB），导致 git 将其识别为二进制文件、
+  无法在 diff 中审阅。编译器与 clang-format 忽略 NUL（此前 CI 全绿的
+  原因），#21 已合并入库，本条将其剥离为纯文本。
+
 - **折叠连续标点按字节做，把多字节汉字吃掉半个**：
   "四"（E5 9B 9B）后两个字节相同，按字节折叠会变成 E5 9B —— 输出乱码。
   现在按**码点**折叠（`src/text/punctuation.hpp`）。
