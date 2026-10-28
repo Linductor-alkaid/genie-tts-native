@@ -58,9 +58,9 @@
 - ✅ ONNX Runtime 封装（RAII、SessionOptions、CPU EP、异常转换）
 - ✅ ONNX 模型元数据检查、输入输出张量类型与形状验证
 - ✅ 张量抽象（`genie::Tensor`）
-- ⏳ 模型包（voice package）加载与 manifest 校验
-- ⏳ 多 Session 生命周期管理
-- ⏳ 采样率 / 校验值校验
+- ✅ 模型包（voice package）加载与 manifest 校验
+- ✅ 多 Session 生命周期管理
+- ✅ 采样率 / 校验值校验
 
 ### M2 文本与音频前处理迁移 — 🚧
 
@@ -78,8 +78,8 @@
 - ⏳ 日文 G2P（留成可插拔接口）
 - ⏳ 韩文 G2P（留成可插拔接口）
 - ⏳ 中英混合文本切分
-- ⏳ 中文 RoBERTa 特征（C++ tokenizer + 特征提取 + 对齐）
-- ⏳ 参考音频特征（HuBERT `ssl_content`）
+- ✅ 中文 RoBERTa 特征（C++ tokenizer + 特征提取 + 对齐，见 upstream-audit §14）
+- ✅ 参考音频特征（HuBERT `ssl_content`，见 upstream-audit §14.4）
 
 > **本阶段是整个项目最大的工作量来源。** 计划书估计 1～3 周，
 > 实际很可能更久 —— 中文 `g2pM` 的多音字模型与韩文 `g2pk2` 都没有成熟的 C++ 等价物。
@@ -95,9 +95,9 @@
 - ✅ 声学合成（VITS）与端到端流水线
 - ✅ 目标 API：`genie::Engine::synthesize()` / `synthesize_streaming()`
 - ✅ 参考语义条件构建（参考音频的 phoneme / bert / ssl 特征）
-- ⏳ 文本与音素条件编码（text_bert）
+- ✅ 文本与音素条件编码（text_bert，见 upstream-audit §14）
 - ⏳ 随机数生成与确定性测试
-- ⏳ V2ProPlus 适配（`prompt_encoder` / `ge` / `ge_advanced`）
+- ✅ V2ProPlus 适配（`prompt_encoder` / `ge` / `ge_advanced`，见 upstream-audit §12）
 
 ### M4 正确性验证与原生 SDK — 🚧
 
