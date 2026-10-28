@@ -1,0 +1,706 @@
+{
+  "cases": [
+    {
+      "text": "你好，世界。",
+      "pinyins": [
+        "ni3",
+        "hao3",
+        "，",
+        "shi4",
+        "jie4",
+        "。"
+      ]
+    },
+    {
+      "text": "重庆很重要",
+      "pinyins": [
+        "chong2",
+        "qing4",
+        "hen3",
+        "zhong4",
+        "yao4"
+      ]
+    },
+    {
+      "text": "的确实不错",
+      "pinyins": [
+        "de5",
+        "que4",
+        "shi2",
+        "bu4",
+        "cuo4"
+      ]
+    },
+    {
+      "text": "行长在银行上班",
+      "pinyins": [
+        "xing2",
+        "zhang3",
+        "zai4",
+        "yin2",
+        "xing2",
+        "shang4",
+        "ban1"
+      ]
+    },
+    {
+      "text": "我去银行取钱，然后去了行长办公室。",
+      "pinyins": [
+        "wo3",
+        "qu4",
+        "yin2",
+        "xing2",
+        "qu3",
+        "qian2",
+        "，",
+        "ran2",
+        "hou4",
+        "qu4",
+        "le5",
+        "xing2",
+        "zhang3",
+        "ban4",
+        "gong1",
+        "shi4",
+        "。"
+      ]
+    },
+    {
+      "text": "这个东西很便宜，但是质量一般。",
+      "pinyins": [
+        "zhe4",
+        "ge4",
+        "dong1",
+        "xi1",
+        "hen3",
+        "pian2",
+        "yi2",
+        "，",
+        "dan4",
+        "shi4",
+        "zhi4",
+        "liang4",
+        "yi1",
+        "ban1",
+        "。"
+      ]
+    },
+    {
+      "text": "他打算长大后当一名老师。",
+      "pinyins": [
+        "ta1",
+        "da3",
+        "suan4",
+        "chang2",
+        "da4",
+        "hou4",
+        "dang1",
+        "yi1",
+        "ming2",
+        "lao3",
+        "shi1",
+        "。"
+      ]
+    },
+    {
+      "text": "我在 Bank of China 没有账户",
+      "pinyins": [
+        "wo3",
+        "zai4",
+        " ",
+        "bi1",
+        "a",
+        "n",
+        "k",
+        " ",
+        "o",
+        "f",
+        " ",
+        "C",
+        "h",
+        "i",
+        "n",
+        "a",
+        " ",
+        "mei2",
+        "you3",
+        "zhang4",
+        "hu4"
+      ]
+    },
+    {
+      "text": "你得先把地都扫干净。",
+      "pinyins": [
+        "ni3",
+        "de2",
+        "xian1",
+        "ba3",
+        "de5",
+        "dou1",
+        "sao3",
+        "gan1",
+        "jing4",
+        "。"
+      ]
+    },
+    {
+      "text": "土地沙漠化越来越严重。",
+      "pinyins": [
+        "tu3",
+        "di4",
+        "sha1",
+        "mo4",
+        "hua4",
+        "yue4",
+        "lai2",
+        "yue4",
+        "yan2",
+        "zhong4",
+        "。"
+      ]
+    },
+    {
+      "text": "这是一种全长两米的鱼。",
+      "pinyins": [
+        "zhe4",
+        "shi4",
+        "yi1",
+        "zhong3",
+        "quan2",
+        "chang2",
+        "liang3",
+        "mi3",
+        "de5",
+        "yu2",
+        "。"
+      ]
+    },
+    {
+      "text": "他长得像他妈妈。",
+      "pinyins": [
+        "ta1",
+        "chang2",
+        "de5",
+        "xiang4",
+        "ta1",
+        "ma1",
+        "ma1",
+        "。"
+      ]
+    },
+    {
+      "text": "这个问题我回答不了。",
+      "pinyins": [
+        "zhe4",
+        "ge4",
+        "wen4",
+        "ti2",
+        "wo3",
+        "hui2",
+        "da2",
+        "bu4",
+        "le5",
+        "。"
+      ]
+    },
+    {
+      "text": "他还款有困难。",
+      "pinyins": [
+        "ta1",
+        "hai2",
+        "kuan3",
+        "you3",
+        "kun4",
+        "nan2",
+        "。"
+      ]
+    },
+    {
+      "text": "银行分行下午三点关门。",
+      "pinyins": [
+        "yin2",
+        "hang2",
+        "fen1",
+        "xing2",
+        "xia4",
+        "wu3",
+        "san1",
+        "dian3",
+        "guan1",
+        "men2",
+        "。"
+      ]
+    },
+    {
+      "text": "大会进行到一半就散会了。",
+      "pinyins": [
+        "da4",
+        "hui4",
+        "jin4",
+        "xing2",
+        "dao4",
+        "yi1",
+        "ban4",
+        "jiu4",
+        "san4",
+        "hui4",
+        "le5",
+        "。"
+      ]
+    },
+    {
+      "text": "请把这份报告重新写一遍。",
+      "pinyins": [
+        "qing3",
+        "ba3",
+        "zhe4",
+        "fen4",
+        "bao4",
+        "gao4",
+        "chong2",
+        "xin1",
+        "xie3",
+        "yi1",
+        "bian4",
+        "。"
+      ]
+    },
+    {
+      "text": "我数到三就开始。",
+      "pinyins": [
+        "wo3",
+        "shu4",
+        "dao4",
+        "san1",
+        "jiu4",
+        "kai1",
+        "shi3",
+        "。"
+      ]
+    },
+    {
+      "text": "数字这个东西很有意思。",
+      "pinyins": [
+        "shu4",
+        "zi4",
+        "zhe4",
+        "ge4",
+        "dong1",
+        "xi1",
+        "hen3",
+        "you3",
+        "yi4",
+        "si1",
+        "。"
+      ]
+    },
+    {
+      "text": "都到齐了我们就出发。",
+      "pinyins": [
+        "dou1",
+        "dao4",
+        "qi2",
+        "le5",
+        "wo3",
+        "men5",
+        "jiu4",
+        "chu1",
+        "fa1",
+        "。"
+      ]
+    },
+    {
+      "text": "首都北京有很多历史建筑。",
+      "pinyins": [
+        "shou3",
+        "du1",
+        "bei3",
+        "jing1",
+        "you3",
+        "hen3",
+        "duo1",
+        "li4",
+        "shi3",
+        "jian4",
+        "zhu4",
+        "。"
+      ]
+    },
+    {
+      "text": "他有一个大胆的计划。",
+      "pinyins": [
+        "ta1",
+        "you3",
+        "yi1",
+        "ge4",
+        "da4",
+        "dan3",
+        "de5",
+        "ji4",
+        "hua4",
+        "。"
+      ]
+    },
+    {
+      "text": "沙漠里大多是没有水的。",
+      "pinyins": [
+        "sha1",
+        "mo4",
+        "li3",
+        "da4",
+        "duo1",
+        "shi4",
+        "mei2",
+        "you3",
+        "shui3",
+        "de5",
+        "。"
+      ]
+    },
+    {
+      "text": "说这话要有分寸。",
+      "pinyins": [
+        "shuo1",
+        "zhe4",
+        "hua4",
+        "yao4",
+        "you3",
+        "fen1",
+        "cun4",
+        "。"
+      ]
+    },
+    {
+      "text": "我说话比较直接。",
+      "pinyins": [
+        "wo3",
+        "shuo1",
+        "hua4",
+        "bi3",
+        "jiao4",
+        "zhi2",
+        "jie1",
+        "。"
+      ]
+    },
+    {
+      "text": "乐器里我最喜欢吉他。",
+      "pinyins": [
+        "yue4",
+        "qi4",
+        "li3",
+        "wo3",
+        "zui4",
+        "xi3",
+        "huan1",
+        "ji2",
+        "ta1",
+        "。"
+      ]
+    },
+    {
+      "text": "大道理谁都懂。",
+      "pinyins": [
+        "da4",
+        "dao4",
+        "li3",
+        "shei2",
+        "dou1",
+        "dong3",
+        "。"
+      ]
+    },
+    {
+      "text": "觉得自己能行就去试。",
+      "pinyins": [
+        "jue2",
+        "de2",
+        "zi4",
+        "ji3",
+        "neng2",
+        "xing2",
+        "jiu4",
+        "qu4",
+        "shi4",
+        "。"
+      ]
+    },
+    {
+      "text": "这船还得再等等。",
+      "pinyins": [
+        "zhe4",
+        "chuan2",
+        "hai2",
+        "de2",
+        "zai4",
+        "deng3",
+        "deng3",
+        "。"
+      ]
+    },
+    {
+      "text": "尽最大努力就好。",
+      "pinyins": [
+        "jin4",
+        "zui4",
+        "da4",
+        "nu3",
+        "li4",
+        "jiu4",
+        "hao3",
+        "。"
+      ]
+    },
+    {
+      "text": "尽量三号之前交。",
+      "pinyins": [
+        "jin3",
+        "liang4",
+        "san1",
+        "hao4",
+        "zhi1",
+        "qian2",
+        "jiao1",
+        "。"
+      ]
+    },
+    {
+      "text": "下降的趋势没有改变。",
+      "pinyins": [
+        "xia4",
+        "jiang4",
+        "de5",
+        "qu1",
+        "shi4",
+        "mei2",
+        "you3",
+        "gai3",
+        "bian4",
+        "。"
+      ]
+    },
+    {
+      "text": "投降是不可能的。",
+      "pinyins": [
+        "tou2",
+        "xiang2",
+        "shi4",
+        "bu4",
+        "ke3",
+        "neng2",
+        "de5",
+        "。"
+      ]
+    },
+    {
+      "text": "我脖子酸了。",
+      "pinyins": [
+        "wo3",
+        "bo2",
+        "zi3",
+        "suan1",
+        "le5",
+        "。"
+      ]
+    },
+    {
+      "text": "奥林匹克运动会每四年举办一次。",
+      "pinyins": [
+        "ao4",
+        "lin2",
+        "pi3",
+        "ke4",
+        "yun4",
+        "dong4",
+        "hui4",
+        "mei3",
+        "si4",
+        "nian2",
+        "ju3",
+        "ban4",
+        "yi1",
+        "ci4",
+        "。"
+      ]
+    },
+    {
+      "text": "音乐会的门票卖完了。",
+      "pinyins": [
+        "yin1",
+        "yue4",
+        "hui4",
+        "de5",
+        "men2",
+        "piao4",
+        "mai4",
+        "wan2",
+        "le5",
+        "。"
+      ]
+    },
+    {
+      "text": "他快乐地唱起歌来。",
+      "pinyins": [
+        "ta1",
+        "kuai4",
+        "le4",
+        "di4",
+        "chang4",
+        "qi3",
+        "ge1",
+        "lai2",
+        "。"
+      ]
+    },
+    {
+      "text": "牺牲小我完成大我。",
+      "pinyins": [
+        "xi1",
+        "sheng1",
+        "xiao3",
+        "wo3",
+        "wan2",
+        "cheng2",
+        "da4",
+        "wo3",
+        "。"
+      ]
+    },
+    {
+      "text": "这种材料稳定性很好。",
+      "pinyins": [
+        "zhe4",
+        "zhong3",
+        "cai2",
+        "liao4",
+        "wen3",
+        "ding4",
+        "xing4",
+        "hen3",
+        "hao3",
+        "。"
+      ]
+    },
+    {
+      "text": "率属关系要理清楚。",
+      "pinyins": [
+        "lu:4",
+        "shu3",
+        "guan1",
+        "xi4",
+        "yao4",
+        "li3",
+        "qing1",
+        "chu3",
+        "。"
+      ]
+    },
+    {
+      "text": "效率提高了百分之三十。",
+      "pinyins": [
+        "xiao4",
+        "lu:4",
+        "ti2",
+        "gao1",
+        "le5",
+        "bai3",
+        "fen1",
+        "zhi1",
+        "san1",
+        "shi2",
+        "。"
+      ]
+    },
+    {
+      "text": "首当其冲的是物流行业。",
+      "pinyins": [
+        "shou3",
+        "dang1",
+        "qi2",
+        "chong1",
+        "de5",
+        "shi4",
+        "wu4",
+        "liu2",
+        "xing2",
+        "ye4",
+        "。"
+      ]
+    },
+    {
+      "text": "重量单位里一吨等于一千公斤。",
+      "pinyins": [
+        "chong2",
+        "liang4",
+        "dan1",
+        "wei4",
+        "li3",
+        "yi1",
+        "dun1",
+        "deng3",
+        "yu2",
+        "yi1",
+        "qian1",
+        "gong1",
+        "jin1",
+        "。"
+      ]
+    },
+    {
+      "text": "参加人数超出预期。",
+      "pinyins": [
+        "can1",
+        "jia1",
+        "ren2",
+        "shu4",
+        "chao1",
+        "chu1",
+        "yu4",
+        "qi1",
+        "。"
+      ]
+    },
+    {
+      "text": "参差不齐的成绩单。",
+      "pinyins": [
+        "can1",
+        "cha4",
+        "bu4",
+        "qi2",
+        "de5",
+        "cheng2",
+        "ji4",
+        "dan1",
+        "。"
+      ]
+    },
+    {
+      "text": "他曾说过去并不重要。",
+      "pinyins": [
+        "ta1",
+        "ceng2",
+        "shuo1",
+        "guo4",
+        "qu4",
+        "bing4",
+        "bu4",
+        "zhong4",
+        "yao4",
+        "。"
+      ]
+    },
+    {
+      "text": "广播里在放京剧。",
+      "pinyins": [
+        "guang3",
+        "bo1",
+        "li3",
+        "zai4",
+        "fang4",
+        "jing1",
+        "ju4",
+        "。"
+      ]
+    }
+  ]
+}

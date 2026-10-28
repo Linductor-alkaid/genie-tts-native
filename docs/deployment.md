@@ -20,6 +20,7 @@
 | V2ProPlus 增件 | `prompt_encoder_fp32.onnx` + `prompt_encoder_fp16.bin`、`speaker_encoder.onnx` | 同上（`prompt_encoder` 在音色目录，`speaker_encoder` 是公共文件） | 可选：不给则按 V2 路径合成 |
 | 内容特征 | `chinese-hubert-base.onnx` + `chinese-hubert-base_weights_fp16.bin` | 同上 `GenieData/chinese-hubert-base/` | 可选：参考音频的 HuBERT 特征，缺了退化为全零 |
 | 韵律特征 | `RoBERTa.onnx` + `roberta_tokenizer/vocab.txt` | 同上 `GenieData(Optional)/RoBERTa/` | 可选：中文韵律，缺了退化为全零 |
+| 多音字 | `third_party/g2pm/g2pm.bin`（**仓库自带**，1.8 MB） | 无需下载 | 可选：g2pM 多音字消歧；`make_voice_package.py --g2pm third_party/g2pm/g2pm.bin` 接入，缺了回退单字最常用读音 |
 | 参考音频 | 一段 wav + 参考文本 | 音色目录 `prompt_wav/`（文本随 `prompt_wav.json` 发布） | 音色包的"音色本体"，**必需** |
 | ONNX Runtime | 预编译包（CPU） | [microsoft/onnxruntime releases](https://github.com/microsoft/onnxruntime/releases) | CI 基线 1.22.0；本项目验证到 1.31.0 |
 
@@ -149,6 +150,7 @@ python3 tools/deploy/make_voice_package.py \
     --hubert          $DL/hubert \
     --speaker-encoder $DL/speaker_encoder.onnx \
     --roberta         $DL/roberta \
+    --g2pm            <repo>/third_party/g2pm/g2pm.bin \
     --reference       $DL/reference.wav \
     --reference-text  ref.txt \
     --output          ~/voice-packages/feibi
@@ -158,7 +160,13 @@ python3 tools/deploy/make_voice_package.py \
 （`capabilities` 按你给了什么自动置位：上面这条全量命令得到
 `v2proplus: true, roberta: true`）。缺 RoBERTa / HuBERT /
 speaker-encoder 就**不传对应参数**，引擎按上游的降级路径跑
-（韵律/内容特征置零）。
+（韵律/内容特征置零）。`--g2pm` 同理可选：不给则多音字按单字表
+最常用读音（上游 g2pM 缺失时无法运行，这是本项目的扩展降级路径）。
+
+多音字的效果：`重庆` 读 chóng、"银行分行"两个行分别读 háng/xíng、
+"音乐"的乐读 yuè —— 模型按整句上下文判定，而不是每个字取最常用读音。
+g2pM 也有自己的误判（例如"行长在银行上班"里给"银行"读 xíng），
+与上游一致地保留，见 `docs/upstream-audit.md` §9.7。
 
 目录长这样：
 

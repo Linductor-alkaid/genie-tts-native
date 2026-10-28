@@ -7,6 +7,18 @@
 
 ### Added
 
+- **多音字 g2pM 实装**：上游用 g2pM（kakaobrain 单层双向 LSTM，1.6 MB）
+  做整句上下文的多音字判定；本移植逐行复刻其 numpy 前向（C++，无 ORT
+  依赖），权重经 `tools/deploy/convert_g2pm.py` 转成单一容器随仓库发布
+  （`third_party/g2pm/g2pm.bin`，Apache-2.0）。音色包新增可选角色
+  `g2pm`（`make_voice_package.py --g2pm`），缺失时回退单字最常用读音。
+  oracle 与上游 `G2pM()` 47 句语料逐字一致。附带上游的词级读音修正表
+  （polyphonic.pickle，4.5 万词，随容器发布）：g2pM 的已知误判
+  （"长大"读 cháng、"银行分行"读 fēn xíng）由词表兜底修正，
+  与上游 ChineseG2P 的流水线位置一致。
+  同步勘误审计：上游 `word2ph` 实为逐字统计，jieba 影响的是 POS 变调
+  分支与词级读音修正，非 word2ph 粒度（docs/upstream-audit.md §9.7）。
+
 - **中英混读分块（`hybrid-chinese-english`）**：移植上游 `split_language`
   （`re.split(r'[a-zA-Z]+')` 切块，与上游正则逻辑 24/24 语料逐块一致），
   每个中文块各自走完整 TextNormalizer + G2P，RoBERTa 按块编码再拼接

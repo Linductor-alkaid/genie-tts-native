@@ -431,12 +431,13 @@ HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
 
 | 项 | 上游 | 本实现 | 影响 | 原因 |
 |---|---|---|---|---|
-| 多音字 | `g2pM`（BERT 上下文判定） | 取**最常用**读音 | 同音字在特定词里读音不同 | g2pM 需要整套 BERT 权重与 C++ 推理路径（权重可经镜像获取，工程量大，未排期） |
+| 多音字 | `g2pM`（kakaobrain 双向 LSTM，整句上下文判定） | **已实现**（2026-10-28，C++ 前向复刻，oracle 47/47 逐字一致，见 §9.7） | 模型自身的误判被忠实保留（如「行长在银行上班」里给银行读 xíng） | 模型仅 1.6 MB，`third_party/g2pm/g2pm.bin` 随仓库发布 |
 | 变调 | `ToneSandhi.py`（18KB 规则） | **已实现**（2026-10-28，词表近似，见 §9.6） | 与 jieba 词边界相关的少数差异（§9.6 量化） | — |
 | 儿化 | `Erhua.py` | **已实现**（2026-10-28，见 §9.6） | 同上 | — |
-| 分词 | `jieba_fast` + 词性标注 | **未实现**，按单字统计 `word2ph` | `word2ph` 粒度变粗 | 影响韵律特征，不影响音素本身 |
+| 词级读音修正 | `CorrectPronunciation.py`（polyphonic.pickle，4.5 万词） | **已实现**（2026-10-28，随 g2pm 容器携带，词边界用词表最长匹配近似，见 §9.7） | 长词表匹配可能命中 jieba 不会单独切分的子词（罕见，且词表条目本身是真词，方向为正向修正） | g2pM 的已知误判靠它兜底（「长大」「分行」类），缺了它模型反而不如单字表 |
 | 繁简转换 | `char_convert.py`（65KB 词表） | **已实现**（2026-10-27，10,737 组，见 §15） | 无（已对齐） | — |
 | 日期/时间/电话/量词 | `Normalization/` 的专门规则 | **已实现**（2026-10-27，见 §15） | 无（已对齐） | — |
+| jieba 分词 | `jieba_fast` + 词性标注 | **未实现**（词表贪心匹配替代，见 §9.6） | POS 依赖的变调分支取默认行为；`eng` 词跳过、词级读音修正缺位 | **勘误（2026-10-28）**：此前记载"上游 word2ph 按分词结果统计"有误 —— 上游 `ChineseG2P.g2p` 的 `word2ph` 同样是**逐字**统计（`zip(initials, finals)` 循环内逐字 append），jieba 影响的是 POS 变调分支、儿化词边界与词级读音修正，不影响 word2ph 粒度 |
 | 混读分块 | `split_language` 逐块 G2P + 逐块 RoBERTa | **已实现**（2026-10-28，见 §6.3；英文块丢弃） | 中文块获得完整 TextNormalizer；块边界阻断变调与上游一致 | — |
 | 英文 G2P | `nltk` + CMU 词典（3.5MB） | **未实现**（留成可插拔接口） | 英文不能合成；混读文本里的英文单词被静默丢弃 | 词典过大，不适合内嵌进端侧库 |
 | 日文 G2P | `pyopenjtalk-plus` | **未实现**（留成可插拔接口） | 日文不能合成 | 依赖 OpenJTalk 词典 |
@@ -502,6 +503,47 @@ jieba_fast 跑真分词：
 
 
 ---
+
+### 9.7 多音字：g2pM 实装（2026-10-28）
+
+上游 `ChineseG2P.g2p` 的每字读音来自 pip 包 `g2pM`（kakaobrain/g2pM 训练、
+mozillazg 打包，Apache-2.0）：**单层双向 LSTM + 两层全连接**，权重共约
+1.6 MB（不是 BERT，也不是 ONNX —— pip 包以 numpy 权重 `np_ckpt.pkl` 与
+三张词典发布，推理在 numpy 里手写）。本移植：
+
+- `tools/deploy/convert_g2pm.py` 把四个 pkl 转成单一容器
+  `third_party/g2pm/g2pm.bin`（1.8 MB，回读校验逐字节零失真），随仓库
+  发布 —— 黄金语料比对因此进 CI（与六大模型图壳同先例）。
+- `src/engine/g2pm.cpp` 逐行复刻 `g2pM.py` 的前向计算（embedding →
+  双向 LSTM → 多音字位置的隐状态 → FC(relu) → FC → argmax）。上游
+  numpy 以 float64 累积，本实现载入时把 float32 权重升为 double，
+  保持一致累积语义。
+- 音色包可选角色 `g2pm`；缺失时回退单字拼音表最常用读音（与
+  RoBERTa / HuBERT 的可选降级同款模式）。
+- oracle：`tools/g2p/verify_g2pm.py` 以 `G2pM()(seg, char_split=True)` 为
+  基准，47 句多音字语料**逐字一致**（黄金语料
+  `tests/golden/g2pm.json` 锁定）。
+
+忠实保留的上游怪癖：g2pM 自身的误判原样进入移植 —— 例如
+「行长在银行上班」里模型给「银行」的行读 xíng（「银行分行下午三点关门」
+里则正确读 háng）。这些判定被黄金语料逐字锁定：修"模型错误"等于
+偏离上游，不做（§8 同款原则）。
+
+**词级读音修正层（2026-10-28 补齐）**：g2pM 有已知误判 ——
+「长大」给 cháng（应为 zhǎng）、「银行分行」给 fēn xíng（应为 fēn háng）；
+单字最常用读音表在这两处反而正确。上游的对策是
+`CorrectPronunciation.py` + `polyphonic.pickle`（HF
+`GenieData/G2P/ChineseG2P/polyphonic.pickle`，45,046 词）：
+g2pM 输出之后、变调之前按词表修正（整词命中整体替换，否则逐字兜底）。
+本实现把词表打进 g2pm.bin 容器（v2，3.1 MB），`Polyphone` 接口新增
+`correct_pronunciation` 虚方法，前端在读音装配前调用 —— 与上游
+流水线位置一致。与上游的差异：上游按 jieba 词传入，本实现没有 jieba，
+词边界用**词表最长匹配**近似；偏差方向是可能命中 jieba 不会单独
+切分的子词（词表条目本身是真词，属正向修正，影响评估记录于 §9.4）。
+单测锁定：`G2pmFrontend.UsesContextReadings`（银行/分行均读 háng）、
+`G2pmFrontend.CorrectsModelMisjudgments`（长大读 zhǎng）。
+
+与上游的残留差异：POS 依赖的变调分支仍取默认行为（jieba，见 §9.6）。
 
 ## 10. T2S 自回归解码：逐行对齐的结果
 

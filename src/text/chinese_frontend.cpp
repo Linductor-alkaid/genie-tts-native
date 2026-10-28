@@ -19,6 +19,7 @@
 //   3. word2ph 按单字统计（上游按 jieba 分词结果统计）
 //   4. 混读路径的英文块丢弃（上游产出英文音素）
 
+#include <cctype>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,35 +29,84 @@
 #include "genie/text.hpp"
 #include "genie/utf8.hpp"
 #include "text/language_split.hpp"
+#include "text/polyphone.hpp"
 #include "text/tone_sandhi.hpp"
 
 namespace genie::text {
 namespace {
 
+/// 单个汉字的读音：全拼与切分结果。读音不可得时 valid 为 false。
+struct Reading {
+    pinyin::Syllable syllable;
+    bool valid = false;
+};
+
 /// 一个汉字段的变调处理结果直接写进音素序列。
 ///
 /// 上游 g2p 对每个标点分段做 jieba 分词；标点本身不参与变调，
 /// 所以这里按"连续汉字段"分组 —— 段内走完整流程，语义等价。
-void process_han_run(const std::vector<std::string>& chars, PhonemeSequence& sequence) {
+void process_han_run(const std::vector<std::string>& chars, const Polyphone* polyphone,
+                     PhonemeSequence& sequence) {
     // 1) 词表分词（上游 jieba 的替代，见 tone_sandhi.hpp 顶部说明）。
     std::vector<sandhi::Unit> units = sandhi::segment(chars);
 
-    // 2) 填每字带调韵母（上游由 g2pM 给出；我们查单字拼音表）。
+    // 2) 每字读音。有 Polyphone（g2pM）时整段推理取上下文读音 ——
+    //    对齐上游 `g2pm(seg, char_split=True)`，多音字按句内语境判定；
+    //    模型不认识的字回退单字拼音表。没有 Polyphone 时全部查表
+    //    （最常用读音，音色包不带 g2pm 模型时的降级路径）。
+    std::vector<Reading> readings(chars.size());
+    if (polyphone != nullptr) {
+        std::string run;
+        for (const auto& ch : chars) {
+            run += ch;
+        }
+        // 上游 ChineseG2P 在 g2pm 输出上统一把 "u:" 换成 "v"，
+        // 然后用词表做词级读音修正（correct_pronunciation），再进音素。
+        auto pinyins = polyphone->pinyins_of(run);
+        if (pinyins.size() == chars.size()) {
+            for (auto& pron : pinyins) {
+                if (std::size_t at = pron.find("u:"); at != std::string::npos) {
+                    pron.replace(at, 2, "v");
+                }
+            }
+            polyphone->correct_pronunciation(chars, pinyins);
+            for (std::size_t i = 0; i < pinyins.size(); ++i) {
+                const std::string& pron = pinyins[i];
+                if (!pron.empty() && std::isalpha(static_cast<unsigned char>(pron[0])) != 0) {
+                    auto syllable = pinyin::split(pron);
+                    readings[i].valid = syllable.valid();
+                    readings[i].syllable = std::move(syllable);
+                }
+            }
+        }
+    }
+    for (std::size_t i = 0; i < readings.size(); ++i) {
+        if (readings[i].valid) {
+            continue;
+        }
+        // 回退：单字拼音表的最常用读音。
+        if (const auto pinyin = pinyin::lookup(chars[i]); pinyin) {
+            if (const auto syllable = pinyin::split(*pinyin); syllable.valid()) {
+                readings[i].valid = true;
+                readings[i].syllable = std::move(syllable);
+            }
+        }
+    }
+
+    // 3) 把带调韵母写进分词单元（变调只动声调数字）。
     {
         std::size_t index = 0;
         for (auto& unit : units) {
             for (auto& final_with_tone : unit.finals) {
-                if (const auto pinyin = pinyin::lookup(chars[index]); pinyin) {
-                    if (const auto syllable = pinyin::split(*pinyin); syllable.valid()) {
-                        final_with_tone = syllable.final_with_tone;
-                    }
+                if (readings[index].valid) {
+                    final_with_tone = readings[index].syllable.final_with_tone;
                 }
                 ++index;
             }
         }
     }
 
-    // 3) 变调前合并 + 变调 + 儿化（上游 pre_merge_for_modify /
+    // 4) 变调前合并 + 变调 + 儿化（上游 pre_merge_for_modify /
     //    modified_tone / merge_erhua 的顺序）。
     sandhi::pre_merge_for_modify(units);
     for (auto& unit : units) {
@@ -64,20 +114,19 @@ void process_han_run(const std::vector<std::string>& chars, PhonemeSequence& seq
         sandhi::merge_erhua(unit);
     }
 
-    // 4) 音素转换。变调只改 final_with_tone 的声调数字，
+    // 5) 音素转换。变调只改 final_with_tone 的声调数字，
     //    opencpop 查表键（声母+韵母）不受影响。
+    std::size_t index = 0;
     for (const auto& unit : units) {
         for (std::size_t k = 0; k < unit.chars.size(); ++k) {
-            const auto pinyin = pinyin::lookup(unit.chars[k]);
-            if (!pinyin) {
-                // 拼音表缺字：跳过 —— 上游同样跳过给不出拼音的字。
-                continue;
-            }
-            auto syllable = pinyin::split(*pinyin);
-            if (!syllable.valid()) {
+            const auto& reading = readings[index++];
+            if (!reading.valid) {
+                // 读音不可得（拼音表缺字 / g2pM 不认识）：跳过 ——
+                // 上游同样跳过给不出拼音的字。
                 continue;
             }
             // 用变调后的韵母覆盖（声母不变）。
+            auto syllable = reading.syllable;
             syllable.final_with_tone = unit.finals[k];
             const auto phones = pinyin::syllable_to_phones(syllable);
 
@@ -103,11 +152,12 @@ void process_han_run(const std::vector<std::string>& chars, PhonemeSequence& seq
 ///
 /// 汉字段走完整流水线（分词 → 变调 → 儿化 → 音素），标点走符号表。
 /// 单块与混读路径共用这里。
-void process_normalized(const std::string& normalized, PhonemeSequence& sequence) {
+void process_normalized(const std::string& normalized, const Polyphone* polyphone,
+                        PhonemeSequence& sequence) {
     std::vector<std::string> han_run;
     const auto flush_run = [&]() {
         if (!han_run.empty()) {
-            process_han_run(han_run, sequence);
+            process_han_run(han_run, polyphone, sequence);
             han_run.clear();
         }
     };
@@ -143,8 +193,12 @@ void process_normalized(const std::string& normalized, PhonemeSequence& sequence
 }
 
 /// 中文前端。
+///
+/// @param polyphone 多音字消歧（g2pM）；为空时退化为单字拼音表
+///                  最常用读音（音色包不带 g2pm 模型的降级路径）。
 class ChineseFrontend final : public TextFrontend {
 public:
+    explicit ChineseFrontend(const Polyphone* polyphone = nullptr) : polyphone_(polyphone) {}
     [[nodiscard]] PhonemeSequence convert(std::string_view text) const override {
         PhonemeSequence sequence;
 
@@ -163,7 +217,7 @@ public:
                 }
                 const std::string normalized = normalize(chunk.content, Language::Chinese);
                 const std::size_t word_offset = sequence.word2ph.size();
-                process_normalized(normalized, sequence);
+                process_normalized(normalized, polyphone_, sequence);
                 if (sequence.word2ph.size() > word_offset) {
                     // 产出为空的块不进 BERT 分块：没有音素也就没有特征行
                     //（上游对空 phone 列表展开同样是 0 行）。
@@ -174,17 +228,20 @@ public:
             return sequence;
         }
 
-        process_normalized(normalize(text, Language::Chinese), sequence);
+        process_normalized(normalize(text, Language::Chinese), polyphone_, sequence);
         return sequence;
     }
 
     [[nodiscard]] Language language() const noexcept override { return Language::Chinese; }
+
+private:
+    const Polyphone* polyphone_ = nullptr;
 };
 
 }  // namespace
 
-std::unique_ptr<TextFrontend> make_chinese_frontend() {
-    return std::make_unique<ChineseFrontend>();
+std::unique_ptr<TextFrontend> make_chinese_frontend(const Polyphone* polyphone) {
+    return std::make_unique<ChineseFrontend>(polyphone);
 }
 
 }  // namespace genie::text

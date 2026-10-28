@@ -111,6 +111,7 @@ add_library(genie_sched STATIC
     engine/t2s.cpp
     engine/engine.cpp
     engine/roberta.cpp
+    engine/g2pm.cpp
     engine/hubert.cpp
 )
 set_target_properties(genie_sched PROPERTIES POSITION_INDEPENDENT_CODE ON)
