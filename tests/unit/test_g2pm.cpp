@@ -18,6 +18,7 @@
 #include "genie/json.hpp"
 #include "genie/text.hpp"
 #include "text/frontend_factory_internal.hpp"
+#include "text/jieba.hpp"
 
 #ifndef GENIE_G2PM_MODEL_FILE
 #define GENIE_G2PM_MODEL_FILE "third_party/g2pm/g2pm.bin"
@@ -25,6 +26,10 @@
 
 #ifndef GENIE_G2PM_GOLDEN_FILE
 #define GENIE_G2PM_GOLDEN_FILE "tests/golden/g2pm.json"
+#endif
+
+#ifndef GENIE_JIEBA_MODEL_FILE
+#define GENIE_JIEBA_MODEL_FILE "third_party/jieba/jieba.bin"
 #endif
 
 namespace genie::text {
@@ -107,7 +112,8 @@ TEST(G2pmGolden, CorpusMatchesLockedOutput) {
 
 TEST(G2pmFrontend, UsesContextReadings) {
     const auto model = g2pm::Model::load(GENIE_G2PM_MODEL_FILE);
-    const auto frontend = make_chinese_frontend(&model);
+    const auto jieba = jieba::Tokenizer::load(GENIE_JIEBA_MODEL_FILE);
+    const auto frontend = make_chinese_frontend(&model, &jieba);
 
     // 单字表把两个「行」都读成最常用的 xíng；g2pM + 词级修正后都读 háng
     //（模型把「分行」判成 xíng，词表兜底 —— 上游同款两层结构）。
@@ -118,7 +124,8 @@ TEST(G2pmFrontend, UsesContextReadings) {
 
 TEST(G2pmFrontend, CorrectsModelMisjudgments) {
     const auto model = g2pm::Model::load(GENIE_G2PM_MODEL_FILE);
-    const auto frontend = make_chinese_frontend(&model);
+    const auto jieba = jieba::Tokenizer::load(GENIE_JIEBA_MODEL_FILE);
+    const auto frontend = make_chinese_frontend(&model, &jieba);
     // g2pM 的已知误判由词级修正（polyphonic.pickle）兜底：
     //   长大 → zhǎngdà（模型给 cháng，单字表反而是对的）。
     // 原始模型输出保留在 Model::pinyins_of（见 G2pm.DisambiguatesByContext），

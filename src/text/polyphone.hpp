@@ -12,6 +12,7 @@
 #ifndef GENIE_SRC_TEXT_POLYPHONE_HPP
 #define GENIE_SRC_TEXT_POLYPHONE_HPP
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -32,11 +33,12 @@ public:
     ///     由调用方回退到单字拼音表。
     [[nodiscard]] virtual std::vector<std::string> pinyins_of(std::string_view segment) const = 0;
 
-    /// 词级读音修正（上游 `CorrectPronunciation.correct_pronunciation`）。
+    /// 词级读音修正 —— 整段近似（无 jieba 词边界时的降级路径）。
     ///
     /// 上游在 g2pM 输出之后、变调之前按词表修正读音（g2pM 有已知的
     /// 误判，上游用一张 4.5 万词的表兜底，如「长大→zhang3」「分行→
-    /// fen1 hang2」）。默认无修正 —— 不带词表的实现保持模型原样。
+    /// fen1 hang2」）。有 jieba 词边界时走 word_reading/char_reading
+    /// 的两步精确路径（与上游一致），本方法只在拿不到词边界时使用。
     ///
     /// @param chars   segment 的逐字列表（与 pinyins 一一对应）
     /// @param pinyins 就地修正
@@ -44,6 +46,21 @@ public:
                                        std::vector<std::string>& pinyins) const {
         (void)chars;
         (void)pinyins;
+    }
+
+    /// 词级读音修正 —— 整词查表（上游 `pp_dict.get(word)`）。
+    /// 命中返回整词读音列表（长度与词字数一致）；未命中返回空。
+    [[nodiscard]] virtual std::optional<std::vector<std::string>> word_reading(
+        const std::string& word) const {
+        (void)word;
+        return std::nullopt;
+    }
+
+    /// 词级读音修正 —— 单字兜底（上游 `pp_dict.get(ch)[0]`）。
+    /// 未命中返回空。
+    [[nodiscard]] virtual std::optional<std::string> char_reading(const std::string& ch) const {
+        (void)ch;
+        return std::nullopt;
     }
 };
 

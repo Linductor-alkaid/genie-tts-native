@@ -7,6 +7,16 @@
 
 ### Added
 
+- **jieba 分词实装**：移植 jieba 0.42.1 的分词算法（词典 DAG 前向扫描
+  + 对数概率逆序 DP + OOV 的 HMM 细分，jieba_fast 与其结果一致），
+  词典与 HMM 概率经 `tools/deploy/convert_jieba.py` 打包为
+  `third_party/jieba/jieba.bin`（8.3 MB，MIT，随仓库发布）。oracle 与
+  jieba Python 103 句语料逐词一致。音色包新增可选角色 `jieba`
+  （`make_voice_package.py --jieba`）：分词边界成为变调合并与词级读音
+  修正的词边界（与上游流水线一致）；缺失时退回词表贪心匹配 +
+  整段最长匹配修正（#23 的降级路径）。POS 依赖的变调分支留待
+  下一切片（posseg HMM）。见 docs/upstream-audit.md §9.8。
+
 - **多音字 g2pM 实装**：上游用 g2pM（kakaobrain 单层双向 LSTM，1.6 MB）
   做整句上下文的多音字判定；本移植逐行复刻其 numpy 前向（C++，无 ORT
   依赖），权重经 `tools/deploy/convert_g2pm.py` 转成单一容器随仓库发布

@@ -76,7 +76,15 @@ third_party/genie-tts-models/ 下的 ONNX 模型由 Genie-TTS 仓库以 MIT 协�
 
    Apache-2.0 原文见 https://www.apache.org/licenses/LICENSE-2.0
 
-5. g2pM (https://github.com/kakaobrain/g2pM，pip 包由 mozillazg/pypinyin-g2pM 打包)
+5. jieba (https://github.com/fxsjy/jieba，上游使用其 C 加速分支 jieba_fast)
+   Copyright (c) Sun, Junyi <ccnusjy@gmail.com>
+   MIT License
+
+   src/text/jieba 的分词算法与词典（dict.txt / finalseg 概率）来自
+   jieba 0.42.1，经 tools/deploy/convert_jieba.py 转换后随仓库发布于
+   third_party/jieba/jieba.bin。授权原文见 third_party/jieba/LICENSE。
+
+6. g2pM (https://github.com/kakaobrain/g2pM，pip 包由 mozillazg/pypinyin-g2pM 打包)
    Copyright (c) 2020 Seanie Lee (Kakao Brain)
    Apache License 2.0
 

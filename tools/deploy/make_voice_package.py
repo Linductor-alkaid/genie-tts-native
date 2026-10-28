@@ -81,6 +81,9 @@ def main() -> None:
     parser.add_argument("--g2pm", type=pathlib.Path,
                         help="g2pM 容器文件（仓库 third_party/g2pm/g2pm.bin，可选；"
                              "缺省时多音字取最常用读音）")
+    parser.add_argument("--jieba", type=pathlib.Path,
+                        help="jieba 分词容器（仓库 third_party/jieba/jieba.bin，可选；"
+                             "缺省时变调边界退回词表匹配）")
     parser.add_argument("--reference", required=True, type=pathlib.Path,
                         help="参考音频 wav（任意采样率，引擎会重采样到 32 kHz）")
     parser.add_argument("--reference-text", type=pathlib.Path,
@@ -145,6 +148,11 @@ def main() -> None:
     if args.g2pm:
         place("g2pm", args.g2pm, "g2pm.bin")
         print(f"  {'g2pm':<22} <- {args.g2pm.name}")
+
+    # jieba 分词：变调边界与词级修正的词边界来源。
+    if args.jieba:
+        place("jieba", args.jieba, "jieba.bin")
+        print(f"  {'jieba':<22} <- {args.jieba.name}")
 
     # 参考音频与文本。
     shutil.copyfile(args.reference, ref_dir / "audio.wav")

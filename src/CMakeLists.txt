@@ -36,6 +36,7 @@ set(GENIE_CORE_SOURCES
     text/chinese_frontend.cpp
     text/chinese_g2p.cpp
     text/frontend_factory.cpp
+    text/jieba.cpp
     text/language_split.cpp
     text/pinyin_table.cpp
     text/opencpop_table.cpp

@@ -437,7 +437,7 @@ HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
 | 词级读音修正 | `CorrectPronunciation.py`（polyphonic.pickle，4.5 万词） | **已实现**（2026-10-28，随 g2pm 容器携带，词边界用词表最长匹配近似，见 §9.7） | 长词表匹配可能命中 jieba 不会单独切分的子词（罕见，且词表条目本身是真词，方向为正向修正） | g2pM 的已知误判靠它兜底（「长大」「分行」类），缺了它模型反而不如单字表 |
 | 繁简转换 | `char_convert.py`（65KB 词表） | **已实现**（2026-10-27，10,737 组，见 §15） | 无（已对齐） | — |
 | 日期/时间/电话/量词 | `Normalization/` 的专门规则 | **已实现**（2026-10-27，见 §15） | 无（已对齐） | — |
-| jieba 分词 | `jieba_fast` + 词性标注 | **未实现**（词表贪心匹配替代，见 §9.6） | POS 依赖的变调分支取默认行为；`eng` 词跳过、词级读音修正缺位 | **勘误（2026-10-28）**：此前记载"上游 word2ph 按分词结果统计"有误 —— 上游 `ChineseG2P.g2p` 的 `word2ph` 同样是**逐字**统计（`zip(initials, finals)` 循环内逐字 append），jieba 影响的是 POS 变调分支、儿化词边界与词级读音修正，不影响 word2ph 粒度 |
+| jieba 分词 | `jieba_fast` + 词性标注 | **已实现**（2026-10-28，算法+词典直译，oracle 103/103，见 §9.8；POS HMM 待接入） | 分词边界与上游一致；POS 依赖的变调分支仍取默认行为（切片 B） | **勘误（2026-10-28）**：此前记载"上游 word2ph 按分词结果统计"有误 —— 上游 `ChineseG2P.g2p` 的 `word2ph` 同样是**逐字**统计（`zip(initials, finals)` 循环内逐字 append），jieba 影响的是 POS 变调分支、儿化词边界与词级读音修正，不影响 word2ph 粒度 |
 | 混读分块 | `split_language` 逐块 G2P + 逐块 RoBERTa | **已实现**（2026-10-28，见 §6.3；英文块丢弃） | 中文块获得完整 TextNormalizer；块边界阻断变调与上游一致 | — |
 | 英文 G2P | `nltk` + CMU 词典（3.5MB） | **未实现**（留成可插拔接口） | 英文不能合成；混读文本里的英文单词被静默丢弃 | 词典过大，不适合内嵌进端侧库 |
 | 日文 G2P | `pyopenjtalk-plus` | **未实现**（留成可插拔接口） | 日文不能合成 | 依赖 OpenJTalk 词典 |
@@ -544,6 +544,34 @@ g2pM 输出之后、变调之前按词表修正（整词命中整体替换，否
 `G2pmFrontend.CorrectsModelMisjudgments`（长大读 zhǎng）。
 
 与上游的残留差异：POS 依赖的变调分支仍取默认行为（jieba，见 §9.6）。
+
+### 9.8 jieba 分词：DAG/DP/HMM 直译（2026-10-28）
+
+上游 `ChineseG2P.g2p` 用 `jieba_fast.posseg.lcut` 对每个标点段分词；
+分词结果（`pre_merge_for_modify` 的输入）决定变调合并的边界、儿化的
+词检查与词级读音修正的粒度。本移植逐行复刻 jieba 0.42.1（jieba_fast
+与其结果一致、C 加速；算法/数据同源，MIT）：
+
+- `tools/deploy/convert_jieba.py`：dict.txt（349,046 词，含**前缀片段
+  freq=0** —— 上游 gen_pfdict 的行为，DAG 扫描靠它们前进）与
+  finalseg HMM 概率 → 单一容器 `third_party/jieba/jieba.bin`
+  （8.3 MB，回读校验零失真）。
+- `src/text/jieba.cpp`：get_DAG（词典前向扫描）→ calc（逆序对数概率
+  DP）→ `__cut_DAG`（单字缓存块按词典存在性走 HMM 或逐字产出）→
+  finalseg viterbi（BMES）。三处极易走样的语义都以 Python 行为为准：
+  calc 平局取更大 x（元组 max）；viterbi PrevStatus 列表顺序（平局取
+  最后一个）；缺失概率固化 MIN_FLOAT（-3.14e100）。
+- 前端接线（上游顺序）：jieba 分词 → 逐字读音（g2pM/单字表）→
+  pre_merge（跨词合并）→ **词级读音修正**（整词查表 + 单字兜底，
+  替代 §9.7 的整段最长匹配近似）→ 变调 → 儿化。无 jieba 的音色包
+  退回词表贪心匹配 + 整段最长匹配修正（降级路径，行为与 #23 一致）。
+- oracle：`tools/g2p/verify_jieba.py` 以 jieba Python（HMM=True 默认
+  路径）为基准，103 句语料**逐词一致**（含 DP 走向与 HMM OOV 路径），
+  黄金语料 `tests/golden/jieba.json` 随仓库锁定进 CI。
+
+残留差异：jieba_fast 的**词性标注**（posseg 的 HMM POS，约 5.5 MB
+数据）未移植 —— 词典词的词性已随容器携带（dict.txt 第三列），OOV 词
+的 POS 与依赖 POS 的变调分支（一/量词、 moments 后缀等）留待切片 B。
 
 ## 10. T2S 自回归解码：逐行对齐的结果
 

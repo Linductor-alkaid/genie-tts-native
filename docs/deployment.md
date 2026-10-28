@@ -20,7 +20,8 @@
 | V2ProPlus 增件 | `prompt_encoder_fp32.onnx` + `prompt_encoder_fp16.bin`、`speaker_encoder.onnx` | 同上（`prompt_encoder` 在音色目录，`speaker_encoder` 是公共文件） | 可选：不给则按 V2 路径合成 |
 | 内容特征 | `chinese-hubert-base.onnx` + `chinese-hubert-base_weights_fp16.bin` | 同上 `GenieData/chinese-hubert-base/` | 可选：参考音频的 HuBERT 特征，缺了退化为全零 |
 | 韵律特征 | `RoBERTa.onnx` + `roberta_tokenizer/vocab.txt` | 同上 `GenieData(Optional)/RoBERTa/` | 可选：中文韵律，缺了退化为全零 |
-| 多音字 | `third_party/g2pm/g2pm.bin`（**仓库自带**，1.8 MB） | 无需下载 | 可选：g2pM 多音字消歧；`make_voice_package.py --g2pm third_party/g2pm/g2pm.bin` 接入，缺了回退单字最常用读音 |
+| 多音字 | `third_party/g2pm/g2pm.bin`（**仓库自带**，3.1 MB） | 无需下载 | 可选：g2pM 多音字消歧（含 4.5 万词读音修正表）；`make_voice_package.py --g2pm third_party/g2pm/g2pm.bin` 接入，缺了回退单字最常用读音 |
+| 分词 | `third_party/jieba/jieba.bin`（**仓库自带**，8.3 MB） | 无需下载 | 可选：jieba 分词（变调边界 + 词级修正的词边界）；`make_voice_package.py --jieba third_party/jieba/jieba.bin` 接入，缺了退回词表匹配 |
 | 参考音频 | 一段 wav + 参考文本 | 音色目录 `prompt_wav/`（文本随 `prompt_wav.json` 发布） | 音色包的"音色本体"，**必需** |
 | ONNX Runtime | 预编译包（CPU） | [microsoft/onnxruntime releases](https://github.com/microsoft/onnxruntime/releases) | CI 基线 1.22.0；本项目验证到 1.31.0 |
 
@@ -151,6 +152,7 @@ python3 tools/deploy/make_voice_package.py \
     --speaker-encoder $DL/speaker_encoder.onnx \
     --roberta         $DL/roberta \
     --g2pm            <repo>/third_party/g2pm/g2pm.bin \
+    --jieba           <repo>/third_party/jieba/jieba.bin \
     --reference       $DL/reference.wav \
     --reference-text  ref.txt \
     --output          ~/voice-packages/feibi

@@ -97,7 +97,8 @@ struct Engine::Impl {
 
     /// RoBERTa 的分词器，跟随 roberta 会话一起加载。
     std::unique_ptr<text::RobertaTokenizer> roberta_tokenizer;
-    std::unique_ptr<g2pm::Model> g2pm_model;  // 多音字消歧（可选角色）
+    std::unique_ptr<g2pm::Model> g2pm_model;         // 多音字消歧（可选角色）
+    std::unique_ptr<text::jieba::Tokenizer> jieba_;  // 分词（可选角色）
 
     T2SDecoder decoder;
     std::unique_ptr<text::TextFrontend> frontend;
@@ -207,12 +208,16 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     // 3) 文本前端。g2pM（多音字消歧）先于前端装配 —— 前端持有它做
     //    上下文读音判定；模型缺失时前端退化为单字最常用读音
     //    （与 RoBERTa / HuBERT 的可选降级同款模式）。
+    if (impl->package.has(ModelRole::Jieba)) {
+        impl->jieba_ = std::make_unique<text::jieba::Tokenizer>(
+            text::jieba::Tokenizer::load(impl->package.model_path(ModelRole::Jieba)));
+    }
     if (impl->package.has(ModelRole::G2pm)) {
         impl->g2pm_model = std::make_unique<g2pm::Model>(
             g2pm::Model::load(impl->package.model_path(ModelRole::G2pm)));
-        impl->frontend = text::make_chinese_frontend(impl->g2pm_model.get());
+        impl->frontend = text::make_chinese_frontend(impl->g2pm_model.get(), impl->jieba_.get());
     } else {
-        impl->frontend = text::make_frontend(impl->manifest.language);
+        impl->frontend = text::make_chinese_frontend(nullptr, impl->jieba_.get());
     }
     impl->decoder = T2SDecoder(T2SOptions{kMaxT2SIterations, kEosThreshold});
 

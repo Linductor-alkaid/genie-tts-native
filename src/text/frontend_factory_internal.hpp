@@ -9,15 +9,17 @@
 
 #include <memory>
 
+#include "text/jieba.hpp"
 #include "text/polyphone.hpp"
 
 namespace genie::text {
 
-/// 中文前端（可带多音字消歧）。
+/// 中文前端（可带多音字消歧与 jieba 分词）。
 ///
 /// @param polyphone g2pM 模型；为空时退化为单字拼音表最常用读音。
+/// @param jieba     分词器；为空时变调边界退回词表贪心匹配。
 [[nodiscard]] std::unique_ptr<TextFrontend> make_chinese_frontend(
-    const Polyphone* polyphone = nullptr);
+    const Polyphone* polyphone = nullptr, const jieba::Tokenizer* jieba = nullptr);
 
 }  // namespace genie::text
 
