@@ -2,6 +2,9 @@
 
 三种用法：命令行、C++ SDK、C ABI。
 
+> 模型权重下载、fp16→fp32 转换与音色包组装（推理的前置准备）见
+> [`docs/deployment.md`](deployment.md)。
+
 ---
 
 ## 1. 命令行
