@@ -29,7 +29,7 @@
 |---|---|
 | M0 上游审计与基线 | ✅ 推理链路、模型 I/O 契约、依赖清单已固化到 [`docs/upstream-audit.md`](docs/upstream-audit.md) |
 | M1 C++ Runtime 基础设施 | ✅ CMake 体系、ONNX Runtime 封装、张量抽象、音色包、JSON / SHA-256 / UTF-8 自带实现 |
-| M2 文本与音频前处理 | 🚧 音频完成；中文文本前端完成（符号表与上游逐字一致、拼音切分与 pypinyin 全量比对一致）；中文韵律特征（RoBERTa）已实装；英文 / 日文 / 韩文 G2P 留成可插拔接口 |
+| M2 文本与音频前处理 | 🚧 音频完成；中文文本前端完成（符号表逐字一致、拼音全量比对一致、TextNormalizer 规范化、变调与儿化）；中文韵律特征（RoBERTa）已实装；英文 / 日文 / 韩文 G2P 留成可插拔接口 |
 | M3 完整推理迁移 | ✅ T2S 自回归解码、VITS、端到端引擎、流式流水线、参考音频条件、V2ProPlus |
 | M4 原生 SDK | ✅ C++ SDK + C ABI 共享库 + CLI |
 | M6 回归层 | ✅ Golden Dataset（模型 I/O 契约快照）|
@@ -40,6 +40,23 @@
 ---
 
 ## 快速开始
+
+### 部署：拿权重、装音色包
+
+推理需要一组 ONNX 模型（按音色发布）+ 一个音色包目录。完整手把手教程
+—— **权重来源、下载命令、fp16→fp32 转换、音色包组装、首次合成** —— 见
+**[`docs/deployment.md`](docs/deployment.md)**。仓库自带两个部署脚本：
+
+```bash
+python3 tools/deploy/convert_fp16_weights.py …   # 上游 fp16 外部权重 → fp32（带图校验）
+python3 tools/deploy/make_voice_package.py …     # 组装音色包：改名 + SHA-256 + manifest.json
+```
+
+模型来源：上游 HF 仓库 [`High-Logic/Genie`](https://hf-mirror.com/High-Logic/Genie)
+（`CharacterModels/v2ProPlus/<音色>/` 每音色一套 TTS 模型；
+`GenieData/` 公共 HuBERT 与说话人验证；`GenieData(Optional)/RoBERTa/`
+中文韵律，可选）。仓库内 `third_party/genie-tts-models/` 只带了几张
+**图壳**（跑契约测试用），不含权重。
 
 ### 构建
 
@@ -118,7 +135,10 @@ genie-tts-native/
 │   ├── audio/            WAV 编解码、重采样
 │   ├── c/                C ABI 实现
 │   └── scheduler/        基于 kairo 的调度与并发
-├── tools/cli/            genie-tts 命令行
+├── tools/
+│   ├── cli/              genie-tts 命令行
+│   ├── deploy/           部署脚本（fp16 转换、音色包组装）
+│   └── g2p/              词表生成器与文本前端比对工具
 ├── tests/                unit / component / integration / c
 └── third_party/          内置的上游 ONNX 模型（MIT）
 ```
@@ -158,6 +178,7 @@ genie-tts-native/
 | [`AGENTS.md`](AGENTS.md) | **项目管理规范**（最高约束） |
 | [`docs/architecture.md`](docs/architecture.md) | 架构与关键设计决策 |
 | [`docs/upstream-audit.md`](docs/upstream-audit.md) | 上游推理链路审计结论 |
+| [`docs/deployment.md`](docs/deployment.md) | **部署教程**：权重下载、fp16 转换、音色包组装、首次合成 |
 | [`docs/usage.md`](docs/usage.md) | CLI / C++ SDK / C ABI 使用说明 |
 | [`docs/regression.md`](docs/regression.md) | 回归层：Golden Dataset 与模型 I/O 契约守卫 |
 | [`docs/roadmap.md`](docs/roadmap.md) | 里程碑与进度 |

@@ -6,6 +6,15 @@
 ## [Unreleased]
 
 ### Added
+
+- **部署教程与部署脚本**：`docs/deployment.md` 手把手覆盖「下载上游权重
+  （HF `High-Logic/Genie`，含 hf-mirror 镜像用法）→ fp16 外部权重转 fp32 →
+  组装音色包 → 校验与首次合成」全流程，命令均可直接复制执行。
+  `tools/deploy/convert_fp16_weights.py`：整文件 fp16→fp32 转换，可选
+  ONNX 图外部区间校验（连续性 + 总长精确匹配，不一致拒绝转换）；
+  `tools/deploy/make_voice_package.py`：按上游目录结构组装音色包
+  （改名 + SHA-256 + manifest.json，capabilities 按输入自动置位）。
+  README 增加部署入口、模型来源说明与 tools 目录树。
 - **上游行为入档：句尾挤压**：vits 输出时长严格等于语义 token 数 × 40 ms，
   EOS 采样时机（采样在 ONNX 图内，见审计 §5）的运行间方差会让末音节被
   挤压，听感是"说了一半音频就结束"。实测确认与上游同分布、非移植缺陷；
