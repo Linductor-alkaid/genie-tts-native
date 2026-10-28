@@ -76,10 +76,11 @@
 - ⏳ 中文分词（`word2ph` 目前按单字统计）
 - ✅ 多音字 g2pM（2026-10-28：C++ 前向复刻，oracle 47/47，见 upstream-audit §9.7）
 - ✅ jieba 分词（2026-10-28：DAG/DP/HMM 直译，oracle 103/103，见 upstream-audit §9.8；POS HMM 待切片 B）
-- ⏳ 英文 G2P（留成可插拔接口）
+- ✅ 英文 G2P（2026-10-29：规范化 + TweetTokenizer + CMU 词典 + POS 标注 + GRU 兜底，
+  oracle 94 句的三项逐条一致，见 upstream-audit §17）
 - ⏳ 日文 G2P（留成可插拔接口）
 - ⏳ 韩文 G2P（留成可插拔接口）
-- ✅ 中英混合文本切分（2026-10-28：split_language 移植 + 逐块 TextNormalizer + 按块 RoBERTa，见 upstream-audit §6.3；英文块丢弃，待英文 G2P）
+- ✅ 中英混合文本切分（2026-10-28：split_language 移植 + 逐块 TextNormalizer + 按块 RoBERTa，见 upstream-audit §6.3；英文块已接入英文 G2P，2026-10-29）
 - ✅ 中文 RoBERTa 特征（C++ tokenizer + 特征提取 + 对齐，见 upstream-audit §14）
 - ✅ 参考音频特征（HuBERT `ssl_content`，见 upstream-audit §14.4）
 

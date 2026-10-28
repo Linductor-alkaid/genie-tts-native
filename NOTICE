@@ -45,7 +45,50 @@ Copyright (c) 2026 Linductor-alkaid
    拼音词典的**字表范围**（12,010 个常用汉字）由 jieba 词典的词频决定。
    jieba 本身不随本仓库分发。
 
-6. GoogleTest (https://github.com/google/googletest)
+6. CMU Pronouncing Dictionary (https://github.com/cmusphinx/cmudict)
+   Copyright (c) 1993-2015 Carnegie Mellon University
+   BSD 3-Clause License
+
+   英文 G2P 的发音词典数据来自 GPT-SoVITS 的 `text/cmudict.rep`
+   （源头是 CMU Pronouncing Dictionary），经
+   `tools/deploy/convert_cmu_dict.py` 转换为容器格式后随仓库发布于
+   third_party/english/cmudict.bin。授权原文见 third_party/english/LICENSE。
+
+7. g2p_en / Kyubyong's g2p (https://github.com/Kyubyong/g2p)
+   Copyright (c) 2017 Kyubyong Park
+   Apache License 2.0
+
+   英文 G2P 的 OOV 兜底模型（seq2seq GRU，checkpoint20.npz）来自该仓库，
+   经 `tools/deploy/convert_english_g2p.py` 转换为容器格式后随仓库发布于
+   third_party/english/english_g2p.bin。授权原文见
+   third_party/english/LICENSE。
+
+8. NLTK (https://github.com/nltk/nltk)
+   Copyright (c) 2001-2023 NLTK Authors
+   Apache License 2.0
+
+   英文 G2P 的词性标注权重（averaged perceptron tagger）来自 NLTK 的
+   英语模型，经 `tools/deploy/convert_pos_tagger.py` 转换为容器格式后随仓库
+   发布于 third_party/english/pos_tagger.bin。分词规则（TweetTokenizer）
+   是按其行为移植的 C++ 实现。
+
+   Apache-2.0 原文见 https://www.apache.org/licenses/LICENSE-2.0
+
+9. GPT-SoVITS (https://github.com/RVC-Boss/GPT-SoVITS)
+   Copyright (c) 2024 RVC-Boss
+   MIT License
+
+   英文 G2P 的词典缓存（`text/engdict_cache.pickle`）与热词表
+   （`text/engdict-hot.rep`）来自该仓库，是上游 Genie-TTS 实际加载的数据源。
+
+10. wordsegment (https://pypi.org/project/wordsegment/)
+    Copyright (c) 2013 John Goldsmith
+    MIT License
+
+    英文 G2P 的 ngram 分词词典。**不随本仓库分发** —— 运行时从音色包的
+    `english_word_segment` 角色读取。
+
+11. GoogleTest (https://github.com/google/googletest)
    Copyright (c) 2008, Google Inc.
    BSD 3-Clause License
 
@@ -61,7 +104,7 @@ third_party/genie-tts-models/ 下的 ONNX 模型由 Genie-TTS 仓库以 MIT 协�
 这些模型源自 GPT-SoVITS 项目，**用户自己的音色模型**（voice package）不随本仓库
 分发，其授权由相应作者决定。详见 docs/architecture.md 的「模型授权」一节。
 
-4. PaddlePaddle / WeTextProcessing 文本规范化规则与繁简转换表
+12. PaddlePaddle / WeTextProcessing 文本规范化规则与繁简转换表
    Copyright (c) 2020 PaddlePaddle Authors. All Rights Reserved.
    Apache License 2.0
 
@@ -76,7 +119,7 @@ third_party/genie-tts-models/ 下的 ONNX 模型由 Genie-TTS 仓库以 MIT 协�
 
    Apache-2.0 原文见 https://www.apache.org/licenses/LICENSE-2.0
 
-5. jieba (https://github.com/fxsjy/jieba，上游使用其 C 加速分支 jieba_fast)
+13. jieba (https://github.com/fxsjy/jieba，上游使用其 C 加速分支 jieba_fast)
    Copyright (c) Sun, Junyi <ccnusjy@gmail.com>
    MIT License
 
@@ -84,7 +127,7 @@ third_party/genie-tts-models/ 下的 ONNX 模型由 Genie-TTS 仓库以 MIT 协�
    jieba 0.42.1，经 tools/deploy/convert_jieba.py 转换后随仓库发布于
    third_party/jieba/jieba.bin。授权原文见 third_party/jieba/LICENSE。
 
-6. g2pM (https://github.com/kakaobrain/g2pM，pip 包由 mozillazg/pypinyin-g2pM 打包)
+14. g2pM (https://github.com/kakaobrain/g2pM，pip 包由 mozillazg/pypinyin-g2pM 打包)
    Copyright (c) 2020 Seanie Lee (Kakao Brain)
    Apache License 2.0
 

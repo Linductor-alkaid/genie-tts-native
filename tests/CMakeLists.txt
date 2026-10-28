@@ -49,6 +49,7 @@ add_executable(genie_unit_tests
     unit/test_hybrid.cpp
     unit/test_g2pm.cpp
     unit/test_jieba.cpp
+    unit/test_english.cpp
     # 必须排在最后：它要覆盖"调度器就绪状态下进程退出"这条路径。
     unit/test_scheduler_lifetime.cpp
 )
@@ -68,6 +69,13 @@ target_compile_definitions(genie_unit_tests PRIVATE
     GENIE_G2PM_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/g2pm.json"
     GENIE_JIEBA_MODEL_FILE="${CMAKE_SOURCE_DIR}/third_party/jieba/jieba.bin"
     GENIE_JIEBA_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/jieba.json")
+# 英文 G2P：词典 / 词性标注 / GRU 权重随仓库发布，
+# 黄金语料由 tools/g2p/verify_english_g2p.py 用上游 Python 生成。
+target_compile_definitions(genie_unit_tests PRIVATE
+    GENIE_ENGLISH_CMU_DICT="${CMAKE_SOURCE_DIR}/third_party/english/cmudict.bin"
+    GENIE_ENGLISH_POS_TAGGER="${CMAKE_SOURCE_DIR}/third_party/english/pos_tagger.bin"
+    GENIE_ENGLISH_G2P_MODEL="${CMAKE_SOURCE_DIR}/third_party/english/english_g2p.bin"
+    GENIE_ENGLISH_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/english_g2p.json")
 # RoBERTa 分词器是 src/ 内部实现，测试直接包含内部头。
 target_include_directories(genie_unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME genie_unit COMMAND genie_unit_tests)

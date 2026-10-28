@@ -27,11 +27,22 @@ std::unique_ptr<TextFrontend> make_frontend(Language language) {
             return make_chinese_frontend();
         }
         case Language::English:
+            // 英文前端需要词典 —— 没有资源就返回 nullptr（调用方据此报错，
+            // 而不是静默产出空音素）。
+            return nullptr;
         case Language::Japanese:
         case Language::Korean:
             return nullptr;
     }
     return nullptr;
+}
+
+std::unique_ptr<TextFrontend> make_frontend(Language language,
+                                            const EnglishG2pResources& resources) {
+    if (language == Language::English) {
+        return make_english_frontend(resources);
+    }
+    return make_frontend(language);
 }
 
 }  // namespace genie::text

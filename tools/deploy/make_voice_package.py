@@ -84,6 +84,17 @@ def main() -> None:
     parser.add_argument("--jieba", type=pathlib.Path,
                         help="jieba 分词容器（仓库 third_party/jieba/jieba.bin，可选；"
                              "缺省时变调边界退回词表匹配）")
+    parser.add_argument("--english-cmu-dict", type=pathlib.Path,
+                        help="英文发音词典容器（仓库 third_party/english/cmudict.bin；"
+                             "英文合成必需，缺了英文文本没有音素）")
+    parser.add_argument("--english-pos-tagger", type=pathlib.Path,
+                        help="英文词性标注容器（仓库 third_party/english/pos_tagger.bin，可选；"
+                             "缺了同形异音词取默认读音）")
+    parser.add_argument("--english-g2p-model", type=pathlib.Path,
+                        help="英文 GRU 权重容器（仓库 third_party/english/english_g2p.bin，可选；"
+                             "缺了 OOV 词没有发音）")
+    parser.add_argument("--english-word-segment", type=pathlib.Path,
+                        help="英文 ngram 分词词典目录（可选；缺了 OOV 词直接交给 GRU）")
     parser.add_argument("--reference", required=True, type=pathlib.Path,
                         help="参考音频 wav（任意采样率，引擎会重采样到 32 kHz）")
     parser.add_argument("--reference-text", type=pathlib.Path,
@@ -153,6 +164,24 @@ def main() -> None:
     if args.jieba:
         place("jieba", args.jieba, "jieba.bin")
         print(f"  {'jieba':<22} <- {args.jieba.name}")
+
+    # 英文 G2P 的资源：词典是硬依赖，其余三个可选（缺失时降级）。
+    if args.english_cmu_dict:
+        place("english_cmu_dict", args.english_cmu_dict, "cmudict.bin")
+        print(f"  {'english_cmu_dict':<22} <- {args.english_cmu_dict.name}")
+    if args.english_pos_tagger:
+        place("english_pos_tagger", args.english_pos_tagger, "pos_tagger.bin")
+        print(f"  {'english_pos_tagger':<22} <- {args.english_pos_tagger.name}")
+    if args.english_g2p_model:
+        place("english_g2p_model", args.english_g2p_model, "english_g2p.bin")
+        print(f"  {'english_g2p_model':<22} <- {args.english_g2p_model.name}")
+    if args.english_word_segment:
+        # ngram 分词词典是一堆文本文件，整个目录搬过去。
+        dest = models_dir / "wordsegment"
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(args.english_word_segment, dest)
+        print(f"  {'english_word_segment':<22} <- {args.english_word_segment}")
 
     # 参考音频与文本。
     shutil.copyfile(args.reference, ref_dir / "audio.wav")

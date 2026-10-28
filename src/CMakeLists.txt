@@ -45,6 +45,14 @@ set(GENIE_CORE_SOURCES
     text/char_convert_table.cpp
     text/tone_sandhi.cpp
     text/sandhi_table.cpp
+    text/english_frontend.cpp
+    text/english/cmu_dict.cpp
+    text/english/g2p.cpp
+    text/english/normalization.cpp
+    text/english/pos_tagger.cpp
+    text/english/seq2seq.cpp
+    text/english/tokenizer.cpp
+    text/english/word_segmenter.cpp
 )
 
 add_library(genie_core STATIC ${GENIE_CORE_SOURCES})

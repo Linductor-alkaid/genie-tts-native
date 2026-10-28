@@ -7,6 +7,20 @@
 
 ### Added
 
+- **英文 G2P 实装**：移植上游 `G2P/English/` 的整条英文链路 ——
+  规范化（20 多条规则，手写扫描器，不引 `std::regex`）、nltk TweetTokenizer
+  分词、CMU 发音词典查表、averaged perceptron 词性标注、同形异音词按 POS
+  选读音、ngram 分词（OOV 兜底的 GRU 前向）。
+  数据经 `tools/deploy/convert_cmu_dict.py` / `convert_pos_tagger.py` /
+  `convert_english_g2p.py` 转为容器格式随仓库发布
+  （`third_party/english/`，共 12 MB，CMU BSD / NLTK Apache-2.0 /
+  g2p Apache-2.0）。音色包新增四个可选角色 `english_cmu_dict`（硬依赖）、
+  `english_pos_tagger`、`english_g2p_model`、`english_word_segment`。
+  引擎按语言选前端：纯英文走英文前端，混读路径的英文块也交给英文前端
+  （此前是整块丢弃）。oracle 用**上游的 Python 实现**当基准，
+  94 句语料的规范化 / text_normalize / 音素序列三项逐条一致。
+  见 docs/upstream-audit.md §17。
+
 - **jieba 分词实装**：移植 jieba 0.42.1 的分词算法（词典 DAG 前向扫描
   + 对数概率逆序 DP + OOV 的 HMM 细分，jieba_fast 与其结果一致），
   词典与 HMM 概率经 `tools/deploy/convert_jieba.py` 打包为

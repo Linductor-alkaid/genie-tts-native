@@ -46,6 +46,14 @@ enum class ModelRole {
     Roberta,
     G2pm,   ///< g2pM 多音字消歧（可选；缺失时回退单字最常用读音）
     Jieba,  ///< jieba 分词（可选；缺失时变调边界退回词表匹配）
+    /// 英文 CMU 发音词典容器（可选；缺失时英文 G2P 不可用）。
+    EnglishCmuDict,
+    /// 英文词性标注权重容器（可选；缺失时同形异音词取默认读音）。
+    EnglishPosTagger,
+    /// 英文 seq2seq GRU 权重容器（可选；缺失时 OOV 词没有发音）。
+    EnglishG2pModel,
+    /// 英文 ngram 分词词典目录（可选；缺失时 OOV 词直接交给 GRU）。
+    EnglishWordSegment,
 };
 
 /// 角色 ↔ 稳定字符串互转。未知角色返回空字符串。

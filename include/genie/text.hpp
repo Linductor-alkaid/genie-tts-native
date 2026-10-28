@@ -92,15 +92,44 @@ public:
     [[nodiscard]] virtual Language language() const noexcept = 0;
 };
 
+/// 英文 G2P 需要的资源。
+///
+/// 这几个都是**数据文件**（不是模型），由 tools/deploy/ 下的转换脚本生成，
+/// 落在音色包目录里（见 docs/upstream-audit.md §17）。
+struct EnglishG2pResources {
+    /// CMU 发音词典容器（third_party/english/cmudict.bin）。**必需**。
+    std::string cmu_dict;
+
+    /// nltk 词性标注权重容器（third_party/english/pos_tagger.bin）。
+    /// 可选 —— 缺失时同形异音词（read / complex / lead / presents）
+    /// 固定取第二个读音。
+    std::string pos_tagger;
+
+    /// seq2seq GRU 权重容器（third_party/english/english_g2p.bin）。
+    /// 可选 —— 缺失时词典里没有的词没有发音（会被跳过）。
+    std::string g2p_model;
+
+    /// ngram 分词词典目录（上游 English_G2P/wordsegment/）。
+    /// 可选 —— 缺失时词典里没有的词直接交给 GRU。
+    std::string word_segment_dir;
+};
+
 /// 创建指定语言的前端。
 ///
 /// `Language::Auto` 会按文本内容自动判断（与 `detect_language()` 一致）。
 /// `Language::HybridChineseEnglish` 由中文前端承担：按语言分块
 /// （`split_language`），每个中文块走完整规范化 + G2P；
-/// 英文块待英文 G2P 落地（当前丢弃，见 docs/upstream-audit.md §9.4）。
+/// 英文块走英文前端（需要提供 `resources`）。
 ///
-/// @return 前端实例；语言不受支持时返回 nullptr。
+/// @return 前端实例；语言不受支持或资源缺失时返回 nullptr。
 [[nodiscard]] std::unique_ptr<TextFrontend> make_frontend(Language language);
+
+/// 创建英文前端。
+///
+/// @param resources 英文 G2P 的资源路径。
+/// @return 前端实例；CMU 词典缺失或读不出来时返回 nullptr。
+[[nodiscard]] std::unique_ptr<TextFrontend> make_frontend(Language language,
+                                                          const EnglishG2pResources& resources);
 
 }  // namespace genie::text
 

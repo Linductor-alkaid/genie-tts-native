@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "genie/text.hpp"
 #include "text/jieba.hpp"
 #include "text/polyphone.hpp"
 
@@ -18,8 +19,15 @@ namespace genie::text {
 ///
 /// @param polyphone g2pM 模型；为空时退化为单字拼音表最常用读音。
 /// @param jieba     分词器；为空时变调边界退回词表贪心匹配。
+/// @param english   英文前端；混读路径的英文块交给它。为空时英文块丢弃
+///                  （与上游的混读路径一致，见 docs/upstream-audit.md §17）。
 [[nodiscard]] std::unique_ptr<TextFrontend> make_chinese_frontend(
-    const Polyphone* polyphone = nullptr, const jieba::Tokenizer* jieba = nullptr);
+    const Polyphone* polyphone = nullptr, const jieba::Tokenizer* jieba = nullptr,
+    const TextFrontend* english = nullptr);
+
+/// 英文前端（词典是硬依赖，其余资源缺失时降级）。
+[[nodiscard]] std::unique_ptr<TextFrontend> make_english_frontend(
+    const EnglishG2pResources& resources);
 
 }  // namespace genie::text
 
