@@ -79,7 +79,8 @@
 - ✅ 英文 G2P（2026-10-29：规范化 + TweetTokenizer + CMU 词典 + POS 标注 + GRU 兜底，
   oracle 94 句的三项逐条一致，见 upstream-audit §17）
 - ⏳ 日文 G2P（留成可插拔接口）
-- ⏳ 韩文 G2P（留成可插拔接口）
+- ✅ 韩文 G2P（2026-10-29：g2pk2 全链路移植，oracle 53/53 逐音素一致，
+  mecab-ko 形态标注未移植，见 upstream-audit §18）
 - ✅ 中英混合文本切分（2026-10-28：split_language 移植 + 逐块 TextNormalizer + 按块 RoBERTa，见 upstream-audit §6.3；英文块已接入英文 G2P，2026-10-29）
 - ✅ 中文 RoBERTa 特征（C++ tokenizer + 特征提取 + 对齐，见 upstream-audit §14）
 - ✅ 参考音频特征（HuBERT `ssl_content`，见 upstream-audit §14.4）

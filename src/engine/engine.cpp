@@ -104,6 +104,8 @@ struct Engine::Impl {
     std::unique_ptr<text::TextFrontend> frontend;
     /// 英文前端（音色包里没有英文词典时为空）。
     std::unique_ptr<text::TextFrontend> english_frontend;
+    /// 韩文前端（不需要外部资源 ✓ —— 总是创建 ✓）。
+    std::unique_ptr<text::TextFrontend> korean_frontend;
 
     /// 最近一次流式合成的任务 id。
     std::atomic<Scheduler::TaskId> streaming_task{0};
@@ -233,6 +235,9 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
         impl->english_frontend = text::make_english_frontend(english_resources);
     }
 
+    // 3.2) 韩文前端（不需要外部资源 ✓ —— 规则与数据都内置 ✓）。
+    impl->korean_frontend = text::make_korean_frontend();
+
     if (impl->package.has(ModelRole::G2pm)) {
         impl->g2pm_model = std::make_unique<g2pm::Model>(
             g2pm::Model::load(impl->package.model_path(ModelRole::G2pm)));
@@ -339,6 +344,8 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     const text::TextFrontend& frontend =
         (language == Language::English && impl_->english_frontend != nullptr)
             ? *impl_->english_frontend
+        : (language == Language::Korean && impl_->korean_frontend != nullptr)
+            ? *impl_->korean_frontend
             : *impl_->frontend;
     const std::string prepared = std::string(kUpstreamTextPrefix) + std::string(text);
     const auto phonemes = frontend.convert(prepared);

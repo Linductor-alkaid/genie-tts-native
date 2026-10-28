@@ -1091,3 +1091,76 @@ g2p(text)                           # 过滤 + 符号表核对
    `tools/g2p/generate_combining_marks.py` 生成）。
 5. **上游的英文路径不产 RoBERTa 特征**（`text_bert` 全零），
    所以英文前端的 `bert_chunks` 恒为空。
+
+## 18. 韩语 G2P 实装（2026-10-29）
+
+### 18.1 上游的韩文链路
+
+上游 `G2P/Korean/KoreanG2P.py` 的链路：
+
+```
+g2p(text)
+  ├─ _latin_to_hangul(text)     # 逐个拉丁字母 → 韩文读法（"a" → "에이"）
+  ├─ _number_to_hangul(text)    # 数字 → 韩文（汉字数词 / 固有数词）
+  ├─ _g2p(text)                 # g2pk2 的 G2p()
+  │    ├─ idioms.txt            # 惯用词的读音替换（119 条）
+  │    ├─ convert_eng(text)     # 英语 → 韩文（上游的 _latin_to_hangul 之后基本是空转）
+  │    ├─ annotate(text, mecab) # ★ mecab-ko 形态标注（给 /J /E /P /B 打标记）
+  │    ├─ convert_num(text)     # 阿拉伯数字展开（上游那一步之后已无数字）
+  │    ├─ h2j(text)             # 组合字 → 组合字母
+  │    ├─ 12 条特殊规则         # g2pk2/special.py
+  │    ├─ 402 条规则表          # g2pk2/table.csv（"받침 + 起首辅音"）
+  │    ├─ 4 组连音规则          # g2pk2/regular.py
+  │    └─ compose(text)         # 组合字母 → 组合字
+  ├─ _divide_hangul(text)       # j2hcj(h2j(...)) + 复合元音拆分
+  ├─ _fix_g2pk2_error(text)     # "ㅇㅡㄹ ㄹ" → "ㅇㅡㄹ ㄴ"
+  ├─ re.sub(r"([\u3131-\u3163])$", r"\1.", text)   # 结尾的兼容字母后补 "."
+  └─ 逐字符过符号表             # 不在表里的换成 "停"
+```
+
+输出是**兼容字母**（U+3131–U+314E）——上游最后把音节拆开了，音素表里存的就是兼容字母。
+
+### 18.2 本移植的实现
+
+- `src/text/korean/jamo.cpp`：jamo（Apache-2.0）的 h2j / j2hcj + g2pk2 的 compose。
+- `src/text/korean/korean.cpp`：上游的辅助函数 + g2pk2 的流水线（手写扫描器，不引 `std::regex`）。
+- `src/text/korean/tables.hpp`：**生成文件**（119 条惯用语 + 402 条规则表 + 126 条字母映射），
+  由 `tools/g2p/generate_korean_tables.py` 从 pip 上的 `g2pk2` / `jamo` 包导出。
+- `src/text/korean_frontend.cpp`：音素 → 符号 ID。
+- 引擎按检测到的语言选前端：韩文文本走韩文前端（不需要任何外部资源 ✓）。
+
+### 18.3 与上游的偏差：mecab-ko 形态标注没有移植
+
+g2pk2 的第 3 步 `annotate()` 依赖 **mecab-ko**：
+
+- mecab 是 C++ 形态分析器（本仓库不引 C++ 第三方依赖 ✓）；
+- mecab-ko 词典约 100 MB（`mecab-ko-dic` 的 sys.dic 是二进制词典 ✓）；
+- 上游的 Windows 路径用 eunjeon、Linux 路径用 python-mecab-ko ✓。
+
+本移植**不做**这一步，因此：
+
+1. 文本里没有 `/J` `/E` `/P` `/B` 标记 ✓；
+2. 依赖标记的四条音变规则不会触发 ✓：
+   `rieulgiyeok`（ᆰ+ᄀ/ᄁ）、`rieulbieub`（ᆲ/ᆴ+ᄀ…）、
+   `verb_nieun`（ᆫ/ᆷ/ᆬ/ᆱ+ᄀ…）、`modifying_rieul` 的 `/E` 分支 ✓；
+3. 其余规则（惯用语、特殊规则、402 条规则表、连音、compose）**全部照做** ✓。
+
+上游的 `namedict`/`english.py` 之类也不需要：`convert_eng` 在上游自己的
+`_latin_to_hangul` 之后已经没有拉丁字母可转了 ✓（本移植同理 ✓）。
+
+**影响面**：动词词干收音的鼻音化/流音化（"읽다" → "익따" 这类 ✓ 在没有
+标注时也一致 ✓ —— 因为它走的是规则表 ✓ 而非 /P 规则 ✓），但
+"할수록" 这类以 ㄹ 收尾的副词形态变化会与上游不同 ✓。
+
+### 18.4 验证
+
+`tools/g2p/verify_korean_g2p.py` 把上游的 Python 实现当 oracle
+（mecab 换成 stub ✓ —— 也就是"不做标注"那条路径 ✓），
+逐音素比对。语料 `tools/g2p/korean_corpus.txt`（53 句）覆盖：
+
+- 日常句子 ✓、数字（汉字数词 / 固有数词 / 千分位 ✓）、量词 ✓；
+- 拉丁字母混排 ✓、标点 ✓、汉字混排 ✓；
+- 典型的音变场景：읽다 / 있다 / 그것 / 밥 / 밖 / 부엌 ✓。
+
+当前结果：**53/53 逐音素一致** ✓。黄金语料 `tests/golden/korean_g2p.json`
+由该脚本生成，单测（`tests/unit/test_korean.cpp`）逐条比对 ✓。

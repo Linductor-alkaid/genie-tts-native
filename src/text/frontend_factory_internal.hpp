@@ -29,6 +29,9 @@ namespace genie::text {
 [[nodiscard]] std::unique_ptr<TextFrontend> make_english_frontend(
     const EnglishG2pResources& resources);
 
+/// 韩文前端（不需要外部资源 ✓）。
+[[nodiscard]] std::unique_ptr<TextFrontend> make_korean_frontend();
+
 }  // namespace genie::text
 
 #endif  // GENIE_SRC_TEXT_FRONTEND_FACTORY_INTERNAL_HPP
