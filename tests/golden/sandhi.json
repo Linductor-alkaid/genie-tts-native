@@ -1,0 +1,1755 @@
+{
+  "cases": [
+    {
+      "finals_in": [
+        "i3",
+        "ao3"
+      ],
+      "text": "你好",
+      "units": [
+        {
+          "finals": [
+            "i2",
+            "ao3"
+          ],
+          "word": "你好"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ao3",
+        "u3"
+      ],
+      "text": "老虎",
+      "units": [
+        {
+          "finals": [
+            "ao2",
+            "u3"
+          ],
+          "word": "老虎"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "i3",
+        "ao3",
+        "u3"
+      ],
+      "text": "纸老虎",
+      "units": [
+        {
+          "finals": [
+            "i3",
+            "ao2",
+            "u3"
+          ],
+          "word": "纸老虎"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "eng2",
+        "u3",
+        "ao1"
+      ],
+      "text": "蒙古包",
+      "units": [
+        {
+          "finals": [
+            "eng2"
+          ],
+          "word": "蒙"
+        },
+        {
+          "finals": [
+            "u3"
+          ],
+          "word": "古"
+        },
+        {
+          "finals": [
+            "ao1"
+          ],
+          "word": "包"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "i3",
+        "ian3",
+        "uei3"
+      ],
+      "text": "洗脸水",
+      "units": [
+        {
+          "finals": [
+            "i3",
+            "ian2",
+            "uei3"
+          ],
+          "word": "洗脸水"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "u4",
+        "a4"
+      ],
+      "text": "不怕",
+      "units": [
+        {
+          "finals": [
+            "u2",
+            "a4"
+          ],
+          "word": "不怕"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "an4",
+        "u4",
+        "ong3"
+      ],
+      "text": "看不懂",
+      "units": [
+        {
+          "finals": [
+            "an4"
+          ],
+          "word": "看"
+        },
+        {
+          "finals": [
+            "u4",
+            "ong3"
+          ],
+          "word": "不懂"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "i1",
+        "ian1"
+      ],
+      "text": "一天",
+      "units": [
+        {
+          "finals": [
+            "i4",
+            "ian1"
+          ],
+          "word": "一天"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "i1",
+        "uan4"
+      ],
+      "text": "一段",
+      "units": [
+        {
+          "finals": [
+            "i2",
+            "uan4"
+          ],
+          "word": "一段"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "i4",
+        "i1"
+      ],
+      "text": "第一",
+      "units": [
+        {
+          "finals": [
+            "i4"
+          ],
+          "word": "第"
+        },
+        {
+          "finals": [
+            "i1"
+          ],
+          "word": "一"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "i1",
+        "e4"
+      ],
+      "text": "一个",
+      "units": [
+        {
+          "finals": [
+            "i2",
+            "e5"
+          ],
+          "word": "一个"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "an1",
+        "e4"
+      ],
+      "text": "三个",
+      "units": [
+        {
+          "finals": [
+            "an1"
+          ],
+          "word": "三"
+        },
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "个"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "e4",
+        "e4"
+      ],
+      "text": "这个",
+      "units": [
+        {
+          "finals": [
+            "e4",
+            "e5"
+          ],
+          "word": "这个"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "iang3",
+        "i1",
+        "iang3"
+      ],
+      "text": "想一想",
+      "units": [
+        {
+          "finals": [
+            "iang3"
+          ],
+          "word": "想"
+        },
+        {
+          "finals": [
+            "i4",
+            "iang3"
+          ],
+          "word": "一想"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "an4",
+        "i1",
+        "an4"
+      ],
+      "text": "看一看",
+      "units": [
+        {
+          "finals": [
+            "an4"
+          ],
+          "word": "看"
+        },
+        {
+          "finals": [
+            "i2",
+            "an4"
+          ],
+          "word": "一看"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "e5",
+        "ong1",
+        "i1"
+      ],
+      "text": "的东西",
+      "units": [
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "的"
+        },
+        {
+          "finals": [
+            "ong1",
+            "i5"
+          ],
+          "word": "东西"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "uo1",
+        "i5",
+        "ang4"
+      ],
+      "text": "桌子上",
+      "units": [
+        {
+          "finals": [
+            "uo1"
+          ],
+          "word": "桌"
+        },
+        {
+          "finals": [
+            "i5"
+          ],
+          "word": "子"
+        },
+        {
+          "finals": [
+            "ang4"
+          ],
+          "word": "上"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "i4",
+        "ia4"
+      ],
+      "text": "地下",
+      "units": [
+        {
+          "finals": [
+            "i5"
+          ],
+          "word": "地"
+        },
+        {
+          "finals": [
+            "ia4"
+          ],
+          "word": "下"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ia1",
+        "i3"
+      ],
+      "text": "家里",
+      "units": [
+        {
+          "finals": [
+            "ia1"
+          ],
+          "word": "家"
+        },
+        {
+          "finals": [
+            "i3"
+          ],
+          "word": "里"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ang4",
+        "ai2"
+      ],
+      "text": "上来",
+      "units": [
+        {
+          "finals": [
+            "ang4"
+          ],
+          "word": "上"
+        },
+        {
+          "finals": [
+            "ai2"
+          ],
+          "word": "来"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ia4",
+        "v4"
+      ],
+      "text": "下去",
+      "units": [
+        {
+          "finals": [
+            "ia4"
+          ],
+          "word": "下"
+        },
+        {
+          "finals": [
+            "v4"
+          ],
+          "word": "去"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ua1",
+        "er2"
+      ],
+      "text": "花儿",
+      "units": [
+        {
+          "finals": [
+            "ua1",
+            "er2"
+          ],
+          "word": "花儿"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "iao3",
+        "er2"
+      ],
+      "text": "鸟儿",
+      "units": [
+        {
+          "finals": [
+            "iao3",
+            "er2"
+          ],
+          "word": "鸟儿"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "v3",
+        "er2"
+      ],
+      "text": "女儿",
+      "units": [
+        {
+          "finals": [
+            "v3",
+            "er2"
+          ],
+          "word": "女儿"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "uei4",
+        "er2"
+      ],
+      "text": "味儿",
+      "units": [
+        {
+          "finals": [
+            "uei4",
+            "er4"
+          ],
+          "word": "味儿"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "i2",
+        "u4",
+        "er2"
+      ],
+      "text": "媳妇儿",
+      "units": [
+        {
+          "finals": [
+            "i2",
+            "u5",
+            "er5"
+          ],
+          "word": "媳妇儿"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "iao3",
+        "van4",
+        "er2"
+      ],
+      "text": "小院儿",
+      "units": [
+        {
+          "finals": [
+            "iao3",
+            "van4",
+            "er4"
+          ],
+          "word": "小院儿"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ua1",
+        "eng1",
+        "i3"
+      ],
+      "text": "花生米",
+      "units": [
+        {
+          "finals": [
+            "ua1"
+          ],
+          "word": "花"
+        },
+        {
+          "finals": [
+            "eng1"
+          ],
+          "word": "生"
+        },
+        {
+          "finals": [
+            "i3"
+          ],
+          "word": "米"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ao3",
+        "ai4",
+        "ai4"
+      ],
+      "text": "老太太",
+      "units": [
+        {
+          "finals": [
+            "ao3",
+            "ai5"
+          ],
+          "word": "老太"
+        },
+        {
+          "finals": [
+            "ai4"
+          ],
+          "word": "太"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "er4",
+        "ing2",
+        "i1",
+        "ing2"
+      ],
+      "text": "二零一零",
+      "units": [
+        {
+          "finals": [
+            "er4"
+          ],
+          "word": "二"
+        },
+        {
+          "finals": [
+            "ing2"
+          ],
+          "word": "零"
+        },
+        {
+          "finals": [
+            "i1",
+            "ing2"
+          ],
+          "word": "一零"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "iao1",
+        "an1",
+        "iao1"
+      ],
+      "text": "幺三幺",
+      "units": [
+        {
+          "finals": [
+            "iao1"
+          ],
+          "word": "幺"
+        },
+        {
+          "finals": [
+            "an1"
+          ],
+          "word": "三"
+        },
+        {
+          "finals": [
+            "iao1"
+          ],
+          "word": "幺"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ai4",
+        "i3",
+        "i1",
+        "ian2"
+      ],
+      "text": "在此之前",
+      "units": [
+        {
+          "finals": [
+            "ai4"
+          ],
+          "word": "在"
+        },
+        {
+          "finals": [
+            "i3"
+          ],
+          "word": "此"
+        },
+        {
+          "finals": [
+            "i1"
+          ],
+          "word": "之"
+        },
+        {
+          "finals": [
+            "ian2"
+          ],
+          "word": "前"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ing3",
+        "in2",
+        "u4",
+        "i4",
+        "i4",
+        "v4",
+        "iang3",
+        "ou4",
+        "v3",
+        "v1",
+        "a1",
+        "u3",
+        "a4",
+        "e5",
+        "i2",
+        "uang1"
+      ],
+      "text": "请您务必继续享受旅居拉古那的时光",
+      "units": [
+        {
+          "finals": [
+            "ing3"
+          ],
+          "word": "请"
+        },
+        {
+          "finals": [
+            "in2"
+          ],
+          "word": "您"
+        },
+        {
+          "finals": [
+            "u4"
+          ],
+          "word": "务"
+        },
+        {
+          "finals": [
+            "i4"
+          ],
+          "word": "必"
+        },
+        {
+          "finals": [
+            "i4"
+          ],
+          "word": "继"
+        },
+        {
+          "finals": [
+            "v4"
+          ],
+          "word": "续"
+        },
+        {
+          "finals": [
+            "iang3"
+          ],
+          "word": "享"
+        },
+        {
+          "finals": [
+            "ou4"
+          ],
+          "word": "受"
+        },
+        {
+          "finals": [
+            "v3"
+          ],
+          "word": "旅"
+        },
+        {
+          "finals": [
+            "v1"
+          ],
+          "word": "居"
+        },
+        {
+          "finals": [
+            "a1"
+          ],
+          "word": "拉"
+        },
+        {
+          "finals": [
+            "u3"
+          ],
+          "word": "古"
+        },
+        {
+          "finals": [
+            "a4"
+          ],
+          "word": "那"
+        },
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "的"
+        },
+        {
+          "finals": [
+            "i2"
+          ],
+          "word": "时"
+        },
+        {
+          "finals": [
+            "uang1"
+          ],
+          "word": "光"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "in1",
+        "ian1",
+        "ia4",
+        "u3",
+        "uo3",
+        "iang3",
+        "an4",
+        "i1",
+        "an4",
+        "a4",
+        "en3",
+        "in1",
+        "ai3",
+        "e5",
+        "u1"
+      ],
+      "text": "今天下午我想看一看那本新买的书",
+      "units": [
+        {
+          "finals": [
+            "in1"
+          ],
+          "word": "今"
+        },
+        {
+          "finals": [
+            "ian1"
+          ],
+          "word": "天"
+        },
+        {
+          "finals": [
+            "ia4"
+          ],
+          "word": "下"
+        },
+        {
+          "finals": [
+            "u3",
+            "uo2",
+            "iang3"
+          ],
+          "word": "午我想"
+        },
+        {
+          "finals": [
+            "an4"
+          ],
+          "word": "看"
+        },
+        {
+          "finals": [
+            "i2",
+            "an4"
+          ],
+          "word": "一看"
+        },
+        {
+          "finals": [
+            "a4"
+          ],
+          "word": "那"
+        },
+        {
+          "finals": [
+            "en3"
+          ],
+          "word": "本"
+        },
+        {
+          "finals": [
+            "in1"
+          ],
+          "word": "新"
+        },
+        {
+          "finals": [
+            "ai3"
+          ],
+          "word": "买"
+        },
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "的"
+        },
+        {
+          "finals": [
+            "u1"
+          ],
+          "word": "书"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "a1",
+        "u4",
+        "a4",
+        "uen4",
+        "an2"
+      ],
+      "text": "他不怕困难",
+      "units": [
+        {
+          "finals": [
+            "a1"
+          ],
+          "word": "他"
+        },
+        {
+          "finals": [
+            "u2",
+            "a4"
+          ],
+          "word": "不怕"
+        },
+        {
+          "finals": [
+            "uen4",
+            "an5"
+          ],
+          "word": "困难"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "i1",
+        "ian1",
+        "iou4",
+        "a3",
+        "uo3",
+        "iou3",
+        "e5",
+        "uen4",
+        "i2",
+        "ou1",
+        "ie3",
+        "ve2",
+        "e5"
+      ],
+      "text": "一天就把所有的问题都解决了",
+      "units": [
+        {
+          "finals": [
+            "i4",
+            "ian1"
+          ],
+          "word": "一天"
+        },
+        {
+          "finals": [
+            "iou4"
+          ],
+          "word": "就"
+        },
+        {
+          "finals": [
+            "a3",
+            "uo2",
+            "iou3"
+          ],
+          "word": "把所有"
+        },
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "的"
+        },
+        {
+          "finals": [
+            "uen4"
+          ],
+          "word": "问"
+        },
+        {
+          "finals": [
+            "i2"
+          ],
+          "word": "题"
+        },
+        {
+          "finals": [
+            "ou1"
+          ],
+          "word": "都"
+        },
+        {
+          "finals": [
+            "ie3"
+          ],
+          "word": "解"
+        },
+        {
+          "finals": [
+            "ve2"
+          ],
+          "word": "决"
+        },
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "了"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ai3",
+        "ai3",
+        "ao4",
+        "u4",
+        "uo3",
+        "en5",
+        "van4",
+        "i5",
+        "i3",
+        "ong3",
+        "e5",
+        "i1",
+        "ong2",
+        "i4",
+        "e2",
+        "ei2",
+        "uei1",
+        "ua1"
+      ],
+      "text": "奶奶告诉我们院子里种着西红柿和玫瑰花",
+      "units": [
+        {
+          "finals": [
+            "ai3",
+            "ai5"
+          ],
+          "word": "奶奶"
+        },
+        {
+          "finals": [
+            "ao4",
+            "u5"
+          ],
+          "word": "告诉"
+        },
+        {
+          "finals": [
+            "uo3"
+          ],
+          "word": "我"
+        },
+        {
+          "finals": [
+            "en5"
+          ],
+          "word": "们"
+        },
+        {
+          "finals": [
+            "van4"
+          ],
+          "word": "院"
+        },
+        {
+          "finals": [
+            "i5"
+          ],
+          "word": "子"
+        },
+        {
+          "finals": [
+            "i2",
+            "ong3"
+          ],
+          "word": "里种"
+        },
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "着"
+        },
+        {
+          "finals": [
+            "i1"
+          ],
+          "word": "西"
+        },
+        {
+          "finals": [
+            "ong2"
+          ],
+          "word": "红"
+        },
+        {
+          "finals": [
+            "i4"
+          ],
+          "word": "柿"
+        },
+        {
+          "finals": [
+            "e2"
+          ],
+          "word": "和"
+        },
+        {
+          "finals": [
+            "ei2",
+            "uei5"
+          ],
+          "word": "玫瑰"
+        },
+        {
+          "finals": [
+            "ua1"
+          ],
+          "word": "花"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ing3",
+        "i3",
+        "a3",
+        "uo1",
+        "i5",
+        "ang4",
+        "e5",
+        "ong1",
+        "i1",
+        "a2",
+        "ao4",
+        "i4",
+        "ia4",
+        "v4"
+      ],
+      "text": "请你把桌子上的东西拿到地下去",
+      "units": [
+        {
+          "finals": [
+            "ing3",
+            "i2",
+            "a3"
+          ],
+          "word": "请你把"
+        },
+        {
+          "finals": [
+            "uo1"
+          ],
+          "word": "桌"
+        },
+        {
+          "finals": [
+            "i5"
+          ],
+          "word": "子"
+        },
+        {
+          "finals": [
+            "ang4"
+          ],
+          "word": "上"
+        },
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "的"
+        },
+        {
+          "finals": [
+            "ong1",
+            "i5"
+          ],
+          "word": "东西"
+        },
+        {
+          "finals": [
+            "a2"
+          ],
+          "word": "拿"
+        },
+        {
+          "finals": [
+            "ao4"
+          ],
+          "word": "到"
+        },
+        {
+          "finals": [
+            "i5"
+          ],
+          "word": "地"
+        },
+        {
+          "finals": [
+            "ia4"
+          ],
+          "word": "下"
+        },
+        {
+          "finals": [
+            "v4"
+          ],
+          "word": "去"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "e4",
+        "e4",
+        "iao3",
+        "v3",
+        "ai2",
+        "er2",
+        "uei4",
+        "i3",
+        "uan1",
+        "ing1",
+        "ai3",
+        "ai3",
+        "iang3",
+        "u4",
+        "i4"
+      ],
+      "text": "这个小女孩儿最喜欢听奶奶讲故事",
+      "units": [
+        {
+          "finals": [
+            "e4",
+            "e5"
+          ],
+          "word": "这个"
+        },
+        {
+          "finals": [
+            "iao2",
+            "v3"
+          ],
+          "word": "小女"
+        },
+        {
+          "finals": [
+            "ai2",
+            "er2"
+          ],
+          "word": "孩儿"
+        },
+        {
+          "finals": [
+            "uei4"
+          ],
+          "word": "最"
+        },
+        {
+          "finals": [
+            "i3",
+            "uan5"
+          ],
+          "word": "喜欢"
+        },
+        {
+          "finals": [
+            "ing1"
+          ],
+          "word": "听"
+        },
+        {
+          "finals": [
+            "ai3",
+            "ai5"
+          ],
+          "word": "奶奶"
+        },
+        {
+          "finals": [
+            "iang3"
+          ],
+          "word": "讲"
+        },
+        {
+          "finals": [
+            "u4",
+            "i5"
+          ],
+          "word": "故事"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "uo3",
+        "en5",
+        "v2",
+        "er4",
+        "ing2",
+        "er4",
+        "i4",
+        "ian2",
+        "i2",
+        "ve4",
+        "er4",
+        "i4",
+        "a1",
+        "u4",
+        "e5",
+        "i4",
+        "an1",
+        "an3",
+        "v3",
+        "in1",
+        "in3",
+        "ing2"
+      ],
+      "text": "我们于二零二四年十月二日发布了第三版语音引擎",
+      "units": [
+        {
+          "finals": [
+            "uo3"
+          ],
+          "word": "我"
+        },
+        {
+          "finals": [
+            "en5"
+          ],
+          "word": "们"
+        },
+        {
+          "finals": [
+            "v2"
+          ],
+          "word": "于"
+        },
+        {
+          "finals": [
+            "er4"
+          ],
+          "word": "二"
+        },
+        {
+          "finals": [
+            "ing2"
+          ],
+          "word": "零"
+        },
+        {
+          "finals": [
+            "er4"
+          ],
+          "word": "二"
+        },
+        {
+          "finals": [
+            "i4"
+          ],
+          "word": "四"
+        },
+        {
+          "finals": [
+            "ian2"
+          ],
+          "word": "年"
+        },
+        {
+          "finals": [
+            "i2"
+          ],
+          "word": "十"
+        },
+        {
+          "finals": [
+            "ve4"
+          ],
+          "word": "月"
+        },
+        {
+          "finals": [
+            "er4"
+          ],
+          "word": "二"
+        },
+        {
+          "finals": [
+            "i4"
+          ],
+          "word": "日"
+        },
+        {
+          "finals": [
+            "a1"
+          ],
+          "word": "发"
+        },
+        {
+          "finals": [
+            "u4"
+          ],
+          "word": "布"
+        },
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "了"
+        },
+        {
+          "finals": [
+            "i4"
+          ],
+          "word": "第"
+        },
+        {
+          "finals": [
+            "an1"
+          ],
+          "word": "三"
+        },
+        {
+          "finals": [
+            "an2",
+            "v3"
+          ],
+          "word": "版语"
+        },
+        {
+          "finals": [
+            "in1"
+          ],
+          "word": "音"
+        },
+        {
+          "finals": [
+            "in3"
+          ],
+          "word": "引"
+        },
+        {
+          "finals": [
+            "ing2"
+          ],
+          "word": "擎"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "ao3",
+        "an3",
+        "iang2",
+        "an4",
+        "an4",
+        "i4",
+        "ou3",
+        "in4",
+        "e5",
+        "a4",
+        "ia1",
+        "iao3",
+        "an4",
+        "uan3",
+        "er2"
+      ],
+      "text": "老板娘慢慢地走进了那家小饭馆儿",
+      "units": [
+        {
+          "finals": [
+            "ao2",
+            "an3"
+          ],
+          "word": "老板"
+        },
+        {
+          "finals": [
+            "iang2"
+          ],
+          "word": "娘"
+        },
+        {
+          "finals": [
+            "an4",
+            "an5"
+          ],
+          "word": "慢慢"
+        },
+        {
+          "finals": [
+            "i5"
+          ],
+          "word": "地"
+        },
+        {
+          "finals": [
+            "ou3"
+          ],
+          "word": "走"
+        },
+        {
+          "finals": [
+            "in4"
+          ],
+          "word": "进"
+        },
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "了"
+        },
+        {
+          "finals": [
+            "a4"
+          ],
+          "word": "那"
+        },
+        {
+          "finals": [
+            "ia1"
+          ],
+          "word": "家"
+        },
+        {
+          "finals": [
+            "iao3"
+          ],
+          "word": "小"
+        },
+        {
+          "finals": [
+            "an4"
+          ],
+          "word": "饭"
+        },
+        {
+          "finals": [
+            "uan3",
+            "er3"
+          ],
+          "word": "馆儿"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "eng3",
+        "ao4",
+        "ia4",
+        "u3",
+        "an1",
+        "ian3"
+      ],
+      "text": "等到下午三点",
+      "units": [
+        {
+          "finals": [
+            "eng3"
+          ],
+          "word": "等"
+        },
+        {
+          "finals": [
+            "ao4"
+          ],
+          "word": "到"
+        },
+        {
+          "finals": [
+            "ia4"
+          ],
+          "word": "下"
+        },
+        {
+          "finals": [
+            "u3"
+          ],
+          "word": "午"
+        },
+        {
+          "finals": [
+            "an1"
+          ],
+          "word": "三"
+        },
+        {
+          "finals": [
+            "ian3"
+          ],
+          "word": "点"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "uo3",
+        "en5",
+        "ai4",
+        "ai3",
+        "i4",
+        "i4",
+        "ao3",
+        "uen4",
+        "i1",
+        "ia4",
+        "a5"
+      ],
+      "text": "我们再仔细地讨论一下吧",
+      "units": [
+        {
+          "finals": [
+            "uo3"
+          ],
+          "word": "我"
+        },
+        {
+          "finals": [
+            "en5"
+          ],
+          "word": "们"
+        },
+        {
+          "finals": [
+            "ai4"
+          ],
+          "word": "再"
+        },
+        {
+          "finals": [
+            "ai3"
+          ],
+          "word": "仔"
+        },
+        {
+          "finals": [
+            "i4"
+          ],
+          "word": "细"
+        },
+        {
+          "finals": [
+            "i5"
+          ],
+          "word": "地"
+        },
+        {
+          "finals": [
+            "ao3"
+          ],
+          "word": "讨"
+        },
+        {
+          "finals": [
+            "uen4"
+          ],
+          "word": "论"
+        },
+        {
+          "finals": [
+            "i2",
+            "ia5"
+          ],
+          "word": "一下"
+        },
+        {
+          "finals": [
+            "a5"
+          ],
+          "word": "吧"
+        }
+      ]
+    },
+    {
+      "finals_in": [
+        "v3",
+        "an3",
+        "iou4",
+        "ang4",
+        "ai4",
+        "en2",
+        "ou4",
+        "ou2",
+        "e5",
+        "i3",
+        "i5",
+        "ang4",
+        "ian4"
+      ],
+      "text": "雨伞就放在门后头的椅子上面",
+      "units": [
+        {
+          "finals": [
+            "v2",
+            "an3"
+          ],
+          "word": "雨伞"
+        },
+        {
+          "finals": [
+            "iou4"
+          ],
+          "word": "就"
+        },
+        {
+          "finals": [
+            "ang4"
+          ],
+          "word": "放"
+        },
+        {
+          "finals": [
+            "ai4"
+          ],
+          "word": "在"
+        },
+        {
+          "finals": [
+            "en2"
+          ],
+          "word": "门"
+        },
+        {
+          "finals": [
+            "ou4",
+            "ou5"
+          ],
+          "word": "后头"
+        },
+        {
+          "finals": [
+            "e5"
+          ],
+          "word": "的"
+        },
+        {
+          "finals": [
+            "i3"
+          ],
+          "word": "椅"
+        },
+        {
+          "finals": [
+            "i5"
+          ],
+          "word": "子"
+        },
+        {
+          "finals": [
+            "ang4"
+          ],
+          "word": "上"
+        },
+        {
+          "finals": [
+            "ian4"
+          ],
+          "word": "面"
+        }
+      ]
+    }
+  ]
+}

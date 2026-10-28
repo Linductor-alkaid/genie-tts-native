@@ -72,7 +72,7 @@
 - ✅ 音素 ID 映射
 - ✅ 日期 / 时间 / 电话 / 量词展开（对齐上游 `TextNormalizer`，见 upstream-audit §15）
 - ✅ 繁简转换
-- ⏳ 变调（ToneSandhi）与儿化（Erhua）
+- ✅ 变调（ToneSandhi）与儿化（Erhua）（词表近似，见 upstream-audit §9.6）
 - ⏳ 中文分词（`word2ph` 目前按单字统计）
 - ⏳ 英文 G2P（留成可插拔接口）
 - ⏳ 日文 G2P（留成可插拔接口）

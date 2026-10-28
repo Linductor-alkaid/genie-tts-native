@@ -410,8 +410,8 @@ HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
 | 项 | 上游 | 本实现 | 影响 | 原因 |
 |---|---|---|---|---|
 | 多音字 | `g2pM`（BERT 上下文判定） | 取**最常用**读音 | 同音字在特定词里读音不同 | `g2pM` 需要下载 BERT 权重，沙箱访问不到 HuggingFace |
-| 变调 | `ToneSandhi.py`（18KB 规则） | **未实现** | 三声连读等场景声调不对 | 规则依赖 jieba 的词性标注 |
-| 儿化 | `Erhua.py` | **未实现** | "事儿" 之类的读音不对 | 同上 |
+| 变调 | `ToneSandhi.py`（18KB 规则） | **已实现**（2026-10-28，词表近似，见 §9.6） | 与 jieba 词边界相关的少数差异（§9.6 量化） | — |
+| 儿化 | `Erhua.py` | **已实现**（2026-10-28，见 §9.6） | 同上 | — |
 | 分词 | `jieba_fast` + 词性标注 | **未实现**，按单字统计 `word2ph` | `word2ph` 粒度变粗 | 影响韵律特征，不影响音素本身 |
 | 繁简转换 | `char_convert.py`（65KB 词表） | **未实现** | 繁体输入读不出 | 词表过大 |
 | 日期/时间/电话/量词 | `Normalization/` 的专门规则 | **未实现** | "2024年" 会读成 "二千零二十四 年" | 依赖上述词表 |
@@ -429,6 +429,53 @@ HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
 - 词典之外的字会被跳过（不产生音素），不会让整次合成失败
 - 生成脚本：`tools/g2p/generate_pinyin_table.py`（可复现）
 - 音素表摘要：`b381f96b…0b83a`，由 `tests/unit/test_pinyin.cpp` 锁死
+
+### 9.6 变调与儿化：ToneSandhi / Erhua 实装（2026-10-28）
+
+上游 `G2P/Chinese/ToneSandhi.py`（源头 PaddleSpeech，Apache-2.0）与
+`Erhua.py` 负责中文的"不/一"变调、三声连读、轻声和儿化。
+两者都作用在 **jieba 分词结果**（`(word, pos)` 流）上，基线 commit
+`d347fd0f`。本移植**不引入 jieba**：
+
+- **词表**：内嵌上游四张词表（`must_neural_tone_words` 420 词、
+  `must_not_neural_tone_words` 40 词、erhua 两张 8+44 词），
+  由 `tools/g2p/generate_sandhi_tables.py` 生成
+  （`src/text/sandhi_table.cpp`）。
+- **分词**：标点分段内贪心最长匹配（词表 ∪ 单字）。上游 `pre_merge`
+  本来就会按声调/叠词模式重新合并单元，所以**合并后的变调域边界
+  与上游 100% 一致**（oracle 实测，见下）。
+- **规则**：`_bu_sandhi` / `_yi_sandhi` / `_neural_sandhi` /
+  `_three_sandhi` / `merge_erhua` 全分支照搬；POS 依赖分支按下表取默认。
+
+**POS 缺失的默认行为**（上游用 `jieba_fast.posseg` 的词性标注）：
+
+| 分支 | 上游条件 | 本实现 | 已知误伤 |
+|---|---|---|---|
+| 叠词轻声 | POS ∈ {n, v, a} | 直接应用（must_not 表仍豁免） | "天天"类量词叠词被误轻声 |
+| 了/着/过轻声 | POS ∈ {ul, uz, ug} | 单字单元直接应用 | "过河"的 过 被误轻声 |
+| "们子/上下里/的地得"后缀 | POS ∈ {r,n}/{s,l,f}/(无) | 直接应用 | 单字"地"在"地下"类词里被误轻声（jieba 会把"地下"当一个词） |
+| "一 V 一 V"合并 | 两侧 POS = v | **不移植** | "想一想"的"一"读四声（上游轻声） |
+| 儿化跳过 | POS ∉ {a, j, nr} | 只查词表 | 极少数形容词/人名后缀"儿"被儿化 |
+| `_split_word`（三字词切分） | `jieba.cut_for_search` | 最长词表前缀，退化 [1, size-1] | "洗脸水"切 1+2（上游 2+1） |
+
+**oracle 比对**（`tools/verify_sandhi.py`，语料
+`tools/g2p/sandhi_corpus.txt` 44 段）：两侧喂**同一份逐字韵母**
+（取自本项目拼音表，隔离 g2pM 差异），上游用 jieba 顶替
+jieba_fast 跑真分词：
+
+- 变调域边界（pre_merge 之后）：**44/44 一致**
+- 逐字韵母序列：**30/44 一致（68.2%）**；14 处差异全部落入上表
+  两类（POS 依赖分支 / jieba 词边界），典型："看不懂"的中缀"不"
+  （jieba 整词 → 轻声，我们按单字不变）、"地下/家里/上来/下去"
+  的后缀字（jieba 整词触发方位词轻声，我们的单字单元触发不到）。
+
+**潜在缓解**（未做，属于与上游数据的补充，需要时再立项）：往分词
+词表里补一小批"单字后缀"复合词（地下/家里/上来/下去 等 jieba
+高频词）；或引入轻量 POS。g2pM 多音字与 `correct_pronunciation`
+（polyphonic.pickle 整词修正）仍不在范围内。
+
+**黄金语料**：`tests/golden/sandhi.json`（44 段的处理单元与韵母），
+由 `tests/unit/test_tone_sandhi.cpp` 锁死；分支级单测 36 项。
 
 
 ---

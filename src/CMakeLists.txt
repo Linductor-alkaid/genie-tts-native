@@ -41,6 +41,8 @@ set(GENIE_CORE_SOURCES
     text/roberta_tokenizer.cpp
     text/normalizer.cpp
     text/char_convert_table.cpp
+    text/tone_sandhi.cpp
+    text/sandhi_table.cpp
 )
 
 add_library(genie_core STATIC ${GENIE_CORE_SOURCES})
