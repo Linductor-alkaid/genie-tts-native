@@ -104,7 +104,8 @@ CmuDict CmuDict::load(const std::string& path) {
     const std::size_t words_end = words_start + [&] {
         std::size_t end = 0;
         for (const auto& entry : raw) {
-            end = std::max(end, static_cast<std::size_t>(entry.word_offset) + entry.word_length + 1);
+            end =
+                std::max(end, static_cast<std::size_t>(entry.word_offset) + entry.word_length + 1);
         }
         return end;
     }();
