@@ -81,9 +81,9 @@ TEST(Frontend, ConvertsChineseToPhonemeIds) {
         "\xE4\xBD\xA0\xE5\xA5\xBD\xE4\xB8\x96\xE7\x95\x8C"
         "\xE4\xBD\xA0\xE5\xA5\xBD\xE4\xB8\x96\xE7\x95\x8C");  // 你好世界（两遍）
     ASSERT_EQ(sequence.ids.size(), 16U);
-    // 你 → n + i3
+    // 你 → n + i2（三声连读： ToneSandhi 把"你好"的首字变二声）
     EXPECT_EQ(sequence.symbols[0], "n");
-    EXPECT_EQ(sequence.symbols[1], "i3");
+    EXPECT_EQ(sequence.symbols[1], "i2");
     // 好 → h + ao3
     EXPECT_EQ(sequence.symbols[2], "h");
     EXPECT_EQ(sequence.symbols[3], "ao3");
@@ -108,10 +108,10 @@ TEST(Frontend, KeepsPunctuationAsPhonemes) {
     ASSERT_NE(frontend, nullptr);
 
     const auto sequence = frontend->convert("\xE4\xBD\xA0\xE5\xA5\xBD\xE3\x80\x82");
-    // 你(n i3) 好(h ao3) 。(.)
+    // 你(n i2，三声连读) 好(h ao3) 。(.)
     ASSERT_EQ(sequence.ids.size(), 5U);
     EXPECT_EQ(sequence.symbols[0], "n");
-    EXPECT_EQ(sequence.symbols[1], "i3");
+    EXPECT_EQ(sequence.symbols[1], "i2");
     EXPECT_EQ(sequence.symbols[2], "h");
     EXPECT_EQ(sequence.symbols[3], "ao3");
     EXPECT_EQ(sequence.symbols[4], ".");
