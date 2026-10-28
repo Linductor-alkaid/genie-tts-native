@@ -123,6 +123,8 @@ std::string to_string(ModelRole role) {
             return "roberta";
         case ModelRole::G2pm:
             return "g2pm";
+        case ModelRole::Jieba:
+            return "jieba";
     }
     return "";
 }
@@ -138,6 +140,7 @@ std::optional<ModelRole> model_role_from_string(std::string_view text) {
         ModelRole::ChineseHubert,
         ModelRole::Roberta,
         ModelRole::G2pm,
+        ModelRole::Jieba,
     };
     for (const ModelRole role : kAll) {
         if (to_string(role) == text) {

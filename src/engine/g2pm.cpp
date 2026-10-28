@@ -351,4 +351,20 @@ void Model::correct_pronunciation(const std::vector<std::string>& chars,
     }
 }
 
+std::optional<std::vector<std::string>> Model::word_reading(const std::string& word) const {
+    const auto it = poly_lookup_.find(word);
+    if (it == poly_lookup_.end()) {
+        return std::nullopt;
+    }
+    return *it->second;
+}
+
+std::optional<std::string> Model::char_reading(const std::string& ch) const {
+    const auto it = poly_lookup_.find(ch);
+    if (it == poly_lookup_.end() || it->second->empty()) {
+        return std::nullopt;
+    }
+    return it->second->front();
+}
+
 }  // namespace genie::g2pm

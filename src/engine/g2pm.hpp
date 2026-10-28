@@ -14,6 +14,7 @@
 #define GENIE_SRC_ENGINE_G2PM_HPP
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -67,13 +68,13 @@ private:
     std::size_t poly_max_len_ = 0;  // 最长词（字数），扫描窗口上界
 
 public:
-    /// 词级读音修正（上游 `correct_pronunciation`）。
-    ///
-    /// 上游按 jieba 词调用：整词命中则整体替换，否则逐字兜底。本实现
-    /// 没有 jieba，词边界用**词表最长匹配**近似（差异记录于
-    /// docs/upstream-audit.md §9.7）。就地改写 pinyins。
+    /// 词级读音修正 —— 整段最长匹配近似（无 jieba 词边界时的降级路径）。
     void correct_pronunciation(const std::vector<std::string>& chars,
                                std::vector<std::string>& pinyins) const override;
+
+    [[nodiscard]] std::optional<std::vector<std::string>> word_reading(
+        const std::string& word) const override;
+    [[nodiscard]] std::optional<std::string> char_reading(const std::string& ch) const override;
 };
 
 }  // namespace genie::g2pm

@@ -48,6 +48,7 @@ add_executable(genie_unit_tests
     unit/test_tone_sandhi.cpp
     unit/test_hybrid.cpp
     unit/test_g2pm.cpp
+    unit/test_jieba.cpp
     # 必须排在最后：它要覆盖"调度器就绪状态下进程退出"这条路径。
     unit/test_scheduler_lifetime.cpp
 )
@@ -64,7 +65,9 @@ target_compile_definitions(genie_unit_tests PRIVATE
 # g2pM 多音字：模型容器随仓库发布，黄金语料由 tools/verify_g2pm.py 生成。
 target_compile_definitions(genie_unit_tests PRIVATE
     GENIE_G2PM_MODEL_FILE="${CMAKE_SOURCE_DIR}/third_party/g2pm/g2pm.bin"
-    GENIE_G2PM_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/g2pm.json")
+    GENIE_G2PM_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/g2pm.json"
+    GENIE_JIEBA_MODEL_FILE="${CMAKE_SOURCE_DIR}/third_party/jieba/jieba.bin"
+    GENIE_JIEBA_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/jieba.json")
 # RoBERTa 分词器是 src/ 内部实现，测试直接包含内部头。
 target_include_directories(genie_unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME genie_unit COMMAND genie_unit_tests)

@@ -44,7 +44,8 @@ enum class ModelRole {
     SpeakerVerification,
     ChineseHubert,
     Roberta,
-    G2pm,  ///< g2pM 多音字消歧（可选；缺失时回退单字最常用读音）
+    G2pm,   ///< g2pM 多音字消歧（可选；缺失时回退单字最常用读音）
+    Jieba,  ///< jieba 分词（可选；缺失时变调边界退回词表匹配）
 };
 
 /// 角色 ↔ 稳定字符串互转。未知角色返回空字符串。
