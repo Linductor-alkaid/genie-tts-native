@@ -125,6 +125,14 @@ std::string to_string(ModelRole role) {
             return "g2pm";
         case ModelRole::Jieba:
             return "jieba";
+        case ModelRole::EnglishCmuDict:
+            return "english_cmu_dict";
+        case ModelRole::EnglishPosTagger:
+            return "english_pos_tagger";
+        case ModelRole::EnglishG2pModel:
+            return "english_g2p_model";
+        case ModelRole::EnglishWordSegment:
+            return "english_word_segment";
     }
     return "";
 }
@@ -141,6 +149,10 @@ std::optional<ModelRole> model_role_from_string(std::string_view text) {
         ModelRole::Roberta,
         ModelRole::G2pm,
         ModelRole::Jieba,
+        ModelRole::EnglishCmuDict,
+        ModelRole::EnglishPosTagger,
+        ModelRole::EnglishG2pModel,
+        ModelRole::EnglishWordSegment,
     };
     for (const ModelRole role : kAll) {
         if (to_string(role) == text) {

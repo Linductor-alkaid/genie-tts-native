@@ -48,6 +48,8 @@ Commands:
 
 Options:
   --model <dir>        Voice package directory (contains manifest.json)
+  --english-dir <dir>  English G2P resources (cmudict.bin / pos_tagger.bin /
+                       english_g2p.bin / wordsegment/)
   --text <text>        Text to synthesize
   --output <file>      Output WAV path
   --language <lang>    auto | chinese | english | japanese | korean | hybrid-chinese-english
@@ -67,6 +69,7 @@ struct Options {
     std::string text;
     std::string output;
     std::string language = "auto";
+    std::string english_dir;
     std::uint64_t seed = 0;
     int threads = 8;
     bool help = false;
@@ -119,6 +122,10 @@ bool parse_options(int argc, char** argv, Options& options) {
         } else if (!arg.empty() && arg[0] == '-') {
             std::cerr << "unknown option: " << arg << "\n";
             return false;
+        } else if (arg == "--english-dir") {
+            if (!next(options.english_dir)) {
+                return false;
+            }
         } else if (options.model_dir.empty()) {
             // 位置参数：inspect 的模型文件或目录
             options.model_dir = arg;
@@ -147,10 +154,25 @@ int command_g2p(const Options& options) {
     }
 
     const auto language = genie::detect_language(options.text, *requested);
-    auto frontend = genie::text::make_frontend(language);
+
+    // 英文前端需要资源（词典是硬依赖）；中文前端不需要。
+    genie::text::EnglishG2pResources english_resources;
+    if (!options.english_dir.empty()) {
+        const std::filesystem::path dir(options.english_dir);
+        english_resources.cmu_dict = (dir / "cmudict.bin").string();
+        english_resources.pos_tagger = (dir / "pos_tagger.bin").string();
+        english_resources.g2p_model = (dir / "english_g2p.bin").string();
+        english_resources.word_segment_dir = (dir / "wordsegment").string();
+    }
+
+    auto frontend = genie::text::make_frontend(language, english_resources);
     if (!frontend) {
         std::cerr << "no text frontend for language: " << genie::language_to_string(language)
                   << "\n";
+        if (language == genie::Language::English) {
+            std::cerr << "  英文前端需要词典 —— 用 --english-dir <目录> 指定"
+                         "（目录里放 cmudict.bin / pos_tagger.bin / english_g2p.bin）\n";
+        }
         return kExitUsage;
     }
 

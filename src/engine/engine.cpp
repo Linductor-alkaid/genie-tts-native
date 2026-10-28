@@ -102,6 +102,8 @@ struct Engine::Impl {
 
     T2SDecoder decoder;
     std::unique_ptr<text::TextFrontend> frontend;
+    /// 英文前端（音色包里没有英文词典时为空）。
+    std::unique_ptr<text::TextFrontend> english_frontend;
 
     /// 最近一次流式合成的任务 id。
     std::atomic<Scheduler::TaskId> streaming_task{0};
@@ -212,12 +214,33 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
         impl->jieba_ = std::make_unique<text::jieba::Tokenizer>(
             text::jieba::Tokenizer::load(impl->package.model_path(ModelRole::Jieba)));
     }
+    // 3.1) 英文 G2P 的资源（都是数据文件，不是模型）。
+    //      词典是硬依赖 —— 缺了它就没有英文前端；其余资源缺失时降级
+    //      （见 docs/upstream-audit.md §17）。
+    text::EnglishG2pResources english_resources;
+    if (impl->package.has(ModelRole::EnglishCmuDict)) {
+        english_resources.cmu_dict = impl->package.model_path(ModelRole::EnglishCmuDict);
+        if (impl->package.has(ModelRole::EnglishPosTagger)) {
+            english_resources.pos_tagger = impl->package.model_path(ModelRole::EnglishPosTagger);
+        }
+        if (impl->package.has(ModelRole::EnglishG2pModel)) {
+            english_resources.g2p_model = impl->package.model_path(ModelRole::EnglishG2pModel);
+        }
+        if (impl->package.has(ModelRole::EnglishWordSegment)) {
+            english_resources.word_segment_dir =
+                impl->package.model_path(ModelRole::EnglishWordSegment);
+        }
+        impl->english_frontend = text::make_english_frontend(english_resources);
+    }
+
     if (impl->package.has(ModelRole::G2pm)) {
         impl->g2pm_model = std::make_unique<g2pm::Model>(
             g2pm::Model::load(impl->package.model_path(ModelRole::G2pm)));
-        impl->frontend = text::make_chinese_frontend(impl->g2pm_model.get(), impl->jieba_.get());
+        impl->frontend = text::make_chinese_frontend(impl->g2pm_model.get(), impl->jieba_.get(),
+                                                     impl->english_frontend.get());
     } else {
-        impl->frontend = text::make_chinese_frontend(nullptr, impl->jieba_.get());
+        impl->frontend =
+            text::make_chinese_frontend(nullptr, impl->jieba_.get(), impl->english_frontend.get());
     }
     impl->decoder = T2SDecoder(T2SOptions{kMaxT2SIterations, kEosThreshold});
 
@@ -310,9 +333,15 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     }
 
     // 1) 语言与文本前端。
+    //    纯英文文本走英文前端；中文 / 混读走中文前端（混读路径内部
+    //    再按语言块分派）。
     const auto language = detect_language(text, options.language);
+    const text::TextFrontend& frontend =
+        (language == Language::English && impl_->english_frontend != nullptr)
+            ? *impl_->english_frontend
+            : *impl_->frontend;
     const std::string prepared = std::string(kUpstreamTextPrefix) + std::string(text);
-    const auto phonemes = impl_->frontend->convert(prepared);
+    const auto phonemes = frontend.convert(prepared);
 
     SynthesisResult result;
     result.language = language;

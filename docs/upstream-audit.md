@@ -438,7 +438,7 @@ HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
 | 繁简转换 | `char_convert.py`（65KB 词表） | **已实现**（2026-10-27，10,737 组，见 §15） | 无（已对齐） | — |
 | 日期/时间/电话/量词 | `Normalization/` 的专门规则 | **已实现**（2026-10-27，见 §15） | 无（已对齐） | — |
 | jieba 分词 | `jieba_fast` + 词性标注 | **已实现**（2026-10-28，算法+词典直译，oracle 103/103，见 §9.8；POS HMM 待接入） | 分词边界与上游一致；POS 依赖的变调分支仍取默认行为（切片 B） | **勘误（2026-10-28）**：此前记载"上游 word2ph 按分词结果统计"有误 —— 上游 `ChineseG2P.g2p` 的 `word2ph` 同样是**逐字**统计（`zip(initials, finals)` 循环内逐字 append），jieba 影响的是 POS 变调分支、儿化词边界与词级读音修正，不影响 word2ph 粒度 |
-| 混读分块 | `split_language` 逐块 G2P + 逐块 RoBERTa | **已实现**（2026-10-28，见 §6.3；英文块丢弃） | 中文块获得完整 TextNormalizer；块边界阻断变调与上游一致 | — |
+| 混读分块 | `split_language` 逐块 G2P + 逐块 RoBERTa | **已实现**（2026-10-28，见 §6.3；英文块 2026-10-29 起接入英文 G2P，见 §17） | 中文块获得完整 TextNormalizer；块边界阻断变调与上游一致 | — |
 | 英文 G2P | `nltk` + CMU 词典（3.5MB） | **未实现**（留成可插拔接口） | 英文不能合成；混读文本里的英文单词被静默丢弃 | 词典过大，不适合内嵌进端侧库 |
 | 日文 G2P | `pyopenjtalk-plus` | **未实现**（留成可插拔接口） | 日文不能合成 | 依赖 OpenJTalk 词典 |
 | 韩文 G2P | `jamo` + `ko_pron` | **未实现**（留成可插拔接口） | 韩文不能合成 | 同上 |
@@ -948,3 +948,146 @@ WeTextProcessing，Apache-2.0）。本实现**手写扫描**，不用 `std::rege
 - [ ] 性能基线：模型加载、首包延迟、RTF、各子模型耗时、峰值 RSS
 - [ ] ONNX Runtime 1.22 vs 1.23+ 的性能对照
 - [ ] 重采样与 `soxr 'hq'` 的量化误差
+
+## 17. 英文 G2P 实装（2026-10-29）
+
+### 17.1 上游的英文链路
+
+上游的英文 G2P 全部在 `G2P/English/` 下，链路是：
+
+```
+text_normalize(text)                # EnglishG2P.py
+  ├─ REP_MAP                         # "[;:：，；]"→","、引号→'、"。"→"."、"！"→"!"、"？"→"?"
+  ├─ normalize(text)                 # Normalization.py：20 多条规则（见 17.3）
+  └─ replace_consecutive_punctuation(text)
+word_tokenize(normalized_text)      # nltk TweetTokenizer
+CleanG2p.__call__(tokens)           # EnglishG2P.py
+  ├─ 两张词表对齐（原始词 ↔ 规范化后的词）
+  ├─ "I" + "the first" 特判
+  ├─ 同形异音词按 POS 选读音（read / complex / lead / presents）
+  └─ _query_word(word)
+       ├─ CMU 发音词典（上游用的是 engdict_cache.pickle + engdict-hot.rep）
+       ├─ "'s" 处理
+       ├─ 连字符拆分
+       ├─ WordSegmenter（ngram Viterbi，wordsegment 包的 unigram/bigram）
+       └─ g2p_en 的 seq2seq GRU（OOV 兜底）
+g2p(text)                           # 过滤 + 符号表核对
+```
+
+数据来源（上游英文链路的全部外部依赖）：
+
+| 数据 | 上游来源 | 本仓库 | 授权 |
+|---|---|---|---|
+| CMU 发音词典 | `GPT-SoVITS/text/cmudict.rep` → `engdict_cache.pickle`（143,202 词）+ `engdict-hot.rep`（热词表） | `third_party/english/cmudict.bin`（143,205 词） | BSD（CMU） |
+| 词性标注权重 | nltk `averaged_perceptron_tagger_eng` | `third_party/english/pos_tagger.bin` | Apache-2.0 |
+| seq2seq GRU | `Kyubyong/g2p` 的 `checkpoint20.npz` | `third_party/english/english_g2p.bin` | MIT |
+| ngram 分词词典 | pypi 包 `wordsegment` | **不随仓库发布**（见 17.5） | MIT |
+
+词典选择上刻意用了上游的 `engdict_cache.pickle` 而不是标准的
+`cmudict.dict`：后者缺 "onest" 这类词，会让 OOV 路径与上游分叉。
+
+### 17.2 本移植的实现
+
+- `src/text/english/normalization.cpp`：手写扫描器逐条对齐上游
+  `Normalization.py` 的 20 多条规则（不引入 `std::regex`）。
+- `src/text/english/tokenizer.cpp`：nltk TweetTokenizer 的移植。
+- `src/text/english/cmu_dict.cpp` / `pos_tagger.cpp` / `seq2seq.cpp` /
+  `word_segmenter.cpp`：词典、averaged perceptron 词性标注、GRU 前向、
+  ngram Viterbi。
+- `src/text/english/g2p.cpp`：主流程（词表对齐、同形异音词、`_query_word`
+  的查表顺序、`g2p()` 的过滤规则）。
+- `src/text/english_frontend.cpp`：把音素序列转成 `PhonemeSequence`
+  （音素 → 符号表 id）。
+- 音色包新增四个可选角色：`english_cmu_dict`（**硬依赖**）、
+  `english_pos_tagger`、`english_g2p_model`、`english_word_segment`。
+- 引擎按语言选前端：纯英文走英文前端；中文 / 混读走中文前端，
+  混读路径里的英文块交给英文前端（此前是丢弃，见 §9.4）。
+
+### 17.3 规范化规则的逐条对齐
+
+上游 `normalize()` 的规则顺序（**顺序本身会影响结果**）：
+
+1. NFD 分解 + 丢掉所有 Mn 组合记号
+2. `@` → " at "
+3. 9 条缩写（`Mr.` / `Mrs.` / `Dr.` / `Prof.` / `St.` / `Co.` / `Ltd.` /
+   `e.g.` / `i.e.`，带 IGNORECASE）
+4. 金额后缀（`$3 million`）
+5. 电话号码
+6. 尺寸（`10 x 20`）
+7. 罗马数字
+8. 年代（`1990s`）
+9. 比分（`3-2`）
+10. 日期（`3/15/2024`）
+11. 时间（`3:30 pm`）
+12. 序数号（`1.` **后面必须跟空格**）
+13. 去千分位逗号
+14. 货币（`$19.99`）
+15. 度量（`5cm`）
+16. 分数（`1/2`）
+17. 小数（`3.14`）
+18. 序数后缀（`21st`）
+19. 字母数字混排（`A1`）
+20. 首字母缩写（`ABC`）
+21. 数字（`42`）
+22. 小写化
+23. `%` → " percent"
+24. 域名循环（`x.y` → `x dot y`）
+25. 字符白名单 `[^a-z0-9'.,?!:;-]`
+26. 空白折叠 + strip
+
+对齐时踩到的几个坑（都是**静默出错**级别）：
+
+- **`\b` 不是"下一个字符不是词字符"**。Python 的 `\b` 是"两侧恰好一侧是
+  词字符"。串尾没有字符（非词字符），所以 `"abc"` 末尾是边界、
+  `"abc."` 末尾**不是**边界。上游的时间正则 `\b(...)?\b` 在 `"3:30 pm."`
+  上会回溯：先试 `"pm."`（末尾没边界）→ 退回 `"pm"` → 句号被保留。
+  按"下一个不是词字符"实现会把句号吞掉。
+- **`(?<!\w)` 与 `\b` 也不是一回事**。数字规则是 `(?<!\w)-?\d+(?!\w)`：
+  `"A-12"` 里负号前面是 `"A"`（词字符）→ 负号不算进数字 → 数字从 `"1"`
+  开始 → `"a-twelve"`；只有 `" -12"` 才是 `"minus twelve"`。
+- **金额后缀保留原始大小写**。上游 `_expand_currency_suffix` 用的是
+  匹配到的**原文**，所以 `"$3 MILLION"` 会留下 `"MILLION"`，随后被
+  首字母缩写规则拆成 `"m i l l i o n"`。
+- **缩写规则带 IGNORECASE**，`"MR."` 也要认。
+- **时间是 IGNORECASE 的**，`"12:00 AM"` 里的 `"AM"` 要被时间规则吃掉
+  （而不是留给缩写规则拆成 `"a m"`）。
+- **`normalize()` 与 `text_normalize()` 不是一回事**：REP_MAP 与连续标点
+  折叠只发生在 `text_normalize()` 里。上游 `normalize("Well... I don't
+  know.")` 保留 `"..."`，`text_normalize` 才把它压成 `"."`。
+
+### 17.4 验证
+
+`tools/g2p/verify_english_g2p.py` 把**上游的 Python 实现当 oracle**，
+逐条比对三样东西：
+
+- 规范化结果（`normalize()`）
+- `text_normalize()` 结果
+- 音素序列（逐音素）
+
+语料 `tools/g2p/english_corpus.txt`（94 句）覆盖：缩写、货币、电话、
+尺寸、罗马数字、年代、比分、日期、时间、序数、分数、小数、百分比、
+域名、邮箱、URL、字母数字混排、缩写词、连字符、撇号、省略号、
+全角标点、变音符号、破折号、Unicode 标点。
+
+当前结果：**94/94 三项全部一致**。黄金语料 `tests/golden/english_g2p.json`
+由该脚本生成，单测（`tests/unit/test_english.cpp`）逐条比对。
+
+### 17.5 与上游的偏差
+
+1. **ngram 分词词典不随仓库发布**。`wordsegment` 的 unigram/bigram 文本
+   共约 12 MB，本仓库只保留词典的**格式**（`wordsegment/unigrams.txt` 等
+   三个文本文件），运行时从音色包的 `english_word_segment` 角色读。
+   缺失时 OOV 词直接交给 GRU —— 与上游不同（上游一定有）。
+   黄金语料里 6 条依赖分词的用例被标记为 `needs_word_segment`，
+   单测只比它们的规范化结果；完整比对由 verify 脚本在有词典时完成。
+2. **TweetTokenizer 的 emoji 分支未移植**：肤色修饰符（U+1F3FB–U+1F3FF）
+   与国旗（区域指示符对）不参与分词。
+3. **`namedict` 是上游的死代码**：规范化后文本已全小写，
+   `o_word.istitle()` 永不成立，所以那一路不移植。
+4. **Unicode 类别是近似**：词字符判定按区间近似（拉丁 / CJK / 假名 / 谚文
+   算词字符，标点 / 符号 / emoji 不算）；Mn 组合记号用的是 Python
+   `unicodedata` 导出的**精确**区间表
+   （`src/text/english/combining_marks.hpp`，由
+   `tools/g2p/generate_combining_marks.py` 生成）。
+5. **上游的英文路径不产 RoBERTa 特征**（`text_bert` 全零），
+   所以英文前端的 `bert_chunks` 恒为空。

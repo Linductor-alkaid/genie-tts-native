@@ -61,6 +61,21 @@ phonemes (23):
 `normalized` 是规范化之后的文本（数字已展开成中文读法、标点已映射），
 后面是音素符号与它们在符号表里的 ID。
 
+英文文本需要额外的 G2P 资源（词典是硬依赖），用 `--english-dir` 指到
+资源目录：
+
+```console
+$ genie-tts g2p --language english --english-dir third_party/english/ \
+      --text "Hello world, this is a test."
+language: english
+normalized: hello world, this is a test.
+phonemes (19):
+  0	HH	...
+```
+
+目录里应有 `cmudict.bin`（必需）、`pos_tagger.bin`、`english_g2p.bin`
+与可选的 `wordsegment/`（ngram 分词词典，缺失时 OOV 词直接交给 GRU）。
+
 ### 合成
 
 ```console

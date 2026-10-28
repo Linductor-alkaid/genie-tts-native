@@ -8,7 +8,8 @@
 //        → 按符号表过滤 → 符号 ID
 //
 // 混读路径（文本含 ASCII 字母，上游 'hybrid-chinese-english'）：
-//   split_language 按语言分块 → 英文块丢弃（无英文 G2P，见 audit §9.4）
+//   split_language 按语言分块 → 英文块走英文前端 → 每个中文块各自走一遍
+//   完整 normalize + 上述链路
 //   → 每个中文块各自走一遍完整 normalize + 上述链路
 //   → 记录 BERT 分块（每块单独跑 RoBERTa，见 include/genie/text.hpp）
 //
@@ -269,8 +270,9 @@ void process_normalized(const std::string& normalized, const Polyphone* polyphon
 class ChineseFrontend final : public TextFrontend {
 public:
     explicit ChineseFrontend(const Polyphone* polyphone = nullptr,
-                             const jieba::Tokenizer* jieba = nullptr)
-        : polyphone_(polyphone), jieba_(jieba) {}
+                             const jieba::Tokenizer* jieba = nullptr,
+                             const TextFrontend* english = nullptr)
+        : polyphone_(polyphone), jieba_(jieba), english_(english) {}
     [[nodiscard]] PhonemeSequence convert(std::string_view text) const override {
         PhonemeSequence sequence;
 
@@ -281,10 +283,22 @@ public:
         // 块边界同时也是 RoBERTa 的编码边界（块间没有跨块注意力）。
         if (lang_split::has_ascii_letter(text)) {
             for (const auto& chunk : lang_split::split_by_language(text)) {
-                // 偏差（docs/upstream-audit.md §9.4）：上游英文块走
-                // english_to_phones 产出真实音素；本实现还没有英文 G2P，
-                // 英文块暂且丢弃 —— 与旧版"过滤字母"的行为一致。
                 if (chunk.language != lang_split::Chunk::Language::Chinese) {
+                    // 英文块走英文前端（上游 `english_to_phones`）。
+                    // 没有英文前端时丢弃（与旧版"过滤字母"的行为一致）。
+                    if (english_ != nullptr) {
+                        const auto english_sequence = english_->convert(chunk.content);
+                        const std::size_t offset = sequence.symbols.size();
+                        sequence.symbols.insert(sequence.symbols.end(),
+                                                english_sequence.symbols.begin(),
+                                                english_sequence.symbols.end());
+                        sequence.ids.insert(sequence.ids.end(), english_sequence.ids.begin(),
+                                            english_sequence.ids.end());
+                        sequence.word2ph.insert(sequence.word2ph.end(),
+                                                english_sequence.word2ph.begin(),
+                                                english_sequence.word2ph.end());
+                        (void)offset;
+                    }
                     continue;
                 }
                 const std::string normalized = normalize(chunk.content, Language::Chinese);
@@ -309,13 +323,15 @@ public:
 private:
     const Polyphone* polyphone_ = nullptr;
     const jieba::Tokenizer* jieba_ = nullptr;
+    const TextFrontend* english_ = nullptr;
 };
 
 }  // namespace
 
 std::unique_ptr<TextFrontend> make_chinese_frontend(const Polyphone* polyphone,
-                                                    const jieba::Tokenizer* jieba) {
-    return std::make_unique<ChineseFrontend>(polyphone, jieba);
+                                                    const jieba::Tokenizer* jieba,
+                                                    const TextFrontend* english) {
+    return std::make_unique<ChineseFrontend>(polyphone, jieba, english);
 }
 
 }  // namespace genie::text
