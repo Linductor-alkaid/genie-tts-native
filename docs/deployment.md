@@ -164,6 +164,13 @@ python3 tools/deploy/make_voice_package.py \
     --output          ~/voice-packages/feibi
 ```
 
+**外部权重必须在场**：打包脚本会检查 `t2s_encoder_fp32.bin`、
+`t2s_shared_fp32.bin`、`vits_fp32.bin`（以及 V2ProPlus 的
+`prompt_encoder_fp32.bin`）在不在 ✓ —— 缺了当场报错 ✓，
+并说清楚是哪个角色的 external data ✓。这些文件是图里的
+`external_data.location` 写死的名字 ✓，**不能改名、必须与 .onnx 同目录** ✓
+（`t2s_shared_fp32.bin` 还是两张解码器图**共用**的那份 ✓）。
+
 脚本自动：改名、计算每个模型的 SHA-256、写 `manifest.json`
 （`capabilities` 按你给了什么自动置位：上面这条全量命令得到
 `v2proplus: true, roberta: true`）。缺 RoBERTa / HuBERT /

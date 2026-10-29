@@ -25,6 +25,42 @@
 namespace genie {
 namespace {
 
+/// 这个语言是否走**中文** RoBERTa ✓。
+///
+/// 上游 `_get_phones_and_bert_pure_lang` 只在 chinese / hybrid 两个分支
+/// 真的跑 RoBERTa ✓；english / korean / japanese 给的是全零 ✓
+/// —— RoBERTa 是中文模型 ✓，喂别的语言的音素只会得到对不上的布局 ✓。
+[[nodiscard]] bool uses_chinese_bert(Language language) noexcept {
+    return language == Language::Chinese || language == Language::HybridChineseEnglish;
+}
+
+/// 缺前端时给一条**能指路**的报错 ✓。
+///
+/// 以前这里是静默回退到中文前端 ✓ —— 日文没有词典时，日语文本被中文
+/// 前端的 pattern_filter 过滤成空 ✓，最后表现为"合成出来是静音"✓，
+/// 而真正的原因（缺 103 MB 的 OpenJTalk 词典 ✓）没人看得见 ✓。
+[[nodiscard]] std::string missing_frontend_hint(Language language) {
+    switch (language) {
+        case Language::English:
+            return "音色包缺少英文发音词典（角色 english_cmu_dict）——"
+                   "用 make_voice_package.py --english-cmu-dict 接入";
+        case Language::Japanese:
+#ifdef GENIE_HAVE_OPENJTALK
+            return "音色包缺少 OpenJTalk 词典（角色 japanese_dictionary，约 103 MB）——"
+                   "用 make_voice_package.py --japanese-dictionary 接入";
+#else
+            // 没编 OpenJTalk 的构建 ✓（MSVC 上默认如此 ✓）——
+            // 这时候给词典也没用 ✓，缺的是运行时本身 ✓。
+            return "这个构建没有编 OpenJTalk —— 日语音素转换需要它，"
+                   "重新构建时打开 GENIE_ENABLE_OPENJTALK";
+#endif
+        case Language::Korean:
+            return "韩文前端不需要外部资源，出现这个错误说明构建有问题";
+        default:
+            return "音色包里没有可用的前端资源";
+    }
+}
+
 /// 上游在 `tts()` 里的第一行：`text = '。' + text`（防止漏第一句）。
 ///
 /// 这是上游的实际行为，会影响首音素分布 —— 照搬。
@@ -102,6 +138,31 @@ struct Engine::Impl {
 
     T2SDecoder decoder;
     std::unique_ptr<text::TextFrontend> frontend;
+    /// 按语言挑前端 ✓。
+    ///
+    /// **缺资源时返回 nullptr** ✓（而不是静默回退到中文前端 ✓ ——
+    /// 静默回退会让"日文没词典"表现为"合成出来是静音" ✓）。
+    [[nodiscard]] const text::TextFrontend* frontend_for(Language language) const {
+        switch (language) {
+            case Language::English:
+                return english_frontend.get();
+            case Language::Korean:
+                return korean_frontend.get();
+            case Language::Japanese:
+#ifdef GENIE_HAVE_OPENJTALK
+                return japanese_frontend.get();
+#else
+                // 没编 OpenJTalk 的构建 ✓（MSVC 上默认如此 ✓）——
+                // 日文前端**不存在** ✓。这里必须返回 nullptr ✓：
+                // 落进 default 就会静默回退到中文前端 ✓ ——
+                // 那正是这次要修的"日文合成出来是静音"✓。
+                return nullptr;
+#endif
+            default:
+                return frontend.get();
+        }
+    }
+
     /// 英文前端（音色包里没有英文词典时为空）。
     std::unique_ptr<text::TextFrontend> english_frontend;
     /// 韩文前端（不需要外部资源 ✓ —— 总是创建 ✓）。
@@ -268,8 +329,19 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     }
 
     // 4) 参考音频条件。
-    if (impl->frontend != nullptr) {
-        impl->reference = load_reference(impl->root, *impl->frontend, impl->sample_rate);
+    //
+    // 参考文本按**音色包声明的语言**转音素 ✓ —— 上游的
+    // `ReferenceAudio.set_text(prompt_text, language)` 用的就是它 ✓。
+    // 以前固定用中文前端 ✓ —— 日文音色包的参考文本会被转成拼音 ✓。
+    const text::TextFrontend* reference_frontend = impl->frontend_for(impl->manifest.language);
+    if (reference_frontend == nullptr) {
+        throw_error(
+            ErrorCode::BackendUnavailable,
+            "no text frontend for language: " + language_to_string(impl->manifest.language) +
+                " —— " + missing_frontend_hint(impl->manifest.language));
+    }
+    {
+        impl->reference = load_reference(impl->root, *reference_frontend, impl->sample_rate);
 
         // 参考音频的内容特征：有 HuBERT 就算真的，没有保持全零降级
         // （与上游 ReferenceAudio.__init__ 一致）。
@@ -279,7 +351,14 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
 
         // 参考文本的韵律特征：有 RoBERTa 就算真的，没有保持全零降级
         // （与上游 GetPhonesAndBert.py 的降级分支一致）。
-        if (impl->roberta_tokenizer && !impl->reference.text.empty()) {
+        //
+        // **只有中文路径才跑 RoBERTa** ✓ —— 上游的
+        // `_get_phones_and_bert_pure_lang` 里 english / korean / japanese
+        // 三个分支都给全零 ✓（RoBERTa 是中文模型 ✓，喂别的语言的音素
+        // 只会得到垃圾 ✓）。无条件跑的话，非中文路径会因为
+        // "RoBERTa 的 token 数与音素数对不上"而直接报错 ✓。
+        if (impl->roberta_tokenizer && !impl->reference.text.empty() &&
+            uses_chinese_bert(impl->manifest.language)) {
             const auto sequence = impl->frontend->convert(impl->reference.text);
             if (!sequence.ids.empty()) {
                 impl->reference.bert = roberta::compute_text_bert(
@@ -345,18 +424,16 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     //    纯英文文本走英文前端；中文 / 混读走中文前端（混读路径内部
     //    再按语言块分派）。
     const auto language = detect_language(text, options.language);
-    const text::TextFrontend& frontend =
-        (language == Language::English && impl_->english_frontend != nullptr)
-            ? *impl_->english_frontend
-        : (language == Language::Korean && impl_->korean_frontend != nullptr)
-            ? *impl_->korean_frontend
-#ifdef GENIE_HAVE_OPENJTALK
-        : (language == Language::Japanese && impl_->japanese_frontend != nullptr)
-            ? *impl_->japanese_frontend
-#endif
-            : *impl_->frontend;
+    const text::TextFrontend* frontend = impl_->frontend_for(language);
+    if (frontend == nullptr) {
+        // 以前这里是静默回退到中文前端 ✓ —— 后果是"别的语言没有对应资源"
+        // 变成"合成出来是静音"✓，看不出根因 ✓。现在直接说清楚 ✓。
+        throw_error(ErrorCode::BackendUnavailable,
+                    "no text frontend for language: " + language_to_string(language) + " —— " +
+                        missing_frontend_hint(language));
+    }
     const std::string prepared = std::string(kUpstreamTextPrefix) + std::string(text);
-    const auto phonemes = frontend.convert(prepared);
+    const auto phonemes = frontend->convert(prepared);
 
     SynthesisResult result;
     result.language = language;
@@ -376,7 +453,12 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     // 上游 ONNX 图声明的是 `text_bert: [text_length, 1024]`。
     auto text_bert = Tensor::zeros(
         ElementType::Float32, {static_cast<std::int64_t>(phonemes.ids.size()), kBertDimension});
-    if (impl_->roberta_tokenizer) {
+    // **只有中文路径才跑 RoBERTa** ✓ —— 与上游一致 ✓：
+    // english / korean / japanese 三个分支在上游都给全零 ✓
+    // （RoBERTa 是中文模型 ✓）。无条件跑的话，别的语言会因为
+    // "RoBERTa 的 token 行数与音素数对不上"而抛异常 ✓ ——
+    // 上游 expand_by_word2ph 遇到对不上的布局也是直接 raise ✓。
+    if (impl_->roberta_tokenizer && uses_chinese_bert(language)) {
         // 混读序列按语言块逐块编码（前端在 bert_chunks 里给出分块与对齐），
         // 单块（纯中文）路径用整段规范化文本 —— 两者与上游逐块 / 单块一致。
         const auto normalized = text::normalize(prepared, language);

@@ -336,8 +336,13 @@ public:
                         for (const auto sample : wave) {
                             sum += std::abs(sample);
                         }
+                        // 空波形不能拿来当除数 ✓ —— 浮点除零得到 inf ✓，
+                        // 特征里会全是 NaN/inf ✓，后面的断言会以"数值不对"
+                        // 的形式失败 ✓，根因却完全看不出来 ✓。
                         const auto fill =
-                            static_cast<float>(sum / static_cast<double>(wave.size()));
+                            wave.empty()
+                                ? 0.0F
+                                : static_cast<float>(sum / static_cast<double>(wave.size()));
                         std::fill(frames_data.begin(), frames_data.end(), fill);
                         break;
                     }
