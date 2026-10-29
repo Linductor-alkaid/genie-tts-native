@@ -52,9 +52,20 @@ TTS_ROLES: list[tuple[str, str]] = [
     ("prompt_encoder", "prompt_encoder_fp32.onnx"),
 ]
 # fp16 需转换的权重：角色 → 转换后的 .bin 名（与 .onnx 同目录）。
+#
+# **t2s_shared_fp32.bin 是两张解码器图共用的那份** ✓ ——
+# t2s_first_stage_decoder_fp32.onnx 与 t2s_stage_decoder_fp32.onnx
+# 的 external data location 都写死了这个名字 ✓。
+# 漏掉它的话，错误会推迟到**推理时**才出现 ✓（ORT 报
+# "no such file: t2s_shared_fp32.bin" ✓），而那时候人已经在
+# 调模型参数了 ✓ —— 很难联想到是打包脚本漏了文件 ✓。
 TTS_WEIGHTS: list[tuple[str, str]] = [
     ("t2s_encoder", "t2s_encoder_fp32.bin"),
+    ("t2s_shared", "t2s_shared_fp32.bin"),
     ("vits", "vits_fp32.bin"),
+]
+# 只有 V2ProPlus 的目录才有这份权重 ✓（V2 音色包用不上 ✓）。
+V2PROPLUS_WEIGHTS: list[tuple[str, str]] = [
     ("prompt_encoder", "prompt_encoder_fp32.bin"),
 ]
 
@@ -133,9 +144,22 @@ def main() -> None:
         if not src.exists():
             raise SystemExit(f"缺少 {src}（fp32 图必须存在）")
         place(role, src, filename)
-    for _, filename in TTS_WEIGHTS:
+    # 外部权重**必须**存在 ✓ —— 缺了的话 ONNX Runtime 会在**加载图**的时候
+    # 才报 "no such file: xxx.bin" ✓（external data 的 location 写死在图里 ✓），
+    # 那个报错离"打包时少拷了一个文件"太远了 ✓。
+    for role, filename in TTS_WEIGHTS:
         src = args.tts_models / filename
-        if src.exists():
+        if not src.exists():
+            raise SystemExit(
+                f"缺少 {src}（{role} 的 external data 权重，文件名不能改、必须与 onnx 同目录）")
+        place_weights(src, filename)
+    # V2ProPlus 的 prompt_encoder 权重：跟着 prompt_encoder 图走 ✓。
+    if (args.tts_models / "prompt_encoder_fp32.onnx").exists():
+        for role, filename in V2PROPLUS_WEIGHTS:
+            src = args.tts_models / filename
+            if not src.exists():
+                raise SystemExit(
+                    f"缺少 {src}（{role} 的 external data 权重，文件名不能改、必须与 onnx 同目录）")
             place_weights(src, filename)
 
     # V2ProPlus：prompt_encoder（上面）+ 说话人验证 + HuBERT 内容特征。

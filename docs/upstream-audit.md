@@ -1281,3 +1281,28 @@ Linux / macOS 上默认开启 ✓。
 
 当前结果：**124/124 逐音素一致** ✓。黄金语料 `tests/golden/japanese_g2p.json`
 由该脚本生成 ✓，单测（`tests/unit/test_japanese.cpp`）逐条比对 ✓。
+
+## 20. RoBERTa 的语言范围（2026-10-29 修）
+
+上游的 `_get_phones_and_bert_pure_lang` 按语言分四条路 ✓：
+
+| 语言 | 音素 | text_bert |
+|---|---|---|
+| chinese | `chinese_to_phones` | **真跑 RoBERTa** ✓ |
+| hybrid-chinese-english | 逐块 | **中文块真跑** ✓，英文块全零 ✓ |
+| english | `english_to_phones` | **全零** ✓ |
+| korean | `korean_to_phones` | **全零** ✓ |
+| japanese（else 分支） | `japanese_to_phones` | **全零** ✓ |
+
+RoBERTa 是**中文**模型 ✓ —— 喂别的语言的音素只会得到行数对不上的布局 ✓，
+上游的 `_expand_roberta_output` 遇到对不上是直接 `raise` ✓。
+
+本项目以前不管什么语言都跑 RoBERTa ✓ —— 音色包里带了 RoBERTa 又合成
+英文/韩文/日文时 ✗，合成整个失败 ✓。现在只有中文（含中英混读）路径跑 ✓，
+其余语言走全零 ✓（见 §20 与 CHANGELOG 的 Fixed 段 ✓）。
+
+同一批修的还有"缺词典时静默回退到中文前端" ✓ —— 以前日文没有词典时 ✗，
+日语文本被中文前端过滤成空 ✓，合成出来是静音 ✓；
+现在明确报错 ✓，并说清楚缺哪个角色 ✓。
+参考文本的前端也改成按**音色包声明的语言**选 ✓
+（上游 `ReferenceAudio.set_text(prompt_text, language)` ✓）。

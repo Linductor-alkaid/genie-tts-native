@@ -18,8 +18,10 @@
 #include <thread>
 #include <vector>
 
+#include <cmath>
 #include "genie/audio.hpp"
 #include "genie/engine.hpp"
+
 #include "genie/errors.hpp"
 #include "genie/reference.hpp"
 #include "genie/symbols.hpp"
@@ -342,6 +344,132 @@ TEST(Engine, RobertaFeaturesFlowIntoEncoder) {
     EXPECT_TRUE(has_ref_bert);
     EXPECT_TRUE(has_text_bert);
     EXPECT_GT(result.audio.frame_count(), 0U);
+}
+
+TEST(Engine, EnglishTextSkipsChineseRoberta) {
+    // 上游的 RoBERTa 是**中文**模型 ✓ —— 英文 / 韩文 / 日文三条路径给的是
+    // 全零特征 ✓（见上游 `_get_phones_and_bert_pure_lang` ✓）。
+    //
+    // 以前这里无条件跑 RoBERTa ✓ —— 英文音素与中文 RoBERTa 的 token 数
+    // 对不上 ✓ → expand_by_word2ph 直接抛异常 ✓，
+    // 于是"音色包里带了 RoBERTa" + "合成英文" = 合成失败 ✓。
+    TempVoicePackage package;
+
+    {
+        std::ofstream roberta_model(package.root() + "/models/roberta.onnx");
+        roberta_model << "placeholder";
+    }
+    {
+        std::ofstream vocab(package.root() + "/models/vocab.txt");
+        vocab << "[PAD]\n[UNK]\n[CLS]\n[SEP]\nhello\nworld\n";
+    }
+    {
+        // 英文词典直接用仓库里那份 ✓（manifest 的 file 给绝对路径 ✓ ——
+        // std::filesystem 的 operator/ 遇到绝对路径会替换 ✓）。
+        std::ofstream manifest(package.root() + "/manifest.json");
+        manifest << R"({
+  "name": "fake",
+  "format_version": 1,
+  "model_version": "v2",
+  "language": "chinese",
+  "sample_rate": 32000,
+  "models": [
+    {"role": "t2s_encoder", "file": "models/t2s_encoder.onnx"},
+    {"role": "t2s_first_stage_decoder", "file": "models/t2s_first_stage_decoder.onnx"},
+    {"role": "t2s_stage_decoder", "file": "models/t2s_stage_decoder.onnx"},
+    {"role": "vits", "file": "models/vits.onnx"},
+    {"role": "roberta", "file": "models/roberta.onnx"},
+    {"role": "english_cmu_dict", "file": ")";
+        manifest << GENIE_ENGLISH_CMU_DICT << R"("}
+  ]
+})";
+    }
+
+    FakeSession* encoder = nullptr;
+    const auto factory = [&encoder](const std::string& path, const SessionConfig&) {
+        std::unique_ptr<ModelSession> session;
+        if (path.find("t2s_encoder") != std::string::npos) {
+            auto fake = FakeSession::encoder();
+            encoder = fake.get();
+            session = std::move(fake);
+        } else if (path.find("first_stage") != std::string::npos) {
+            session = FakeSession::first_stage();
+        } else if (path.find("stage_decoder") != std::string::npos) {
+            session = FakeSession::stage(3);
+        } else if (path.find("vits") != std::string::npos) {
+            session = FakeSession::vocoder(64);
+        } else if (path.find("roberta") != std::string::npos) {
+            session = FakeSession::roberta();
+        }
+        return session;
+    };
+
+    Engine engine(package.root(), factory);
+    // 英文文本 → 走英文前端 ✓ —— 不应该被中文 RoBERTa 绊倒 ✓。
+    const auto result = engine.synthesize("hello world");
+    EXPECT_GT(result.audio.frame_count(), 0U);
+    ASSERT_NE(encoder, nullptr);
+
+    // text_bert 必须是**全零** ✓ —— 中文 RoBERTa 没有跑 ✓。
+    for (const auto& [name, tensor] : encoder->last_feed()) {
+        if (name != "text_bert") {
+            continue;
+        }
+        ASSERT_EQ(tensor.rank(), 2);
+        EXPECT_EQ(tensor.dim(1), kBertDimension);
+        for (const float value : tensor.floats()) {
+            EXPECT_FLOAT_EQ(value, 0.0F);
+        }
+    }
+}
+
+TEST(Engine, JapaneseWithoutDictionaryFailsLoudly) {
+    // 音色包里没有 OpenJTalk 词典时 ✓，日文**不能**静默地走中文前端 ✓ ——
+    // 那样的话假名会被中文前端的 pattern_filter 过滤掉 ✓，
+    // 合成出来是静音 ✓，而根因（缺 103 MB 的词典 ✓）没人看得见 ✓。
+    TempVoicePackage package;
+
+    FakeSession* encoder = nullptr;
+    const auto factory = [&encoder](const std::string& path, const SessionConfig&) {
+        std::unique_ptr<ModelSession> session;
+        if (path.find("t2s_encoder") != std::string::npos) {
+            auto fake = FakeSession::encoder();
+            encoder = fake.get();
+            session = std::move(fake);
+        } else if (path.find("first_stage") != std::string::npos) {
+            session = FakeSession::first_stage();
+        } else if (path.find("stage_decoder") != std::string::npos) {
+            session = FakeSession::stage(3);
+        } else if (path.find("vits") != std::string::npos) {
+            session = FakeSession::vocoder(64);
+        }
+        return session;
+    };
+
+    Engine engine(package.root(), factory);
+    bool threw = false;
+    try {
+        // "こんにちは"（假名 ✓）→ 检测为日文 ✓。
+        engine.synthesize("\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1\xE3\x81\xAF");
+    } catch (const Error& error) {
+        threw = true;
+        // 报错要说清楚缺的是什么 ✓。
+        EXPECT_NE(std::string(error.what()).find("japanese_dictionary"), std::string::npos);
+    }
+    EXPECT_TRUE(threw) << "缺日文词典时应该明确报错，而不是静默合成静音";
+}
+
+TEST(FakeSession, HubertWithEmptyWaveDoesNotDivideByZero) {
+    // 空波形不能拿来当除数 ✓ —— 否则特征里全是 inf/NaN ✓，
+    // 后面会以"数值不对"的形式失败 ✓，根因却完全看不出来 ✓。
+    auto session = genie::test::FakeSession::chinese_hubert();
+    TensorFeed feed;
+    feed.emplace_back("input_values", genie::Tensor::from_float32({1, 0}, {}));
+    const auto outputs = session->run(feed);
+    ASSERT_EQ(outputs.size(), 1U);
+    for (const float value : outputs.front().floats()) {
+        EXPECT_TRUE(std::isfinite(value)) << "特征里出现了 inf / NaN";
+    }
 }
 
 TEST(Engine, HubertSslFlowsIntoEncoder) {

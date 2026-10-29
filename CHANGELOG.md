@@ -5,6 +5,40 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **打包脚本漏拷 `t2s_shared_fp32.bin`**：`make_voice_package.py` 的
+  `TTS_WEIGHTS` 少了这一项 —— 而它是 `t2s_first_stage_decoder` 与
+  `t2s_stage_decoder` **两张图共用的**那份 external data ✓，
+  图里的 `location` 写死了这个文件名 ✓。漏掉的后果不是打包时少一个文件 ✓，
+  而是**推理时**才报 "no such file: t2s_shared_fp32.bin" ✓ ——
+  那时候人已经在调模型参数了 ✓，很难联想到是打包脚本漏了 ✓。
+  现在它被**列为必需** ✓：缺了当场报错 ✓，并说清楚是哪个角色的 external data ✓。
+  顺带把另外几份外部权重也改成必需 ✓（原来缺了是**静默跳过** ✓）✓，
+  V2ProPlus 的 prompt_encoder 权重跟着 prompt_encoder 图走 ✓。
+
+- **非中文路径无条件跑 RoBERTa**：RoBERTa 是**中文**模型 ✓，
+  上游的 `_get_phones_and_bert_pure_lang` 里 english / korean / japanese
+  三个分支给的都是**全零** ✓。本项目以前不管什么语言都跑 ✓ ——
+  音色包里带了 RoBERTa 又合成英文/韩文/日文时 ✓，
+  RoBERTa 的 token 行数与音素数对不上 ✓ → `expand_by_word2ph` 直接抛异常 ✓，
+  合成整个失败 ✓。现在只有中文（含中英混读）路径跑 RoBERTa ✓，
+  其余语言走全零 ✓（与上游一致 ✓）。
+
+- **缺词典时静默回退到中文前端**：合成时按语言选前端 ✓，
+  以前是"选不到就退回中文前端" ✓ —— 日文没有 OpenJTalk 词典时 ✓，
+  日语文本被中文前端的 `pattern_filter` 过滤掉 ✓，
+  合成出来是**静音** ✓，而真正的原因（缺 103 MB 的词典 ✓）没人看得见 ✓。
+  现在选不到前端就**明确报错** ✓，并说清楚缺哪个角色、怎么接 ✓。
+  同一条链路上的另一处：**参考文本**以前固定用中文前端转音素 ✓，
+  日文音色包的参考文本会被转成拼音 ✓ —— 现在按**音色包声明的语言**选 ✓
+  （与上游 `ReferenceAudio.set_text(prompt_text, language)` 一致 ✓）。
+
+- **测试替身里的除零**：`tests/support/fake_session.hpp` 的 HuBERT 分支
+  用 `sum / wave.size()` 算填充值 ✓，波形为空时是浮点除零 ✓ →
+  特征里全是 inf/NaN ✓，后面的断言会以"数值不对"的形式失败 ✓，
+  根因却完全看不出来 ✓。现在空波形直接填 0 ✓。
+
 ### Added
 
 - **日语 G2P 实装**：移植上游 `G2P/Japanese/JapaneseG2P.py` 的整条链路 ——
