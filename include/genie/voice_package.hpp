@@ -54,6 +54,8 @@ enum class ModelRole {
     EnglishG2pModel,
     /// 英文 ngram 分词词典目录（可选；缺失时 OOV 词直接交给 GRU）。
     EnglishWordSegment,
+    /// OpenJTalk 词典目录（open_jtalk_dic_utf_8-1.11，可选；缺失时日文没有音素）。
+    JapaneseDictionary,
 };
 
 /// 角色 ↔ 稳定字符串互转。未知角色返回空字符串。

@@ -58,6 +58,16 @@ set(GENIE_CORE_SOURCES
     text/english/word_segmenter.cpp
 )
 
+# 日语 G2P 依赖内置的 OpenJTalk（third_party/openjtalk ✓）——
+# 关掉 GENIE_ENABLE_OPENJTALK 时整块不编 ✓（日文前端也没有 ✓）。
+if(GENIE_ENABLE_OPENJTALK)
+    list(APPEND GENIE_CORE_SOURCES
+        text/japanese/openjtalk.cpp
+        text/japanese/japanese.cpp
+        text/japanese_frontend.cpp
+    )
+endif()
+
 add_library(genie_core STATIC ${GENIE_CORE_SOURCES})
 
 # 静态库要能被链进共享库（genie_c），必须编成 PIC。
@@ -85,6 +95,14 @@ target_link_libraries(genie_core
 
 if(GENIE_ENABLE_SANITIZERS)
     target_link_libraries(genie_core PUBLIC $<BUILD_INTERFACE:genie::sanitizers>)
+endif()
+
+if(GENIE_ENABLE_OPENJTALK)
+    # OpenJTalk 是静态库 ✓ —— 链进 genie_core ✓（C ABI 的共享库也带上它 ✓）。
+    # 用 BUILD_INTERFACE 限定：它属于 third_party/ ✓，不进导出集 ✓
+    #（与 kairo / onnxruntime 的处理一致 ✓）。
+    target_link_libraries(genie_core PRIVATE $<BUILD_INTERFACE:openjtalk_vendor>)
+    target_compile_definitions(genie_core PUBLIC GENIE_HAVE_OPENJTALK=1)
 endif()
 
 add_library(genie::core ALIAS genie_core)

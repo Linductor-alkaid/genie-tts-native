@@ -81,6 +81,15 @@ target_compile_definitions(genie_unit_tests PRIVATE
 # 用上游 Python（mecab 换成 stub ✓）生成。
 target_compile_definitions(genie_unit_tests PRIVATE
     GENIE_KOREAN_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/korean_g2p.json")
+# 日语 G2P：词典 103 MB ✓ —— **不入仓库** ✓（音色包运行时给出 ✓），
+# 所以测试只跑"纯逻辑"那一层 ✓（文本 → 标签 → 音素 ✓），
+# 标签由黄金语料带着 ✓（tools/g2p/verify_japanese_g2p.py 用上游 pyopenjtalk 生成 ✓）。
+target_compile_definitions(genie_unit_tests PRIVATE
+    GENIE_JAPANESE_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/japanese_g2p.json")
+# 日语那部分依赖内置的 OpenJTalk ✓ —— 关掉 GENIE_ENABLE_OPENJTALK 时不编 ✓。
+if(GENIE_ENABLE_OPENJTALK)
+    target_sources(genie_unit_tests PRIVATE unit/test_japanese.cpp)
+endif()
 # RoBERTa 分词器是 src/ 内部实现，测试直接包含内部头。
 target_include_directories(genie_unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME genie_unit COMMAND genie_unit_tests)

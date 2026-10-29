@@ -106,6 +106,10 @@ struct Engine::Impl {
     std::unique_ptr<text::TextFrontend> english_frontend;
     /// 韩文前端（不需要外部资源 ✓ —— 总是创建 ✓）。
     std::unique_ptr<text::TextFrontend> korean_frontend;
+#ifdef GENIE_HAVE_OPENJTALK
+    /// 日文前端（词典缺失时为空 ✓ —— 前端自己持有 OpenJTalk ✓）。
+    std::unique_ptr<text::TextFrontend> japanese_frontend;
+#endif
 
     /// 最近一次流式合成的任务 id。
     std::atomic<Scheduler::TaskId> streaming_task{0};
@@ -346,6 +350,10 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
             ? *impl_->english_frontend
         : (language == Language::Korean && impl_->korean_frontend != nullptr)
             ? *impl_->korean_frontend
+#ifdef GENIE_HAVE_OPENJTALK
+        : (language == Language::Japanese && impl_->japanese_frontend != nullptr)
+            ? *impl_->japanese_frontend
+#endif
             : *impl_->frontend;
     const std::string prepared = std::string(kUpstreamTextPrefix) + std::string(text);
     const auto phonemes = frontend.convert(prepared);

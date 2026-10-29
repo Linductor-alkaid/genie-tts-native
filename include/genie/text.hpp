@@ -114,6 +114,16 @@ struct EnglishG2pResources {
     std::string word_segment_dir;
 };
 
+/// 日语 G2P 需要的资源。
+///
+/// 只有一个：OpenJTalk 的词典目录 ✓（open_jtalk_dic_utf_8-1.11 ✓）。
+/// 词典约 103 MB ✓ —— **不入仓库** ✓（与英文的 wordsegment 词典同理 ✓），
+/// 由音色包在运行时给出路径 ✓。
+struct JapaneseG2pResources {
+    /// OpenJTalk 词典目录。**必需** —— 没有它就没有日文前端。
+    std::string dictionary_dir;
+};
+
 /// 创建指定语言的前端。
 ///
 /// `Language::Auto` 会按文本内容自动判断（与 `detect_language()` 一致）。
@@ -130,6 +140,13 @@ struct EnglishG2pResources {
 /// @return 前端实例；CMU 词典缺失或读不出来时返回 nullptr。
 [[nodiscard]] std::unique_ptr<TextFrontend> make_frontend(Language language,
                                                           const EnglishG2pResources& resources);
+
+/// 创建日文前端。
+///
+/// @param resources 日语 G2P 的资源路径（OpenJTalk 词典目录 ✓）。
+/// @return 前端实例；词典缺失或读不出来时返回 nullptr。
+[[nodiscard]] std::unique_ptr<TextFrontend> make_frontend(Language language,
+                                                          const JapaneseG2pResources& resources);
 
 }  // namespace genie::text
 
