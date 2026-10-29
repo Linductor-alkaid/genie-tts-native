@@ -78,7 +78,9 @@
 - ✅ jieba 分词（2026-10-28：DAG/DP/HMM 直译，oracle 103/103，见 upstream-audit §9.8；POS HMM 待切片 B）
 - ✅ 英文 G2P（2026-10-29：规范化 + TweetTokenizer + CMU 词典 + POS 标注 + GRU 兜底，
   oracle 94 句的三项逐条一致，见 upstream-audit §17）
-- ⏳ 日文 G2P（留成可插拔接口）
+- ✅ 日文 G2P（2026-10-29：OpenJTalk 运行时内置 + 全上下文标签解析，
+  oracle 124/124 逐音素一致；词典 103 MB 不入仓库、由音色包给出，
+  见 upstream-audit §19）
 - ✅ 韩文 G2P（2026-10-29：g2pk2 全链路移植，oracle 53/53 逐音素一致，
   mecab-ko 形态标注未移植，见 upstream-audit §18）
 - ✅ 中英混合文本切分（2026-10-28：split_language 移植 + 逐块 TextNormalizer + 按块 RoBERTa，见 upstream-audit §6.3；英文块已接入英文 G2P，2026-10-29）

@@ -95,6 +95,9 @@ def main() -> None:
                              "缺了 OOV 词没有发音）")
     parser.add_argument("--english-word-segment", type=pathlib.Path,
                         help="英文 ngram 分词词典目录（可选；缺了 OOV 词直接交给 GRU）")
+    parser.add_argument("--japanese-dictionary", type=pathlib.Path,
+                        help="OpenJTalk 词典目录（open_jtalk_dic_utf_8-1.11，约 103 MB；"
+                             "日文合成必需，缺了日文文本没有音素）")
     parser.add_argument("--reference", required=True, type=pathlib.Path,
                         help="参考音频 wav（任意采样率，引擎会重采样到 32 kHz）")
     parser.add_argument("--reference-text", type=pathlib.Path,
@@ -182,6 +185,14 @@ def main() -> None:
             shutil.rmtree(dest)
         shutil.copytree(args.english_word_segment, dest)
         print(f"  {'english_word_segment':<22} <- {args.english_word_segment}")
+
+    # OpenJTalk 词典：一个目录（约 103 MB ✓）—— 整个搬过去 ✓。
+    if args.japanese_dictionary:
+        dest = models_dir / "open_jtalk_dic_utf_8-1.11"
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(args.japanese_dictionary, dest)
+        print(f"  {'japanese_dictionary':<22} <- {args.japanese_dictionary}")
 
     # 参考音频与文本。
     shutil.copyfile(args.reference, ref_dir / "audio.wav")

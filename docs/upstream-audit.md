@@ -1164,3 +1164,120 @@ g2pk2 的第 3 步 `annotate()` 依赖 **mecab-ko**：
 
 当前结果：**53/53 逐音素一致** ✓。黄金语料 `tests/golden/korean_g2p.json`
 由该脚本生成，单测（`tests/unit/test_korean.cpp`）逐条比对 ✓。
+
+## 19. 日语 G2P 实装（2026-10-29）
+
+### 19.1 上游的日文链路
+
+上游 `G2P/Japanese/JapaneseG2P.py` 的链路：
+
+```
+g2p(text)
+  ├─ if not text.strip(): return []          # Python 的 strip 去 Unicode 空白
+  ├─ _text_normalize(text)
+  │    ├─ "%" / "％" → "パーセント"           # 两遍 re.sub
+  │    ├─ 折叠连续标点 ([,./?!~…・])\1+ → \1
+  │    └─ text.lower()                        # Unicode 感知的小写
+  ├─ _JAPANESE_MARKS_RE.split(norm_text)      # 按**非**日语字符切段
+  ├─ _JAPANESE_MARKS_RE.findall(norm_text)    # 取出那些标点
+  ├─ 逐段：pyopenjtalk.make_label(pyopenjtalk.run_frontend(segment))[1:-1]
+  │    └─ 解析 OpenJTalk 的全上下文标签：
+  │         p3  = re.search(r"-(.*?)\+", lab)          # 第三个音素
+  │         a1  = re.search(r"/A:([0-9\-]+)\+", lab)
+  │         a2  = re.search(r"\+(\d+)\+", lab)
+  │         a3  = re.search(r"\+(\d+)/", lab)
+  │         f1  = re.search(r"/F:(\d+)_", lab)
+  │         e3  = re.search(r"!(\d+)_", lab)
+  │         # 韵律符号：
+  │         a3 == 1 and a2_next == 1 and p3 in "aeiouAEIOUNcl" → "#"
+  │         a1 == 0 and a2_next == a2 + 1 and a2 != f1     → "]"
+  │         a2 == 1 and a2_next == 2                       → "["
+  ├─ 把标点插回对应位置（mark.strip() 之后）
+  └─ _post_replace_phoneme：全角标点 → 半角（"：" → "," 等）
+```
+
+上游的日语路径**不产出 RoBERTa 特征**（`text_bert` 全零 ✓），
+音素表用的是 `symbols_v2` ✓（与本项目的符号表一致 ✓ —— 已逐个核对 ✓）。
+
+### 19.2 本移植的实现
+
+- **OpenJTalk 运行时内置**：`third_party/openjtalk/`（BSD 3-Clause ✓，
+  Nagoya Institute of Technology ✓）—— 源码取自 `r9y9/open_jtalk` 的
+  `1.11` 分支 ✓（与 pyopenjtalk 同源 ✓）。
+  只编译运行时那部分 ✓（jpcommon / mecab / mecab2njd / njd / njd2jpcommon /
+  njd_set_* / text2mecab ✓），不编译命令行工具 ✓。
+- `src/text/japanese/openjtalk.{hpp,cpp}`：`Mecab` + `NJD` + `JPCommon` 的封装 ✓
+  （pimpl ✓），`load(dictionary_dir)` / `labels(text)` ✓。
+- `src/text/japanese/japanese.{hpp,cpp}`：上游的规范化 / 切段 / 标签解析 ✓
+  （手写扫描器 ✓，不引 `std::regex` ✓）。
+- `src/text/japanese_frontend.cpp`：音素 → 符号 ID ✓。
+- 引擎按检测到的语言选前端 ✓；音色包新增角色 `japanese_dictionary` ✓
+  （词典目录 ✓）。
+- CLI：`g2p --language japanese --japanese-dict <目录>` ✓。
+
+### 19.3 与上游的偏差与坑
+
+**偏差 1：词典不入仓库**（103 MB ✓ —— 与英文的 wordsegment 词典同理 ✓）。
+词典由 `tools/deploy/fetch_openjtalk_dictionary.py` 从 pypi 的 `openjtalk`
+wheel 里取出 ✓（附 SHA-256 校验 ✓），运行时由音色包给出路径 ✓
+（`Mecab_load(m, dicdir)` 的 dicdir 是运行时参数 ✓ —— 不需要重新编译 ✓）。
+
+**偏差 2：词典在仓库外，所以 CI 跑不到"真链路"**。
+单测只跑"纯逻辑"那一层 ✓（文本 → 标签 → 音素 ✓），
+标签本身由 oracle 生成后存进黄金语料 ✓。
+需要真词典的那条链路由 `tools/g2p/verify_japanese_g2p.py` 在本地跑 ✓。
+
+**坑 1：Python 的 `\d` 是 Unicode 感知的** ✓。
+上游的日语字符集写的是 `[A-Za-z\d...]` ✓ —— Python 3 的 `\d` 匹配**所有**
+Nd 类数字 ✓，不只是 ASCII ✓。所以全角 '０'（U+FF10）属于日语字符 ✓
+（它**不在**上游显式列出的 `\uff11-\uff19` 里 ✓ —— 那个区间从 １ 开始 ✓）。
+按显式区间判断的话，'０' 会被当成标点 ✓ → 切段位置变了 ✓ →
+音素序列完全不同 ✓（"１００パーセント" 会从 "hyaku pasento" 变成别的 ✓）。
+
+**坑 2：`str.strip()` 去的是 Unicode 空白** ✓。
+上游的 `mark.strip()` 会把全角空格 U+3000 整个丢掉 ✓；只去 ASCII 空白的话
+U+3000 会留在音素序列里 ✓。
+
+**坑 3：`str.lower()` 也是 Unicode 感知的** ✓。
+全角 'Ａ' → 'ａ' ✓、希腊字母 ✓、西里尔字母 ✓ 都会变小写 ✓。
+
+**坑 4：`[1:-1]` 砍的是**音素列表**的首尾元素** ✓，不是"跳过首尾标签" ✓。
+末尾标签若不是 sil（例如 "w^a-sil+xx=xx" ✓），它贡献的音素要留下 ✓、
+只丢掉最后一个韵律符号 ✓ —— 按"跳过首尾标签"实现就会少一个音素 ✓。
+
+**坑 5：`p3 in "aeiouAEIOUNcl"` 是**子串**判断** ✓（Python 的 `in` 对字符串）✓，
+不是"字符集合" ✓ —— "cl" 也在里面 ✓。
+
+**偏差 3：MSVC 上默认不编 OpenJTalk** ✓。
+内置的 mecab 是 POSIX 系的代码 ✓（mmap / dirent / strdup 那一套 ✗），
+在 MSVC 上能不能过**没有验证过** ✗ —— 与其让 Windows CI 红着 ✓，
+不如在 MSVC 上默认关掉 ✓（`GENIE_ENABLE_OPENJTALK` 默认 OFF ✓，
+显式 `-DGENIE_ENABLE_OPENJTALK=ON` 会被尊重 ✓）。
+Linux / macOS 上默认开启 ✓。
+
+**坑 6：mecab 里藏着一个 `main()`** ✓。
+`third_party/openjtalk/mecab/src/mecab-dict-index.cpp` 有全局 `int main()` ✓
+（词典索引工具的入口 ✓）。它一旦被链进可执行文件 ✓，
+链接器就会把它当成程序入口 ✓ —— 症状是"测试程序莫名其妙地跑起了 mecab" ✓
+（启动时去当前目录找 unk.def ✓、编译词典 ✓、然后崩掉 ✓）。
+所以内置的源文件列表是**显式写出**的 ✓（不用 `aux_source_directory` ✓）。
+
+**坑 7：标签解析的正则全是"最左匹配"** ✓。
+`\+(\d+)\+` 在 "A:-2+3+3/B:..." 上取到的是 "3" ✓（第一个 "+数字+" ✓），
+不是 "2" ✓ —— 韵律符号的判定全靠这个 ✓。
+
+### 19.4 验证
+
+`tools/g2p/verify_japanese_g2p.py` 把上游的 Python 实现（pyopenjtalk ✓）
+当 oracle ✓，逐音素比对 ✓。语料 `tools/g2p/japanese_corpus.txt`（124 句 ✓）
+覆盖：
+
+- 平假名 / 片假名 / 汉字 / 半角片假名 / 小书假名 ✓；
+- 长音符 ✓、促音 ✓、拨音 ✓、叠词 ✓；
+- 标点：ASCII 与全角 ✓、省略号 ✓、中点 ✓、引号 ✓、括号 ✓；
+- 数字：半角 ✓、全角 ✓、百分比（% 与 ％ ✓）；
+- 拉丁字母混排 ✓、全角字母 ✓、全角空格 ✓；
+- 中英日韩混排 ✓。
+
+当前结果：**124/124 逐音素一致** ✓。黄金语料 `tests/golden/japanese_g2p.json`
+由该脚本生成 ✓，单测（`tests/unit/test_japanese.cpp`）逐条比对 ✓。

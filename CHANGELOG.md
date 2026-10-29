@@ -7,6 +7,24 @@
 
 ### Added
 
+- **日语 G2P 实装**：移植上游 `G2P/Japanese/JapaneseG2P.py` 的整条链路 ——
+  文本规范化（% / ％ → パーセント、折叠连续标点、Unicode 小写）、
+  按非日语字符切段、OpenJTalk 全上下文标签 → 音素 + 韵律符号
+  （`#` / `[` / `]`）、全角标点转半角。
+  **OpenJTalk 的运行时以源码形式内置**（`third_party/openjtalk/`，
+  BSD 3-Clause ✓，取自 `r9y9/open_jtalk` 的 `1.11` 分支 ✓ —— 与上游
+  用的 pyopenjtalk 同源 ✓）。
+  词典约 103 MB ✓ —— **不入仓库** ✓（与英文的 wordsegment 词典同理 ✓），
+  由 `tools/deploy/fetch_openjtalk_dictionary.py` 从 pypi 的 openjtalk
+  wheel 取出（附 SHA-256 校验 ✓），运行时从音色包新增的角色
+  `japanese_dictionary` 读取 ✓。
+  CLI 新增 `--japanese-dict <目录>` ✓。
+  oracle 用**上游的 Python 实现**（pyopenjtalk ✓）当基准，
+  124 句语料逐音素一致 ✓。
+  顺带修掉 CLI 的一个 bug ✓：`--english-dir` 的分支排在了"未知选项"
+  之后 ✓，于是永远走不到 ✓（直接报 unknown option ✓）。
+  见 docs/upstream-audit.md §19。
+
 - **韩语 G2P 实装**：移植上游 `G2P/Korean/KoreanG2P.py` + g2pk2 的整条链路 ——
   拉丁字母转韩文、数字转韩文（汉字数词 / 固有数词）、惯用语表、
   组合字母拆解、12 条特殊音变规则、402 条"받침 + 起首辅音"规则表、

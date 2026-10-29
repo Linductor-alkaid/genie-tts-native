@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -50,6 +51,7 @@ Options:
   --model <dir>        Voice package directory (contains manifest.json)
   --english-dir <dir>  English G2P resources (cmudict.bin / pos_tagger.bin /
                        english_g2p.bin / wordsegment/)
+  --japanese-dict <d>  OpenJTalk dictionary directory (open_jtalk_dic_utf_8-1.11)
   --text <text>        Text to synthesize
   --output <file>      Output WAV path
   --language <lang>    auto | chinese | english | japanese | korean | hybrid-chinese-english
@@ -68,6 +70,7 @@ struct Options {
     std::string model_dir;
     std::string text;
     std::string output;
+    std::string japanese_dict;
     std::string language = "auto";
     std::string english_dir;
     std::uint64_t seed = 0;
@@ -119,13 +122,20 @@ bool parse_options(int argc, char** argv, Options& options) {
                 return false;
             }
             options.threads = std::atoi(value.c_str());
-        } else if (!arg.empty() && arg[0] == '-') {
-            std::cerr << "unknown option: " << arg << "\n";
-            return false;
         } else if (arg == "--english-dir") {
+            // 注意：这几个分支必须在"未知选项"分支**之前** ✓ ——
+            // 之前 --english-dir 排在了后面 ✓，于是永远走不到 ✓
+            // （`--english-dir` 直接报"unknown option" ✓）。
             if (!next(options.english_dir)) {
                 return false;
             }
+        } else if (arg == "--japanese-dict") {
+            if (!next(options.japanese_dict)) {
+                return false;
+            }
+        } else if (!arg.empty() && arg[0] == '-') {
+            std::cerr << "unknown option: " << arg << "\n";
+            return false;
         } else if (options.model_dir.empty()) {
             // 位置参数：inspect 的模型文件或目录
             options.model_dir = arg;
@@ -165,13 +175,26 @@ int command_g2p(const Options& options) {
         english_resources.word_segment_dir = (dir / "wordsegment").string();
     }
 
-    auto frontend = genie::text::make_frontend(language, english_resources);
+    // 日文前端需要 OpenJTalk 词典（103 MB ✓ —— 不在仓库里 ✓）。
+    genie::text::JapaneseG2pResources japanese_resources;
+    japanese_resources.dictionary_dir = options.japanese_dict;
+
+    std::unique_ptr<genie::text::TextFrontend> frontend;
+    if (language == genie::Language::Japanese) {
+        frontend = genie::text::make_frontend(language, japanese_resources);
+    } else {
+        frontend = genie::text::make_frontend(language, english_resources);
+    }
     if (!frontend) {
         std::cerr << "no text frontend for language: " << genie::language_to_string(language)
                   << "\n";
         if (language == genie::Language::English) {
             std::cerr << "  英文前端需要词典 —— 用 --english-dir <目录> 指定"
                          "（目录里放 cmudict.bin / pos_tagger.bin / english_g2p.bin）\n";
+        }
+        if (language == genie::Language::Japanese) {
+            std::cerr << "  日文前端需要 OpenJTalk 词典 —— 用 --japanese-dict <目录> 指定"
+                         "（open_jtalk_dic_utf_8-1.11，约 103 MB）\n";
         }
         return kExitUsage;
     }

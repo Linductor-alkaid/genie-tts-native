@@ -23,6 +23,7 @@
 | 多音字 | `third_party/g2pm/g2pm.bin`（**仓库自带**，3.1 MB） | 无需下载 | 可选：g2pM 多音字消歧（含 4.5 万词读音修正表）；`make_voice_package.py --g2pm third_party/g2pm/g2pm.bin` 接入，缺了回退单字最常用读音 |
 | 分词 | `third_party/jieba/jieba.bin`（**仓库自带**，8.3 MB） | 无需下载 | 可选：jieba 分词（变调边界 + 词级修正的词边界）；`make_voice_package.py --jieba third_party/jieba/jieba.bin` 接入，缺了退回词表匹配 |
 | 英文 G2P | `third_party/english/cmudict.bin`（5.0 MB）+ `pos_tagger.bin`（3.3 MB）+ `english_g2p.bin`（3.2 MB） | **仓库自带** | 可选：`make_voice_package.py --english-cmu-dict ... --english-pos-tagger ... --english-g2p-model ...` 接入；词典是英文合成的硬依赖，其余缺失时降级（OOV 词走 GRU / 同形异音词取默认读音） |
+| 日语 G2P | OpenJTalk 词典 `open_jtalk_dic_utf_8-1.11/`（约 103 MB，**仓库不带**） | `python3 tools/deploy/fetch_openjtalk_dictionary.py --output /tmp/oj-dict`（从 pypi 的 openjtalk wheel 取 ✓，附 SHA-256 校验 ✓） | 可选：`make_voice_package.py --japanese-dictionary /tmp/oj-dict/open_jtalk_dic_utf_8-1.11` 接入；词典是日文合成的硬依赖，缺了日文文本没有音素。OpenJTalk 的**运行时源码已内置**（`third_party/openjtalk/`，BSD ✓），不需要额外编译 |
 | 参考音频 | 一段 wav + 参考文本 | 音色目录 `prompt_wav/`（文本随 `prompt_wav.json` 发布） | 音色包的"音色本体"，**必需** |
 | ONNX Runtime | 预编译包（CPU） | [microsoft/onnxruntime releases](https://github.com/microsoft/onnxruntime/releases) | CI 基线 1.22.0；本项目验证到 1.31.0 |
 
@@ -157,6 +158,7 @@ python3 tools/deploy/make_voice_package.py \
     --english-cmu-dict   <repo>/third_party/english/cmudict.bin \
     --english-pos-tagger <repo>/third_party/english/pos_tagger.bin \
     --english-g2p-model  <repo>/third_party/english/english_g2p.bin \
+    --japanese-dictionary /tmp/oj-dict/open_jtalk_dic_utf_8-1.11 \
     --reference       $DL/reference.wav \
     --reference-text  ref.txt \
     --output          ~/voice-packages/feibi

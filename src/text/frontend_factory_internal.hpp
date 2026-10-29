@@ -32,6 +32,10 @@ namespace genie::text {
 /// 韩文前端（不需要外部资源 ✓）。
 [[nodiscard]] std::unique_ptr<TextFrontend> make_korean_frontend();
 
+/// 日文前端（需要一个已载入词典的 OpenJTalk ✓ —— 词典 103 MB ✓）。
+[[nodiscard]] std::unique_ptr<TextFrontend> make_japanese_frontend(
+    const JapaneseG2pResources& resources);
+
 }  // namespace genie::text
 
 #endif  // GENIE_SRC_TEXT_FRONTEND_FACTORY_INTERNAL_HPP

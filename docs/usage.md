@@ -76,6 +76,25 @@ phonemes (19):
 目录里应有 `cmudict.bin`（必需）、`pos_tagger.bin`、`english_g2p.bin`
 与可选的 `wordsegment/`（ngram 分词词典，缺失时 OOV 词直接交给 GRU）。
 
+日语文本需要 OpenJTalk 的词典（约 103 MB，仓库不带），用
+`--japanese-dict` 指到词典目录：
+
+```console
+$ genie-tts g2p --language japanese \
+      --japanese-dict /tmp/oj-dict/open_jtalk_dic_utf_8-1.11 \
+      --text "こんにちは、世界！"
+language: japanese
+normalized: こんにちは,世界!
+phonemes (18):
+  0	k	222
+  1	o	229
+  ...
+```
+
+词典可以用 `tools/deploy/fetch_openjtalk_dictionary.py` 取（从 pypi 的
+`openjtalk` wheel 里解出来，附 SHA-256 校验）。OpenJTalk 的运行时源码
+已经内置在 `third_party/openjtalk/`（BSD），不需要另外编译。
+
 ### 合成
 
 ```console

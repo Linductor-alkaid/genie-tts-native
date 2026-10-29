@@ -103,7 +103,20 @@ Copyright (c) 2026 Linductor-alkaid
     韩语字母的拆解 / 组装规则与两套字母的映射表来自该包，
     同样经 tools/g2p/generate_korean_tables.py 导出。
 
-13. GoogleTest (https://github.com/google/googletest)
+13. Open JTalk (https://github.com/r9y9/open_jtalk)
+    Copyright (c) 2001-2015 Nagoya Institute of Technology
+    BSD 3-Clause License
+
+    日语 G2P 用的整条链路（mecab 形态分析 → 全上下文 HMM → 韵律标签）
+    以源码形式内置在 third_party/openjtalk/。授权原文见
+    third_party/openjtalk/COPYING。
+
+    Open JTalk 的词典（open_jtalk_dic_utf_8-1.11，约 103 MB）**不随本仓库
+    分发** —— 由 tools/deploy/fetch_openjtalk_dictionary.py 从 pypi 的
+    openjtalk wheel 取出（附 SHA-256 校验），运行时从音色包的
+    `japanese_dictionary` 角色读取。
+
+14. GoogleTest (https://github.com/google/googletest)
    Copyright (c) 2008, Google Inc.
    BSD 3-Clause License
 
@@ -119,7 +132,7 @@ third_party/genie-tts-models/ 下的 ONNX 模型由 Genie-TTS 仓库以 MIT 协�
 这些模型源自 GPT-SoVITS 项目，**用户自己的音色模型**（voice package）不随本仓库
 分发，其授权由相应作者决定。详见 docs/architecture.md 的「模型授权」一节。
 
-14. PaddlePaddle / WeTextProcessing 文本规范化规则与繁简转换表
+15. PaddlePaddle / WeTextProcessing 文本规范化规则与繁简转换表
    Copyright (c) 2020 PaddlePaddle Authors. All Rights Reserved.
    Apache License 2.0
 
@@ -134,7 +147,7 @@ third_party/genie-tts-models/ 下的 ONNX 模型由 Genie-TTS 仓库以 MIT 协�
 
    Apache-2.0 原文见 https://www.apache.org/licenses/LICENSE-2.0
 
-15. jieba (https://github.com/fxsjy/jieba，上游使用其 C 加速分支 jieba_fast)
+16. jieba (https://github.com/fxsjy/jieba，上游使用其 C 加速分支 jieba_fast)
    Copyright (c) Sun, Junyi <ccnusjy@gmail.com>
    MIT License
 
@@ -142,7 +155,7 @@ third_party/genie-tts-models/ 下的 ONNX 模型由 Genie-TTS 仓库以 MIT 协�
    jieba 0.42.1，经 tools/deploy/convert_jieba.py 转换后随仓库发布于
    third_party/jieba/jieba.bin。授权原文见 third_party/jieba/LICENSE。
 
-16. g2pM (https://github.com/kakaobrain/g2pM，pip 包由 mozillazg/pypinyin-g2pM 打包)
+17. g2pM (https://github.com/kakaobrain/g2pM，pip 包由 mozillazg/pypinyin-g2pM 打包)
    Copyright (c) 2020 Seanie Lee (Kakao Brain)
    Apache License 2.0
 

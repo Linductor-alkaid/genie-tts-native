@@ -33,6 +33,8 @@ std::unique_ptr<TextFrontend> make_frontend(Language language) {
         case Language::Korean:
             return make_korean_frontend();
         case Language::Japanese:
+            // 日文前端需要 OpenJTalk + 词典 —— 由引擎那一侧注入 ✓
+            // （make_frontend(Language, resources) 的重载负责 ✓）。
             return nullptr;
     }
     return nullptr;
@@ -43,6 +45,17 @@ std::unique_ptr<TextFrontend> make_frontend(Language language,
     if (language == Language::English) {
         return make_english_frontend(resources);
     }
+    return make_frontend(language);
+}
+
+std::unique_ptr<TextFrontend> make_frontend(Language language,
+                                            const JapaneseG2pResources& resources) {
+#ifdef GENIE_HAVE_OPENJTALK
+    if (language == Language::Japanese) {
+        return make_japanese_frontend(resources);
+    }
+#endif
+    // 没编 OpenJTalk 时没有日文前端 ✓（调用方据此报错 ✓）。
     return make_frontend(language);
 }
 
