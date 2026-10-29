@@ -33,6 +33,8 @@
   同一条链路上的另一处：**参考文本**以前固定用中文前端转音素 ✓，
   日文音色包的参考文本会被转成拼音 ✓ —— 现在按**音色包声明的语言**选 ✓
   （与上游 `ReferenceAudio.set_text(prompt_text, language)` 一致 ✓）。
+  **没编 OpenJTalk 的构建**（MSVC 上默认如此 ✓）同样不回退 ✓ ——
+  那时候日文前端根本不存在 ✓，回退就等于把日文过滤成静音 ✓。
 
 - **测试替身里的除零**：`tests/support/fake_session.hpp` 的 HuBERT 分支
   用 `sum / wave.size()` 算填充值 ✓，波形为空时是浮点除零 ✓ →

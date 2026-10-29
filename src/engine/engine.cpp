@@ -45,8 +45,15 @@ namespace {
             return "音色包缺少英文发音词典（角色 english_cmu_dict）——"
                    "用 make_voice_package.py --english-cmu-dict 接入";
         case Language::Japanese:
+#ifdef GENIE_HAVE_OPENJTALK
             return "音色包缺少 OpenJTalk 词典（角色 japanese_dictionary，约 103 MB）——"
                    "用 make_voice_package.py --japanese-dictionary 接入";
+#else
+            // 没编 OpenJTalk 的构建 ✓（MSVC 上默认如此 ✓）——
+            // 这时候给词典也没用 ✓，缺的是运行时本身 ✓。
+            return "这个构建没有编 OpenJTalk —— 日语音素转换需要它，"
+                   "重新构建时打开 GENIE_ENABLE_OPENJTALK";
+#endif
         case Language::Korean:
             return "韩文前端不需要外部资源，出现这个错误说明构建有问题";
         default:
@@ -141,9 +148,15 @@ struct Engine::Impl {
                 return english_frontend.get();
             case Language::Korean:
                 return korean_frontend.get();
-#ifdef GENIE_HAVE_OPENJTALK
             case Language::Japanese:
+#ifdef GENIE_HAVE_OPENJTALK
                 return japanese_frontend.get();
+#else
+                // 没编 OpenJTalk 的构建 ✓（MSVC 上默认如此 ✓）——
+                // 日文前端**不存在** ✓。这里必须返回 nullptr ✓：
+                // 落进 default 就会静默回退到中文前端 ✓ ——
+                // 那正是这次要修的"日文合成出来是静音"✓。
+                return nullptr;
 #endif
             default:
                 return frontend.get();

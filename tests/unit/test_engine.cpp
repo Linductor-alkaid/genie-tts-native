@@ -453,8 +453,11 @@ TEST(Engine, JapaneseWithoutDictionaryFailsLoudly) {
         engine.synthesize("\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1\xE3\x81\xAF");
     } catch (const Error& error) {
         threw = true;
-        // 报错要说清楚缺的是什么 ✓。
-        EXPECT_NE(std::string(error.what()).find("japanese_dictionary"), std::string::npos);
+        // 报错要说清楚缺的是什么 ✓ —— 两种情况都提到 OpenJTalk ✓：
+        //   编译了 OpenJTalk 但音色包没词典 → 提示 japanese_dictionary ✓；
+        //   没编译 OpenJTalk（MSVC 默认 ✓）→ 提示重新构建 ✓。
+        const std::string message(error.what());
+        EXPECT_NE(message.find("OpenJTalk"), std::string::npos) << message;
     }
     EXPECT_TRUE(threw) << "缺日文词典时应该明确报错，而不是静默合成静音";
 }
