@@ -303,6 +303,18 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     // 3.2) 韩文前端（不需要外部资源 ✓ —— 规则与数据都内置 ✓）。
     impl->korean_frontend = text::make_korean_frontend();
 
+    // 3.3) 日文前端（OpenJTalk）：词典（约 103 MB ✓）由音色包给出 ✓ ——
+    //      前端必须在这里**显式装配** ✓：只声明 japanese_frontend 成员
+    //      而不赋值的话 ✓，frontend_for(Japanese) 永远返回 nullptr ✓，
+    //      日文即使包里带了词典 ✓，也只会报"音色包缺少 OpenJTalk 词典"✓。
+#ifdef GENIE_HAVE_OPENJTALK
+    if (impl->package.has(ModelRole::JapaneseDictionary)) {
+        text::JapaneseG2pResources japanese_resources;
+        japanese_resources.dictionary_dir = impl->package.model_path(ModelRole::JapaneseDictionary);
+        impl->japanese_frontend = text::make_japanese_frontend(japanese_resources);
+    }
+#endif
+
     if (impl->package.has(ModelRole::G2pm)) {
         impl->g2pm_model = std::make_unique<g2pm::Model>(
             g2pm::Model::load(impl->package.model_path(ModelRole::G2pm)));

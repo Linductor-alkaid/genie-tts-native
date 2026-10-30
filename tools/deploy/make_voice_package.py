@@ -208,6 +208,11 @@ def main() -> None:
         if dest.exists():
             shutil.rmtree(dest)
         shutil.copytree(args.english_word_segment, dest)
+        # 目录条目不带 sha256（manifest 校验只对单文件）—— 但 role 必须登记：
+        # engine 靠 manifest role 找目录路径（OOV 词先 ngram 分词再查词典，
+        # 不登记的话 segmenter 不可用，OOV 直接降级到 GRU 兜底）。
+        entries.append({"role": "english_word_segment",
+                        "file": "models/wordsegment"})
         print(f"  {'english_word_segment':<22} <- {args.english_word_segment}")
 
     # OpenJTalk 词典：一个目录（约 103 MB ✓）—— 整个搬过去 ✓。
@@ -216,6 +221,11 @@ def main() -> None:
         if dest.exists():
             shutil.rmtree(dest)
         shutil.copytree(args.japanese_dictionary, dest)
+        # 目录条目不带 sha256 ✓（manifest 校验只对单文件 ✓）—— 但 role
+        # **必须登记** ✓：engine 是靠 manifest role 找词典路径的 ✓，
+        # 不登记的话包里有词典也等于没有 ✓（合成时照样报"缺词典"✓）。
+        entries.append({"role": "japanese_dictionary",
+                        "file": "models/open_jtalk_dic_utf_8-1.11"})
         print(f"  {'japanese_dictionary':<22} <- {args.japanese_dictionary}")
 
     # 参考音频与文本。
