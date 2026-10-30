@@ -3,9 +3,40 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [v0.3.0] - 2026-10-30
 
 ### Fixed
+
+- **变调 oracle 的边界比对是恒真的**（本次同步文档时发现）：
+  `tools/verify_sandhi.py` 的 `flatten_units()` 把词面**拼接**后再比，
+  而拼接结果恒等于原文 —— 于是"分词边界一致"这个指标永远为真，
+  一次都没抓到过真实差异。审计 §9.6 里"变调域边界 44/44 一致"这个数
+  就是这么来的。现在按**词切分**逐词比。修好后重测，两条路径的真实数字是：
+
+  | 路径 | 边界一致 | 韵母序列一致 |
+  |---|---|---|
+  | jieba（生产路径） | 40/44 = 90.9% | 42/44 = 95.5% |
+  | 降级路径（无 jieba） | 17/44 = 38.6% | 30/44 = 68.2% |
+
+  换句话说：**带 jieba 的音色包**比不带 jieba 的更接近上游 ——
+  14 处韵母差异里 12 处由 jieba 直接消掉。
+
+- **文档与代码脱节（jieba 已在 #24 合入，文档还写着"本移植不引入 jieba"）**：
+  §9.6 / §9.7 / §9.8 与 `src/text/tone_sandhi.hpp`、
+  `src/text/chinese_frontend.cpp`、`src/engine/g2pm.{cpp,hpp}`、
+  `src/text/frontend_factory.cpp` 的注释都按"没有 jieba"写的，
+  与实际行为相反。现在全部改成"有 jieba 走生产路径、没有走降级路径"，
+  并把 §9.6 的数字换成实测值。
+
+- **三处真实的编码损坏**（U+FFFD）：`include/genie/t2s.hpp`、
+  `third_party/openjtalk/CMakeLists.txt`、
+  `tools/g2p/generate_pinyin_table.py` 各有一个字被替换成替换字符。
+
+- **`project(... VERSION 0.1.0)` 没跟着发版走** —— v0.2.0 发布时也忘了改，
+  于是 `genie-tts version` 一直报 0.1.0。现在 bump 到 0.3.0。
+
+- **v0.2.0 一直没在 CHANGELOG 里单列一节** —— 它的内容一直堆在
+  `[Unreleased]` 下面。现在按内容拆回 `[v0.2.0] - 2026-10-28]`。
 
 - **打包脚本漏拷 `t2s_shared_fp32.bin`**：`make_voice_package.py` 的
   `TTS_WEIGHTS` 少了这一项 —— 而它是 `t2s_first_stage_decoder` 与
@@ -58,7 +89,19 @@
   "ngram 分词再查词典"路径 ✓（§17）。现在目录条目同样登记进
   manifest（不带 sha256 ✓）。
 
+- **移除两个源文件末尾的 NUL 填充**：`src/text/language_split.cpp` 与
+  `tools/g2p/dump_language_split.cpp` 的代码内容完整，但末尾被工作区文件
+  系统填充 NUL 到 4096 块边界（约 2 KB），导致 git 将其识别为二进制文件、
+  无法在 diff 中审阅。编译器与 clang-format 忽略 NUL（此前 CI 全绿的
+  原因），#21 已合并入库，本条将其剥离为纯文本。
+
 ### Added
+
+- **jieba 生产路径的黄金语料**：`tests/golden/sandhi_jieba.json`
+  （44 段）锁住"音色包带 jieba 角色"时的变调/儿化行为 ——
+  之前只有降级路径的黄金语料，生产路径没人守。
+  配套单测 `SandhiGolden.JiebaCorpusMatchesLockedOutput`。
+  `tools/g2p/dump_sandhi.cpp` 新增 `GENIE_JIEBA_MODEL` 环境变量切换分词源。
 
 - **日语 G2P 实装**：移植上游 `G2P/Japanese/JapaneseG2P.py` 的整条链路 ——
   文本规范化（% / ％ → パーセント、折叠连续标点、Unicode 小写）、
@@ -137,6 +180,7 @@
   英文块暂且丢弃（英文 G2P 未实现，记录在案 docs/upstream-audit.md §9.4）。
   `genie-tts g2p` 对混读文本改为按块显示规范化结果（整段显示与实际
   喂给模型的分块不一致）。
+
 - **部署教程与部署脚本**：`docs/deployment.md` 手把手覆盖「下载上游权重
   （HF `High-Logic/Genie`，含 hf-mirror 镜像用法）→ fp16 外部权重转 fp32 →
   组装音色包 → 校验与首次合成」全流程，命令均可直接复制执行。
@@ -145,19 +189,40 @@
   `tools/deploy/make_voice_package.py`：按上游目录结构组装音色包
   （改名 + SHA-256 + manifest.json，capabilities 按输入自动置位）。
   README 增加部署入口、模型来源说明与 tools 目录树。
+
 - **上游行为入档：句尾挤压**：vits 输出时长严格等于语义 token 数 × 40 ms，
   EOS 采样时机（采样在 ONNX 图内，见审计 §5）的运行间方差会让末音节被
   挤压，听感是"说了一半音频就结束"。实测确认与上游同分布、非移植缺陷；
   缓解方案（自动重采 / 尾部补留白）留待 M6 单独立项。
   见 docs/upstream-audit.md §10.5。
+
 - **中文变调与儿化（ToneSandhi / Erhua）**：对齐上游 `ToneSandhi.py` /
   `Erhua.py` 的"不/一"变调、三声连读、轻声词表与儿化处理 —— "你好"
   读"ní hǎo"、"不怕"读"bú pà"、"一天"读"yì tiān"、"三个"的"个"
   轻声、"媳妇儿"儿化。上游依赖 jieba 分词与词性标注；本移植内嵌
   上游四张词表（约 510 词）做贪心最长匹配，POS 依赖分支取记录在案的
-  默认行为。oracle 比对（上游 Python 当基准）：变调域边界 44/44 一致，
-  逐字韵母 68.2% 一致，差异全部源于已记录的 jieba 词边界 / POS 缺失。
+  默认行为。oracle 比对（上游 Python 当基准）：**接上 jieba 之后**
+  变调域边界 90.9% 一致、逐字韵母 95.5% 一致（数字在 2026-10-30
+  修好边界比对逻辑后重测过一次，见本版本 Fixed 第一条）。
   见 docs/upstream-audit.md §9.6（设计对齐 issue #16）。
+
+### Changed
+
+- **审计 §9.6 重写**：补上两条路径的实测数字、剩余 6 处差异的逐条成因
+  （4 处边界差异来自上游用 `jieba_fast.posseg.lcut` 而本移植对齐
+  `jieba.lcut` —— posseg 走的是带 POS 约束的 HMM；2 处韵母差异是
+  `_split_word` 的 `cut_for_search` 切点与"慢慢"的 POS 依赖分支）。
+- **路线图按代码逐项核对**：M1 / M2 / M3 转 ✅，M0 / M4 / M6 / M7 转 🚧；
+  补记"采样在图内、无主机侧采样器"、"word2ph 上游也是逐字统计"等。
+- **发布检查单重写**：从 v0.1.0 口径更新到 v0.3.0，
+  并把已知限制分成"能力边界 / 验证边界 / 不影响正确性的取舍"三类。
+- **README 的里程碑表**：M2 从 🚧 转 ✅（四种语言的 G2P 全部落地），
+  并补上已发布版本列表。
+
+## [v0.2.0] - 2026-10-28
+
+### Added
+
 - **完整中文文本规范化**（对齐上游 `TextNormalizer`）：日期 / 时间 / 时间范围、
   手机号 / 固话 / 400 号、分数 / 百分比 / 区间 / 版本号 / 幂、量词 / 单位 / 温度、
   繁简转换、数学运算、希腊字母、带圈数字。
@@ -169,12 +234,15 @@
 
   验证方式：把上游的 Python 包当 **oracle**，63 条语料逐条比对，全量一致
   （`tools/verify_normalizer.py`），语料固化在 `tests/golden/normalizer.json`。
+
 - **CLI `normalize` 子命令**：只看规范化这一步的结果，方便排查读法问题。
+
 - **参考音频内容特征（chinese-hubert-base）**：音色包新增可选
   `chinese_hubert` 角色（ONNX 图 + 同目录 fp32 外部权重，部署侧由
   上游 fp16 发布文件转换），`ssl_content` 从全零降级升级为真参考
   音频 HuBERT 特征（[1, 768, T']，图内已含转置）。审计与排查
   记录见 docs/upstream-audit.md §14.4。
+
 - **中文韵律特征（RoBERTa）**：音色包新增可选 `roberta` 角色 +
   同目录 `vocab.txt` 词表，中文合成的 `text_bert` / `ref_bert`
   从全零降级升级为真 RoBERTa 特征 —— tokenizer 编码规范化文本、
@@ -186,15 +254,10 @@
 
 ### Fixed
 
-- **移除两个源文件末尾的 NUL 填充**：`src/text/language_split.cpp` 与
-  `tools/g2p/dump_language_split.cpp` 的代码内容完整，但末尾被工作区文件
-  系统填充 NUL 到 4096 块边界（约 2 KB），导致 git 将其识别为二进制文件、
-  无法在 diff 中审阅。编译器与 clang-format 忽略 NUL（此前 CI 全绿的
-  原因），#21 已合并入库，本条将其剥离为纯文本。
-
 - **折叠连续标点按字节做，把多字节汉字吃掉半个**：
   "四"（E5 9B 9B）后两个字节相同，按字节折叠会变成 E5 9B —— 输出乱码。
   现在按**码点**折叠（`src/text/punctuation.hpp`）。
+
 - **字符过滤按字节做**：把"月"（E6 9C 88）的 0x88 当成全角括号的一部分删掉，
   结果是"月"变成半个字。现在按码点过滤。
 
@@ -207,6 +270,7 @@
   `_pinyin_to_opencpop_phones`；12,010 字与 Python 参考实现
   （pypinyin + 同一词表）全量比对 0 差异。
   转换摘要与黄金契约快照同步更新。
+
 - **参考音频缺少上游的静音尾巴（重要）**：上游 `load_audio()` 在重采样后
   给参考波形拼接 0.3 秒静音（`SILENCE_TO_APPEND_S`），`ref_audio` 与
   HuBERT 特征都带这个尾巴；静音帧向自回归解码器标记"参考内容结束"。
@@ -219,20 +283,23 @@
   一参构造（CLI `synth` 走的路径）把请求委托给它，首次合成必然段错误。
   改为初始化列表里的委托构造，并新增走 ONNX Runtime 真实加载路径的
   集成测试锁定（构造后能读到 manifest 与采样率）。
+
 - **`ssl_content` 零张量长度与上游不一致**：上游帧数来自 16 kHz 波形
   （HuBERT 步长 320 → 50 帧/秒），此前按 32 kHz 帧数除 320，长度多了一倍。
   长度参与 t2s_encoder 的注意力归一化，会稀释韵律注意力 ——
   这也是部分合成结果可懂度差的嫌疑来源之一。
   详见 docs/upstream-audit.md §11。
+
 - **CLI 线程超额订阅**：Engine 会创建 4-6 个 ORT 会话，每会话默认
   开满全部核心的线程池，多核机器上合计上百个自旋线程，高负载时段
   在 ORT 内部出现段错误/浮点异常。CLI 现在默认每会话 8 线程，
   新增 `--threads <n>` 可覆盖。
+
 - **`--seed` 的诚实化**：ONNX Runtime 没有公开图内采样器的种子接口，
   seed 一直以来就无法让结果可复现。CLI 帮助与 docs/usage.md 如实标注
   该限制，并新增 `--threads` 的文档；README 相应说法同步修正。
 
-## [0.1.0] - 2026-10-23
+## [v0.1.0] - 2026-10-23
 
 首个版本。完整 C++ 推理链路 + C ABI + CLI，不依赖 Python / PyTorch。
 

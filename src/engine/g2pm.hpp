@@ -69,6 +69,9 @@ private:
 
 public:
     /// 词级读音修正 —— 整段最长匹配近似（无 jieba 词边界时的降级路径）。
+    ///
+    /// 有 jieba 时前端按 jieba 词调用 word_reading()，走的是上游
+    /// correct_pronunciation 的同款路径（整词命中整体替换）。
     void correct_pronunciation(const std::vector<std::string>& chars,
                                std::vector<std::string>& pinyins) const override;
 

@@ -59,8 +59,11 @@ target_link_libraries(genie_unit_tests PRIVATE genie_test_support)
 target_compile_definitions(genie_unit_tests PRIVATE
     GENIE_NORMALIZER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden")
 # 变调/儿化的黄金语料（tools/verify_sandhi.py 生成）。
+# 两份：sandhi.json 是**无 jieba 的降级路径**，
+# sandhi_jieba.json 是**带 jieba 的生产路径**（音色包带 jieba 角色时走这条）。
 target_compile_definitions(genie_unit_tests PRIVATE
-    GENIE_SANDHI_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/sandhi.json")
+    GENIE_SANDHI_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/sandhi.json"
+    GENIE_SANDHI_JIEBA_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/sandhi_jieba.json")
 # 中英混读分块的黄金语料（tools/verify_language_split.py 生成）。
 target_compile_definitions(genie_unit_tests PRIVATE
     GENIE_HYBRID_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/golden/language_split.json")

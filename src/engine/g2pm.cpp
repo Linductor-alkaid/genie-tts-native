@@ -320,8 +320,10 @@ void Model::correct_pronunciation(const std::vector<std::string>& chars,
     if (pinyins.size() != chars.size() || poly_entries_.empty()) {
         return;
     }
-    // 上游 correct_pronunciation 的近似：整词命中整体替换（无 jieba，
-    // 用词表最长匹配近似词边界），未命中的字走单字兜底。
+    // 上游 correct_pronunciation 的**降级近似**：整词命中整体替换，
+    // 词边界用词表最长匹配近似（没有 jieba 词边界时的路径）。
+    // 有 jieba 时前端改走 word_reading()（按 jieba 词查表），
+    // 见 src/text/chinese_frontend.cpp 的 process_han_run。
     std::size_t i = 0;
     while (i < chars.size()) {
         const std::size_t max_len = std::min(poly_max_len_, chars.size() - i);

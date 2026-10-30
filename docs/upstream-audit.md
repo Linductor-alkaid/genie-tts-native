@@ -432,16 +432,16 @@ HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
 | 项 | 上游 | 本实现 | 影响 | 原因 |
 |---|---|---|---|---|
 | 多音字 | `g2pM`（kakaobrain 双向 LSTM，整句上下文判定） | **已实现**（2026-10-28，C++ 前向复刻，oracle 47/47 逐字一致，见 §9.7） | 模型自身的误判被忠实保留（如「行长在银行上班」里给银行读 xíng） | 模型仅 1.6 MB，`third_party/g2pm/g2pm.bin` 随仓库发布 |
-| 变调 | `ToneSandhi.py`（18KB 规则） | **已实现**（2026-10-28，词表近似，见 §9.6） | 与 jieba 词边界相关的少数差异（§9.6 量化） | — |
+| 变调 | `ToneSandhi.py`（18KB 规则） | **已实现**（2026-10-28；2026-10-30 接上 jieba 分词，见 §9.6） | jieba 路径韵母序列 42/44 一致；差异全部是 POS 依赖分支与 `cut_for_search` 切点（§9.6 逐条列出） | 无 POS 标注（jieba posseg 的 HMM 未移植） |
 | 儿化 | `Erhua.py` | **已实现**（2026-10-28，见 §9.6） | 同上 | — |
-| 词级读音修正 | `CorrectPronunciation.py`（polyphonic.pickle，4.5 万词） | **已实现**（2026-10-28，随 g2pm 容器携带，词边界用词表最长匹配近似，见 §9.7） | 长词表匹配可能命中 jieba 不会单独切分的子词（罕见，且词表条目本身是真词，方向为正向修正） | g2pM 的已知误判靠它兜底（「长大」「分行」类），缺了它模型反而不如单字表 |
+| 词级读音修正 | `CorrectPronunciation.py`（polyphonic.pickle，4.5 万词） | **已实现**（2026-10-28，随 g2pm 容器携带；词边界走 jieba 分词结果，见 §9.8，见 §9.7） | 缺 jieba 的音色包退回整段最长匹配近似（罕见，且词表条目本身是真词，方向为正向修正） | g2pM 的已知误判靠它兜底（「长大」「分行」类），缺了它模型反而不如单字表 |
 | 繁简转换 | `char_convert.py`（65KB 词表） | **已实现**（2026-10-27，10,737 组，见 §15） | 无（已对齐） | — |
 | 日期/时间/电话/量词 | `Normalization/` 的专门规则 | **已实现**（2026-10-27，见 §15） | 无（已对齐） | — |
 | jieba 分词 | `jieba_fast` + 词性标注 | **已实现**（2026-10-28，算法+词典直译，oracle 103/103，见 §9.8；POS HMM 待接入） | 分词边界与上游一致；POS 依赖的变调分支仍取默认行为（切片 B） | **勘误（2026-10-28）**：此前记载"上游 word2ph 按分词结果统计"有误 —— 上游 `ChineseG2P.g2p` 的 `word2ph` 同样是**逐字**统计（`zip(initials, finals)` 循环内逐字 append），jieba 影响的是 POS 变调分支、儿化词边界与词级读音修正，不影响 word2ph 粒度 |
 | 混读分块 | `split_language` 逐块 G2P + 逐块 RoBERTa | **已实现**（2026-10-28，见 §6.3；英文块 2026-10-29 起接入英文 G2P，见 §17） | 中文块获得完整 TextNormalizer；块边界阻断变调与上游一致 | — |
-| 英文 G2P | `nltk` + CMU 词典（3.5MB） | **未实现**（留成可插拔接口） | 英文不能合成；混读文本里的英文单词被静默丢弃 | 词典过大，不适合内嵌进端侧库 |
-| 日文 G2P | `pyopenjtalk-plus` | **未实现**（留成可插拔接口） | 日文不能合成 | 依赖 OpenJTalk 词典 |
-| 韩文 G2P | `jamo` + `ko_pron` | **未实现**（留成可插拔接口） | 韩文不能合成 | 同上 |
+| 英文 G2P | `nltk` + CMU 词典（3.5MB） | **已实现**（2026-10-29，规范化 + TweetTokenizer + CMU 词典 + POS 标注 + GRU 兜底，oracle 94/94，见 §17） | OOV 词缺 wordsegment 词典时直接交给 GRU（音色包可选角色 `english_word_segment`） | 词典与模型共 12 MB，随仓库发布于 `third_party/english/` |
+| 日文 G2P | `pyopenjtalk`（OpenJTalk） | **已实现**（2026-10-29，OpenJTalk 运行时内置 + 全上下文标签解析，oracle 124/124，见 §19） | 词典 103 MB 不入仓库，由音色包角色 `japanese_dictionary` 在运行时给出 | OpenJTalk 运行时源码内置（BSD），词典走音色包 |
+| 韩文 G2P | `jamo` + `ko_pron` + `g2pk2` | **已实现**（2026-10-29，g2pk2 全链路移植，oracle 53/53，见 §18） | mecab-ko 形态标注未移植（依赖标记的四条音变规则不触发） | 规则与数据全部内置，无需外部资源 |
 
 **可插拔接口**：`genie::text::TextFrontend`。使用者可以自己实现它，
 把更准的 G2P（或者把 g2pM 导出的结果）接进来。
@@ -454,20 +454,24 @@ HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
 - 生成脚本：`tools/g2p/generate_pinyin_table.py`（可复现）
 - 音素表摘要：`b381f96b…0b83a`，由 `tests/unit/test_pinyin.cpp` 锁死
 
-### 9.6 变调与儿化：ToneSandhi / Erhua 实装（2026-10-28）
+### 9.6 变调与儿化：ToneSandhi / Erhua 实装（2026-10-28；2026-10-30 按 jieba 实装重写）
 
 上游 `G2P/Chinese/ToneSandhi.py`（源头 PaddleSpeech，Apache-2.0）与
 `Erhua.py` 负责中文的"不/一"变调、三声连读、轻声和儿化。
 两者都作用在 **jieba 分词结果**（`(word, pos)` 流）上，基线 commit
-`d347fd0f`。本移植**不引入 jieba**：
+`d347fd0f`。本移植**已移植 jieba**（§9.8），所以词边界有两条路径：
+
+- **jieba 路径（生产）**：音色包带 `jieba` 角色时，前端按
+  `jieba::Tokenizer::cut` 的词边界切分 —— 与上游同源的统计分词。
+- **降级路径**：音色包不带 `jieba` 时退回"上游四张词表 ∪ 单字"的
+  贪心最长匹配。
+
+另外：
 
 - **词表**：内嵌上游四张词表（`must_neural_tone_words` 420 词、
   `must_not_neural_tone_words` 40 词、erhua 两张 8+44 词），
   由 `tools/g2p/generate_sandhi_tables.py` 生成
   （`src/text/sandhi_table.cpp`）。
-- **分词**：标点分段内贪心最长匹配（词表 ∪ 单字）。上游 `pre_merge`
-  本来就会按声调/叠词模式重新合并单元，所以**合并后的变调域边界
-  与上游 100% 一致**（oracle 实测，见下）。
 - **规则**：`_bu_sandhi` / `_yi_sandhi` / `_neural_sandhi` /
   `_three_sandhi` / `merge_erhua` 全分支照搬；POS 依赖分支按下表取默认。
 
@@ -475,7 +479,7 @@ HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
 
 | 分支 | 上游条件 | 本实现 | 已知误伤 |
 |---|---|---|---|
-| 叠词轻声 | POS ∈ {n, v, a} | 直接应用（must_not 表仍豁免） | "天天"类量词叠词被误轻声 |
+| 叠词轻声 | POS ∈ {n, v, a} | 直接应用（must_not 表仍豁免） | "慢慢"这类副词叠词被误轻声 |
 | 了/着/过轻声 | POS ∈ {ul, uz, ug} | 单字单元直接应用 | "过河"的 过 被误轻声 |
 | "们子/上下里/的地得"后缀 | POS ∈ {r,n}/{s,l,f}/(无) | 直接应用 | 单字"地"在"地下"类词里被误轻声（jieba 会把"地下"当一个词） |
 | "一 V 一 V"合并 | 两侧 POS = v | **不移植** | "想一想"的"一"读四声（上游轻声） |
@@ -487,19 +491,44 @@ HuggingFace 资源包 `GenieData/G2P/ChineseG2P/`）。
 （取自本项目拼音表，隔离 g2pM 差异），上游用 jieba 顶替
 jieba_fast 跑真分词：
 
-- 变调域边界（pre_merge 之后）：**44/44 一致**
-- 逐字韵母序列：**30/44 一致（68.2%）**；14 处差异全部落入上表
-  两类（POS 依赖分支 / jieba 词边界），典型："看不懂"的中缀"不"
-  （jieba 整词 → 轻声，我们按单字不变）、"地下/家里/上来/下去"
-  的后缀字（jieba 整词触发方位词轻声，我们的单字单元触发不到）。
+| 路径 | 变调域边界（pre_merge 之后）一致 | 逐字韵母序列一致 |
+|---|---|---|
+| jieba（生产） | **40/44 = 90.9%** | **42/44 = 95.5%** |
+| 降级（无 jieba） | 17/44 = 38.6% | 30/44 = 68.2% |
 
-**潜在缓解**（未做，属于与上游数据的补充，需要时再立项）：往分词
-词表里补一小批"单字后缀"复合词（地下/家里/上来/下去 等 jieba
-高频词）；或引入轻量 POS。g2pM 多音字与 `correct_pronunciation`
-（polyphonic.pickle 整词修正）仍不在范围内。
+（"降级路径"那一列是 2026-10-28 首次移植时测的数；当时工具脚本
+的边界比对是坏的 —— 它把词面**拼接**后再比，拼接结果恒等于原文，
+于是"44/44 一致"这个数其实是恒真的。2026-10-30 修好比对逻辑后
+重测，两条路径的数字如上表。）
 
-**黄金语料**：`tests/golden/sandhi.json`（44 段的处理单元与韵母），
-由 `tests/unit/test_tone_sandhi.cpp` 锁死；分支级单测 36 项。
+jieba 路径剩余 4 处边界差异与 2 处韵母差异，成因都已定位：
+
+- **边界差异（4 处）**：`jieba.posseg.lcut` 与 `jieba.lcut` 在少量
+  低频/OOV 词上的切分不同 —— posseg 走的是**带 POS 约束的 HMM**，
+  会把"里种着"合成一个词、把"那本新"切成"那 / 本新"。本移植的
+  jieba 对齐的是 `jieba.lcut`（`tools/g2p/verify_jieba.py` 逐词
+  103/103 一致，黄金语料 `tests/golden/jieba.json` 锁进 CI），
+  所以差异出在上游用了 posseg 这一侧，不是分词实现的错。
+- **韵母差异（2 处）**：
+  1. "洗脸水"——上游 `_split_word` 用 `jieba.cut_for_search` 取最短
+     子词定切点（2+1），本移植查词表（1+2），"洗"的声调因此不同；
+  2. "老板娘慢慢地走进了那家小饭馆儿"——"慢慢"在上游被标成 POS=d，
+     叠词轻声的条件是 POS ∈ {n, v, a}，所以上游不转轻声；本移植无
+     POS，直接转轻声。
+
+降级路径的 14 处韵母差异里，有 12 处由 jieba 直接消掉（"看不懂"
+的整词、"地下/家里/上来/下去"的后缀字等），剩下的 2 处与上面相同。
+
+**潜在缓解**（未做，属于与上游数据的补充，需要时再立项）：移植
+jieba 的 posseg HMM（约 5.5 MB 数据）以拿到 POS，消掉上表里最后
+一类差异；或往分词词表里补一小批"单字后缀"复合词。g2pM 多音字与
+`correct_pronunciation`（polyphonic.pickle 整词修正）见 §9.7。
+
+**黄金语料**：两份，都锁进 CI ——
+`tests/golden/sandhi.json`（降级路径，44 段的处理单元与韵母）与
+`tests/golden/sandhi_jieba.json`（jieba 生产路径）。
+两条路径的行为都要锁：缺 jieba 的音色包与带 jieba 的音色包都得稳定。
+分支级单测 36 项。
 
 
 ---
@@ -537,9 +566,18 @@ mozillazg 打包，Apache-2.0）：**单层双向 LSTM + 两层全连接**，权
 g2pM 输出之后、变调之前按词表修正（整词命中整体替换，否则逐字兜底）。
 本实现把词表打进 g2pm.bin 容器（v2，3.1 MB），`Polyphone` 接口新增
 `correct_pronunciation` 虚方法，前端在读音装配前调用 —— 与上游
-流水线位置一致。与上游的差异：上游按 jieba 词传入，本实现没有 jieba，
-词边界用**词表最长匹配**近似；偏差方向是可能命中 jieba 不会单独
-切分的子词（词表条目本身是真词，属正向修正，影响评估记录于 §9.4）。
+流水线位置一致。
+
+与上游的差异在**词边界的来源**：
+
+- 上游按 jieba 词传入修正层；
+- 本移植在音色包带 `jieba` 角色时同样按 jieba 词传入
+  （`word_reading()` 整词命中整体替换，未命中则逐字兜底
+  `char_reading()`）—— 与上游同款路径；
+- 音色包**不带** jieba 时拿不到词边界，退回**整段最长匹配**近似
+  （`correct_pronunciation()`，词表条目本身是真词，属正向修正；
+  影响评估记录于 §9.4）。
+
 单测锁定：`G2pmFrontend.UsesContextReadings`（银行/分行均读 háng）、
 `G2pmFrontend.CorrectsModelMisjudgments`（长大读 zhǎng）。
 
@@ -572,6 +610,14 @@ g2pM 输出之后、变调之前按词表修正（整词命中整体替换，否
 残留差异：jieba_fast 的**词性标注**（posseg 的 HMM POS，约 5.5 MB
 数据）未移植 —— 词典词的词性已随容器携带（dict.txt 第三列），OOV 词
 的 POS 与依赖 POS 的变调分支（一/量词、 moments 后缀等）留待切片 B。
+
+**posseg 与 cut 不是同一件事**（2026-10-30 实测）：上游调的是
+`jieba_fast.posseg.lcut`，posseg 走的是**带 POS 约束的 HMM**，与
+普通 `jieba.lcut` 的切分结果在少量低频/OOV 词上不同 —— 例如
+"里种着"（posseg 合成一个词 vs cut 切成"里种 / 着"）、"那本新"
+（posseg 切"那 / 本新" vs cut 切"那本 / 新"）。本移植对齐的是
+`jieba.lcut`（oracle 103/103 逐词一致）。这 4 处边界差异是 §9.6
+韵母比对里剩余差异的成因之一；移植 posseg 的 HMM 可以一并消掉。
 
 ## 10. T2S 自回归解码：逐行对齐的结果
 

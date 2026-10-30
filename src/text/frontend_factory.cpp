@@ -2,10 +2,12 @@
 //
 // 文本前端的工厂。
 //
-// 目前只内置了中文前端。英文 / 日文 / 韩文的上游实现分别依赖 nltk、
-// pyopenjtalk-plus、jamo —— 全是 Python 生态，且英语的 CMU 词典有 3.5MB，
-// 不适合内嵌进端侧库。这些语言留成可插拔接口：
-// 使用者自己实现 `TextFrontend` 接进来即可。
+// 内置中文前端；英文 / 日文 / 韩文前端也内置了（各带一套词典与
+// 模型资源，见 src/text/english、src/text/japanese、src/text/korean），
+// 但资源不随仓库发布 —— 由音色包角色给出（缺资源时明确报错，
+// 不静默回退到中文前端）。
+//
+// 需要自定义前端的使用者可以自己实现 `TextFrontend` 接进来。
 //
 // 差异记录在 docs/upstream-audit.md。
 

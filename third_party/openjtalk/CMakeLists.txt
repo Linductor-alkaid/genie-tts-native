@@ -15,7 +15,7 @@
 #   1. configure_file 的产物写到构建目录（不污染源码树 ✓）；
 #   2. 目标名加 _vendor 后缀，避免与系统库撞名 ✓；
 #   3. 不编译命令行工具（bin/）与词典编译器 ✓；
-#   4. 源文件显式列出（不��� aux_source_directory）——
+#   4. 源文件显式列出（不用 aux_source_directory）——
 #      mecab/src/mecab-dict-index.cpp 带全局 main()，
 #      链进可执行文件会抢走程序入口 ✓。
 #
