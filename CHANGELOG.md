@@ -41,6 +41,23 @@
   特征里全是 inf/NaN ✓，后面的断言会以"数值不对"的形式失败 ✓，
   根因却完全看不出来 ✓。现在空波形直接填 0 ✓。
 
+- **日文前端"只声明不装配"**：#28 把"缺词典静默回退"改成了明确报错 ✓，
+  但 engine 的日文前端成员一直只声明未赋值 ✗ —— 音色包即使带了
+  `japanese_dictionary`，`frontend_for(Japanese)` 仍返回 nullptr ✓，
+  日文从"合成静音"变成"报错但仍合成不了" ✓。现在加载期按
+  `ModelRole::JapaneseDictionary` 显式装配日文前端 ✓；
+  `make_voice_package.py` 同步把词典目录登记进 manifest（目录条目不带
+  sha256 ✓ —— engine 靠 manifest role 找词典路径 ✓，不登记的话包里有
+  词典也等于没有 ✓）。新增回归测试 `Engine.JapaneseWithDictionarySynthesizes`
+  （需 `GENIE_TEST_JAPANESE_DICT` 指向真实词典 ✓，缺失时 skip ✓）。
+
+- **`english_word_segment` 打包成死重**：`make_voice_package.py` 把 ngram
+  分词词典目录拷进包里 ✗，但没登记进 manifest ✗ —— engine 是靠
+  `has(EnglishWordSegment)` 这个 role 找它的 ✓，不登记则 OOV 分词器
+  永远不可用 ✓，英文遇到词典外词时**静默降级到 GRU 兜底** ✗，跳过
+  "ngram 分词再查词典"路径 ✓（§17）。现在目录条目同样登记进
+  manifest（不带 sha256 ✓）。
+
 ### Added
 
 - **日语 G2P 实装**：移植上游 `G2P/Japanese/JapaneseG2P.py` 的整条链路 ——

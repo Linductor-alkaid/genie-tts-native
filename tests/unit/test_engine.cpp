@@ -19,6 +19,7 @@
 #include <vector>
 
 #include <cmath>
+#include <cstdlib>
 #include "genie/audio.hpp"
 #include "genie/engine.hpp"
 
@@ -460,6 +461,56 @@ TEST(Engine, JapaneseWithoutDictionaryFailsLoudly) {
         EXPECT_NE(message.find("OpenJTalk"), std::string::npos) << message;
     }
     EXPECT_TRUE(threw) << "缺日文词典时应该明确报错，而不是静默合成静音";
+}
+
+TEST(Engine, JapaneseWithDictionarySynthesizes) {
+    // JapaneseWithoutDictionaryFailsLoudly 的正向对偶 ✓：音色包登记了
+    // japanese_dictionary（真实 OpenJTalk 词典 ✓，约 103 MB，不入库）时，
+    // 日文前端必须在**加载期**装配 ✓ —— 只声明 japanese_frontend 成员
+    // 而不装配的话 ✓，包里带了词典也照样报"缺词典"✓。
+    //
+    // 词典路径来自 GENIE_TEST_JAPANESE_DICT —— 没设或不存在时 skip
+    // （与 test_onnx_graph.cpp 的"模型缺失就 skip"同理）。
+    const char* dictionary_env = std::getenv("GENIE_TEST_JAPANESE_DICT");
+    if (dictionary_env == nullptr ||
+        !std::filesystem::exists(std::filesystem::path(dictionary_env) / "sys.dic")) {
+        GTEST_SKIP() << "未设置 GENIE_TEST_JAPANESE_DICT 或词典不存在，跳过真实 OpenJTalk 路径";
+    }
+
+    TempVoicePackage package;
+    // 与 make_voice_package.py 的 --japanese-dictionary 产物等价 ✓：
+    // 词典目录放进 models/ + manifest 登记 role（目录条目不带 sha256 ✓）。
+    std::filesystem::create_symlink(dictionary_env, std::filesystem::path(package.root()) /
+                                                        "models" / "open_jtalk_dic_utf_8-1.11");
+    {
+        std::ofstream manifest(std::filesystem::path(package.root()) / "manifest.json");
+        manifest << R"({
+  "name": "fake",
+  "format_version": 1,
+  "model_version": "v2",
+  "language": "chinese",
+  "sample_rate": 32000,
+  "models": [
+    {"role": "t2s_encoder", "file": "models/t2s_encoder.onnx"},
+    {"role": "t2s_first_stage_decoder", "file": "models/t2s_first_stage_decoder.onnx"},
+    {"role": "t2s_stage_decoder", "file": "models/t2s_stage_decoder.onnx"},
+    {"role": "vits", "file": "models/vits.onnx"},
+    {"role": "japanese_dictionary", "file": "models/open_jtalk_dic_utf_8-1.11"}
+  ]
+}
+)";
+    }
+
+    Engine engine(package.root(), fake_factory());
+    // "こんにちは"（假名 ✓）→ 检测为日文 ✓ → 日文前端（真实 OpenJTalk）。
+    const auto result =
+        engine.synthesize("\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1\xE3\x81\xAF");
+    EXPECT_EQ(result.language, Language::Japanese);
+    // 引擎给文本加"。"前缀（上游 tts() 的第一行 ✓）→ pau + 10 个音素 = 11，
+    // 与真实模型 CLI 实测一致 ✓。
+    EXPECT_EQ(result.phoneme_ids.size(), 11U);
+    EXPECT_FALSE(result.semantic_tokens.empty());
+    EXPECT_FALSE(result.audio.samples.empty());
 }
 
 TEST(FakeSession, HubertWithEmptyWaveDoesNotDivideByZero) {
