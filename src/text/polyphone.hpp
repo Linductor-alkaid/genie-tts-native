@@ -33,7 +33,7 @@ public:
     ///     由调用方回退到单字拼音表。
     [[nodiscard]] virtual std::vector<std::string> pinyins_of(std::string_view segment) const = 0;
 
-    /// 词级读音修正 —— 整段近似（无 jieba 词边界时的降级路径）。
+    /// 词级读音修正 —— 整段近似（拿不到 jieba 词边界时的降级路径）。
     ///
     /// 上游在 g2pM 输出之后、变调之前按词表修正读音（g2pM 有已知的
     /// 误判，上游用一张 4.5 万词的表兜底，如「长大→zhang3」「分行→

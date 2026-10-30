@@ -146,7 +146,9 @@ void set_tone(std::string& final_with_tone, char tone) {
 /// "三字词拆两半"的位置：最长的词表前缀（2 字），否则 1。
 ///
 /// 上游 TS._split_word 用 jieba.cut_for_search 取最短子词定切点；
-/// 我们没有 jieba，用词表近似（影响见 audit §9.6）。
+/// 我们没有 cut_for_search，用词表近似（影响见 audit §9.6）。
+/// 注：即使有 jieba，这条路径仍然只查词表 —— 上游那一步走的是
+/// jieba 的**搜索模式**切分，本移植没有实现。
 [[nodiscard]] std::size_t split_position_for_three(const Unit& unit) {
     if (in_lexicon(unit.chars[0] + unit.chars[1])) {
         return 2;

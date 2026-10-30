@@ -3,7 +3,7 @@
 // 中文文本前端：汉字 → 音素符号 → 符号 ID。
 //
 // 链路（与上游 ChineseG2P.g2p 逐步对应）：
-//   文本 → normalize() → 按汉字连续段分组 → 词表分词 → pre_merge
+//   文本 → normalize() → 按汉字连续段分组 → 分词 → pre_merge
 //        → 变调（ToneSandhi）→ 儿化（Erhua）→ 切分声母/韵母 → 音素符号
 //        → 按符号表过滤 → 符号 ID
 //
@@ -13,12 +13,19 @@
 //   → 每个中文块各自走一遍完整 normalize + 上述链路
 //   → 记录 BERT 分块（每块单独跑 RoBERTa，见 include/genie/text.hpp）
 //
-// 与上游的差异见 docs/upstream-audit.md §9.4 / §9.6，主要有四条：
-//   1. 多音字取最常用读音（上游用 g2pM 的上下文判定）
-//   2. 分词用上游词表的贪心最长匹配（上游用 jieba + POS），POS 依赖
-//      的变调分支取默认行为
-//   3. word2ph 按单字统计（上游按 jieba 分词结果统计）
-//   4. 混读路径的英文块丢弃（上游产出英文音素）
+// 与上游的差异见 docs/upstream-audit.md §9.4 / §9.6，主要有两条：
+//   1. 多音字：音色包带 g2pm 角色时走 g2pM 的整句上下文判定（与上游
+//      一致）；缺失时回退单字拼音表的最常用读音
+//   2. 分词已移植 jieba（上游用 jieba_fast.posseg.lcut）：词边界与上游
+//      同源，但**没有 POS 标注**，POS 依赖的变调分支取默认行为；
+//      音色包不带 jieba 时退回上游词表的贪心最长匹配
+//
+// word2ph 按单字统计 —— 与上游一致（上游 `ChineseG2P.g2p` 的 word2ph
+// 同样是逐字统计，jieba 影响的是变调边界、儿化与词级读音修正，
+// 见 docs/upstream-audit.md §9.4 的勘误记录）。
+//
+// 混读路径的英文块交给英文前端（上游 `english_to_phones`）——
+// 没有英文前端时整块丢弃（此时音色包也没带英文资源）。
 
 #include <cctype>
 #include <memory>

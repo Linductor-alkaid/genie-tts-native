@@ -9,13 +9,13 @@
 | 阶段 | 名称 | 核心交付 | 优先级 | 状态 |
 |---|---|---|---|---|
 | M0 | 上游审计与基线建立 | 模型结构、依赖清单、参考数据、性能基线 | P0 | 🚧 |
-| M1 | C++ Runtime 基础设施 | CMake、ONNX 封装、模型加载、张量管理 | P0 | 🚧 |
-| M2 | 文本与音频前处理迁移 | 文本规范化、G2P、参考音频特征处理 | P0 | 🚧 |
-| M3 | GPT-SoVITS 完整推理迁移 | 语义生成、声学合成、Vocoder、端到端输出 | P0 | ⏳ |
-| M4 | 正确性验证与原生 SDK | 一致性测试、C++ API、CLI、跨平台构建 | P0 | ⏳ |
+| M1 | C++ Runtime 基础设施 | CMake、ONNX 封装、模型加载、张量管理 | P0 | ✅ |
+| M2 | 文本与音频前处理迁移 | 文本规范化、G2P、参考音频特征处理 | P0 | ✅ |
+| M3 | GPT-SoVITS 完整推理迁移 | 语义生成、声学合成、Vocoder、端到端输出 | P0 | ✅ |
+| M4 | 正确性验证与原生 SDK | 一致性测试、C++ API、CLI、跨平台构建 | P0 | 🚧 |
 | M5 | CPU 推理性能优化 | 解码优化、线程调优、内存复用、量化 | P1 | ⏳ |
-| M6 | 低延迟流式 TTS | 增量生成、异步流水线、取消机制 | P1 | ⏳ |
-| M7 | 发布与工程化 | C ABI、安装包、文档、CI、性能报告 | P1 | ⏳ |
+| M6 | 低延迟流式 TTS | 增量生成、异步流水线、取消机制 | P1 | 🚧 |
+| M7 | 发布与工程化 | C ABI、安装包、文档、CI、性能报告 | P1 | 🚧 |
 
 **阶段边界**：M4 完成即形成第一个可用版本；M5–M6 完成后形成面向实时交互的优化版本。
 
@@ -35,13 +35,20 @@
 - ✅ 运行时依赖 vs 离线转换依赖的区分
 - ✅ MIT 许可证与第三方授权边界
 - ✅ ONNX Runtime 版本约束的记录（作为待复测信息，不永久钉死）
-- ⏳ 锁定上游 commit（作为可复现基线）
+- ✅ 锁定上游 commit（基线 `d347fd0f`，见 upstream-audit 各节）
 
 **M0.2 Golden Dataset**
 
-- ⏳ 语料构造：中文短句 / 长句、英文、中英混读、日文、韩文、特殊文本、边界输入
-- ⏳ 逐级参考输出：规范化文本 → 音素 → BERT 特征 → 语义 token → PCM
+- 🚧 语料构造：中文短句 / 长句、中英混读、英文、日文、韩文、特殊文本、边界输入
+  —— 文本层的语料与黄金语料已就位（normalizer / g2pM / jieba / sandhi /
+  english / korean / japanese / language_split，共 8 套 `tests/golden/*.json`）；
+  音频层（PCM 级）的黄金语料待补
+- 🚧 逐级参考输出：规范化文本 → 音素 → BERT 特征 → 语义 token → PCM
+  —— 前四级已逐级锁定，PCM 级待补（真实模型权重在 HuggingFace，
+  本环境不可达；需要能下载权重的环境补）
 - ⏳ 固定随机种子；非确定性环节用分阶段容差而非逐样本比对
+  —— 注意：采样在 ONNX 图内，主机侧没有采样器（upstream-audit §5），
+  `SynthesisOptions::seed` 是预留字段，确定性要等图内行为确认
 
 **M0.3 性能基线**
 
@@ -52,7 +59,7 @@
 
 **出口条件**：推理调用链、依赖清单、Golden Dataset、性能报告全部完成。
 
-### M1 C++ Runtime 基础设施 — 🚧
+### M1 C++ Runtime 基础设施 — ✅
 
 - ✅ 项目结构与 CMake 体系
 - ✅ ONNX Runtime 封装（RAII、SessionOptions、CPU EP、异常转换）
@@ -61,8 +68,10 @@
 - ✅ 模型包（voice package）加载与 manifest 校验
 - ✅ 多 Session 生命周期管理
 - ✅ 采样率 / 校验值校验
+- ✅ `find_package()` 支持与安装规则（`cmake/genieConfig.cmake.in`）
+- ✅ 静态库 / 共享库双形态（`genie_core` / `genie` / `genie_c`）
 
-### M2 文本与音频前处理迁移 — 🚧
+### M2 文本与音频前处理迁移 — ✅
 
 - ✅ 音频：WAV 编解码、重采样
 - ✅ 音素符号表（732 个符号，与上游逐字一致）
@@ -72,10 +81,11 @@
 - ✅ 音素 ID 映射
 - ✅ 日期 / 时间 / 电话 / 量词展开（对齐上游 `TextNormalizer`，见 upstream-audit §15）
 - ✅ 繁简转换
-- ✅ 变调（ToneSandhi）与儿化（Erhua）（词表近似，见 upstream-audit §9.6）
-- ⏳ 中文分词（`word2ph` 目前按单字统计）
+- ✅ 变调（ToneSandhi）与儿化（Erhua）（2026-10-30 接上 jieba 分词；
+  jieba 路径韵母序列 42/44 与上游一致，见 upstream-audit §9.6）
+- ✅ 中文分词（jieba 直译，oracle 103/103，见 upstream-audit §9.8）
 - ✅ 多音字 g2pM（2026-10-28：C++ 前向复刻，oracle 47/47，见 upstream-audit §9.7）
-- ✅ jieba 分词（2026-10-28：DAG/DP/HMM 直译，oracle 103/103，见 upstream-audit §9.8；POS HMM 待切片 B）
+- ✅ 词级读音修正（上游 `polyphonic.pickle` 4.5 万词，随 g2pm 容器携带）
 - ✅ 英文 G2P（2026-10-29：规范化 + TweetTokenizer + CMU 词典 + POS 标注 + GRU 兜底，
   oracle 94 句的三项逐条一致，见 upstream-audit §17）
 - ✅ 日文 G2P（2026-10-29：OpenJTalk 运行时内置 + 全上下文标签解析，
@@ -90,10 +100,12 @@
 > **本阶段是整个项目最大的工作量来源。** 计划书估计 1～3 周，
 > 实际很可能更久 —— 中文 `g2pM` 的多音字模型与韩文 `g2pk2` 都没有成熟的 C++ 等价物。
 >
-> 当前进度：中文主链路（符号表 → 规范化 → 拼音 → 音素 ID）已经打通，
-> 并用 `genie-tts g2p` 单独可查。剩下的偏差见 `docs/upstream-audit.md` §9.4。
+> 当前状态：四种语言的中文/英文/日文/韩文 G2P 全部落地，
+> 偏差逐条记录在 `docs/upstream-audit.md` §9.4。
+> 剩下的已知缺口是 **jieba 的 posseg HMM（POS 标注）** —— 它会决定最后
+> 一类变调差异（§9.6 的"叠词轻声"分支）。
 
-### M3 GPT-SoVITS 完整推理迁移 — 🚧
+### M3 GPT-SoVITS 完整推理迁移 — ✅
 
 - ✅ T2S 链路跑通（`tests/integration/`）
 - ✅ 自回归 token 生成、KV cache 递推（按名字绑定 + present→past 映射）
@@ -102,20 +114,25 @@
 - ✅ 目标 API：`genie::Engine::synthesize()` / `synthesize_streaming()`
 - ✅ 参考语义条件构建（参考音频的 phoneme / bert / ssl 特征）
 - ✅ 文本与音素条件编码（text_bert，见 upstream-audit §14）
-- ⏳ 随机数生成与确定性测试
 - ✅ V2ProPlus 适配（`prompt_encoder` / `ge` / `ge_advanced`，见 upstream-audit §12）
+- ✅ 采样器归属确认：采样在 ONNX 图内，主机侧没有采样器
+  （upstream-audit §5）；`SynthesisOptions::seed` 是预留字段，
+  确定性测试要等图内行为确认后才有意义
 
 ### M4 正确性验证与原生 SDK — 🚧
 
 - ✅ 四级测试体系（unit / component / integration / c）
 - ✅ C ABI 共享库（纯 C 头文件，C 编译器编译的测试守着）
-- ✅ `genie-tts` CLI（version / info / g2p / inspect / synth）
-- ⏳ 内存泄漏、模型重复加载、异常恢复、长文本稳定性、连续推理检查
+- ✅ `genie-tts` CLI（version / info / g2p / normalize / inspect / synth）
 - ✅ regression 层（Golden Dataset：模型 I/O 契约快照，见 `docs/regression.md`）
   - 锁住每个模型收到的全部输入（名字 / dtype / 形状 / 秩）
   - 立刻抓出了 `text_seq` / `ref_bert` / `text_bert` 三处**秩错**
-- ⏳ 跨平台构建（Linux x86-64 → Windows x86-64 → Linux ARM64）
-- ⏳ **v0.1.0 发布**
+- ✅ ASan / UBSan / TSan 常态化（CI 两个 job：`asan + ubsan` 与 `tsan`；
+  TSan 只在 CI 跑 —— 本地同时开 asan + tsan 会把 3 GB 的沙箱 OOM 掉）
+- ✅ 跨平台构建：Linux x86-64 ✅ / Windows x86-64 ✅（MSVC 默认不编 OpenJTalk）
+- ⏳ 跨平台构建：Linux ARM64（交叉编译 CI）
+- ⏳ 内存泄漏、模型重复加载、异常恢复、长文本稳定性、连续推理检查
+- ✅ **v0.1.0 / v0.2.0 发布**
 
 ### M5 CPU 端侧性能优化 — ⏳
 
@@ -129,28 +146,30 @@
 > ⚠️ **采样器优化不在此列** —— 采样在 ONNX 图内，主机侧无可优化对象。
 > 详见 [upstream-audit.md §5](upstream-audit.md)。
 
-### M6 低延迟流式 TTS — ⏳
+### M6 低延迟流式 TTS — 🚧
 
+- ✅ 异步合成流水线（`Engine::synthesize_streaming()`：任务跑在 kairo
+  调度器上，调用线程只消费音频通道）
+- ✅ 取消与抢占（`Engine::cancel_streaming()` + CancellationToken）
 - ⏳ 增量文本输入与分段
-- ⏳ 异步合成流水线
-- ⏳ 音频分块输出（PCM chunk 回调 / 阻塞读取）
-- ⏳ 取消与抢占（StopToken、请求 ID、取消状态）
+- ⏳ 音频分块输出（当前是整段音频一次性推入通道）
 - ⏳ 流式性能测试（TTFA、缓冲区欠载、分句静音、爆音、取消响应时间、并发延迟）
 
 > 调度与并发基础设施由 kairo 提供，见 [architecture.md §2.4](architecture.md)。
 
-### M7 发布与工程化 — ⏳
+### M7 发布与工程化 — 🚧
 
-- ⏳ 稳定 C++ SDK
-- ⏳ C ABI
-- ⏳ `find_package()` 支持
-- ⏳ 静态库 / 动态库构建
-- ⏳ Linux / Windows 构建完善
-- ⏳ ASan / UBSan / TSan 常态化
-- ⏳ 模型转换与模型包校验工具
-- ⏳ 部署、API、性能优化、故障排查文档
-- ⏳ CPU Benchmark 报告
-- ⏳ **v0.2.0 / v0.3.0 发布**
+- ✅ 稳定 C++ SDK（`genie::core` / `genie::genie`）
+- ✅ C ABI（`genie_c` 共享库，纯 C 头文件）
+- ✅ `find_package()` 支持
+- ✅ 静态库 / 动态库构建
+- ✅ Linux / Windows 构建（CI 各一个 job）
+- ✅ ASan / UBSan / TSan 常态化
+- ✅ 模型转换与模型包校验工具（`tools/deploy/`）
+- ✅ 部署与 API 文档（`docs/deployment.md`、`docs/usage.md`）
+- ⏳ 故障排查文档、性能优化文档
+- ⏳ CPU Benchmark 报告（bench 脚本待补）
+- 🚧 **v0.2.0 发布** ✅ → **v0.3.0 发布**（文档同步 + jieba 生产路径）
 
 ---
 

@@ -63,13 +63,18 @@ def run_dump(binary: str, runs: list[str]) -> list[dict]:
     return [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
 
 
-def flatten_units(units: list[dict]) -> tuple[str, list[str]]:
-    """单元列表 → (词面串, 逐字韵母列表)。"""
-    word = "".join(u["word"] for u in units)
+def flatten_units(units: list[dict]) -> tuple[list[str], list[str]]:
+    """单元列表 → (词面列表, 逐字韵母列表)。
+
+    词面**必须按词切开**返回：早先这里返回的是词面拼接结果，
+    而拼接后的串恒等于原文，于是"分词边界一致"这个指标永远为真
+    —— 边界差异一次都没被抓到。边界比对要看的是词切分本身。
+    """
+    words = [u["word"] for u in units]
     finals: list[str] = []
     for u in units:
         finals.extend(u["finals"])
-    return word, finals
+    return words, finals
 
 
 def upstream_units(tone, erhua, run: str, per_char_finals: list[str]) -> list[dict] | None:
@@ -121,6 +126,7 @@ def main() -> None:
     # 上游侧 + 比对。
     total = same_finals = same_words = skipped = 0
     examples: list[dict] = []
+    word_examples: list[dict] = []
     for run, our in zip(runs, ours):
         # 两侧喂**同一份变调前**的逐字韵母（finals_in）——比的是
         # 分词边界 + 变调/儿化逻辑，不是读音表。
@@ -133,11 +139,11 @@ def main() -> None:
         if their is None:
             skipped += 1
             continue
-        their_word, their_finals = flatten_units(their)
-        our_word, our_finals = flatten_units(our["units"])
+        their_words, their_finals = flatten_units(their)
+        our_words, our_finals = flatten_units(our["units"])
         total += 1
         finals_ok = their_finals == our_finals
-        words_ok = their_word == our_word
+        words_ok = their_words == our_words
         same_finals += finals_ok
         same_words += words_ok
         if not finals_ok and len(examples) < args.max_examples:
@@ -146,13 +152,23 @@ def main() -> None:
                 "ours": our_finals,
                 "upstream": their_finals,
             })
+        if not words_ok and len(word_examples) < args.max_examples:
+            word_examples.append({
+                "text": run,
+                "ours": our_words,
+                "upstream": their_words,
+            })
 
     print(f"段数：{len(runs)}（跳过 {skipped}：拼音表缺字）")
     if total:
         print(f"韵母序列一致：{same_finals}/{total} = {same_finals / total:.1%}")
         print(f"分词边界一致：{same_words}/{total} = {same_words / total:.1%}")
+    for ex in word_examples:
+        print(f"  边界差异 [{ex['text']}]")
+        print(f"    本项目: {' / '.join(ex['ours'])}")
+        print(f"    上游:   {' / '.join(ex['upstream'])}")
     for ex in examples:
-        print(f"  差异 [{ex['text']}]")
+        print(f"  韵母差异 [{ex['text']}]")
         print(f"    本项目: {' '.join(ex['ours'])}")
         print(f"    上游:   {' '.join(ex['upstream'])}")
 

@@ -16,10 +16,15 @@
 #include "genie/symbols.hpp"
 #include "genie/text.hpp"
 #include "genie/utf8.hpp"
+#include "text/jieba.hpp"
 #include "text/tone_sandhi.hpp"
 
 #ifndef GENIE_SANDHI_GOLDEN_FILE
 #define GENIE_SANDHI_GOLDEN_FILE "tests/golden/sandhi.json"
+#endif
+
+#ifndef GENIE_SANDHI_JIEBA_GOLDEN_FILE
+#define GENIE_SANDHI_JIEBA_GOLDEN_FILE "tests/golden/sandhi_jieba.json"
 #endif
 
 namespace genie::text {
@@ -392,6 +397,85 @@ TEST(SandhiGolden, CorpusMatchesLockedOutput) {
         const auto& obj = case_value.as_object();
         const auto& text = obj.at("text").as_string();
         const auto units = pipeline(chars_of(text));
+        ASSERT_EQ(units.size(), obj.at("units").as_array().size()) << text;
+        for (std::size_t i = 0; i < units.size(); ++i) {
+            const auto& expected = obj.at("units").as_array()[i].as_object();
+            EXPECT_EQ(units[i].word(), expected.at("word").as_string()) << text;
+            ASSERT_EQ(units[i].finals.size(), expected.at("finals").as_array().size()) << text;
+            for (std::size_t k = 0; k < units[i].finals.size(); ++k) {
+                EXPECT_EQ(units[i].finals[k], expected.at("finals").as_array()[k].as_string())
+                    << text << " unit " << i << " final " << k;
+            }
+        }
+        ++checked;
+    }
+    EXPECT_GT(checked, 30U) << "黄金语料不应缩水";
+}
+
+// ---------------------------------------------------------------------------
+// 黄金语料（jieba 路径）
+//
+// 音色包带了 jieba 角色时，前端走的是 jieba 分词 —— 那是**生产路径**，
+// 与上面那份"无 jieba 降级路径"的黄金语料不是同一条流水线。
+// 两条都要锁：降级路径保证缺 jieba 的音色包行为稳定，
+// jieba 路径保证带 jieba 的音色包行为稳定。
+// ---------------------------------------------------------------------------
+
+/// 与 chinese_frontend.cpp 的 process_han_run 一致：jieba 分词 →
+// 填韵母 → pre_merge → 变调 → 儿化。
+std::vector<sandhi::Unit> pipeline_with_jieba(const jieba::Tokenizer& tokenizer,
+                                              const std::vector<std::string>& chars) {
+    std::string run;
+    for (const auto& ch : chars) {
+        run += ch;
+    }
+    std::vector<sandhi::Unit> units;
+    for (const auto& word : tokenizer.cut(run)) {
+        sandhi::Unit unit;
+        std::size_t offset = 0;
+        utf8::Char ch;
+        while (utf8::decode_next(word.text, offset, ch)) {
+            unit.chars.emplace_back(word.text.substr(ch.offset, ch.length));
+        }
+        unit.finals.assign(unit.chars.size(), "");
+        units.push_back(std::move(unit));
+    }
+    if (units.empty()) {
+        units = sandhi::segment(chars);
+    }
+
+    std::size_t index = 0;
+    for (auto& unit : units) {
+        for (auto& final_with_tone : unit.finals) {
+            if (const auto pinyin = pinyin::lookup(chars[index]); pinyin) {
+                if (const auto syllable = pinyin::split(*pinyin); syllable.valid()) {
+                    final_with_tone = syllable.final_with_tone;
+                }
+            }
+            ++index;
+        }
+    }
+    sandhi::pre_merge_for_modify(units);
+    for (auto& unit : units) {
+        sandhi::modified_tone(unit);
+        sandhi::merge_erhua(unit);
+    }
+    return units;
+}
+
+TEST(SandhiGolden, JiebaCorpusMatchesLockedOutput) {
+    std::ifstream file(GENIE_SANDHI_JIEBA_GOLDEN_FILE);
+    ASSERT_TRUE(file.is_open()) << GENIE_SANDHI_JIEBA_GOLDEN_FILE;
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    const auto root = json::parse(content);
+
+    const auto tokenizer = jieba::Tokenizer::load(GENIE_JIEBA_MODEL_FILE);
+
+    std::size_t checked = 0;
+    for (const auto& case_value : root.as_object().at("cases").as_array()) {
+        const auto& obj = case_value.as_object();
+        const auto& text = obj.at("text").as_string();
+        const auto units = pipeline_with_jieba(tokenizer, chars_of(text));
         ASSERT_EQ(units.size(), obj.at("units").as_array().size()) << text;
         for (std::size_t i = 0; i < units.size(); ++i) {
             const auto& expected = obj.at("units").as_array()[i].as_object();

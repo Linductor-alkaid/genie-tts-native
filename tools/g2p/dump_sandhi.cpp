@@ -11,18 +11,34 @@
 // 流水线与 src/text/chinese_frontend.cpp 的 process_han_run 保持一致
 // （分词 → 填韵母 → pre_merge → modified_tone → merge_erhua）；
 // 改了前端记得同步这里。
+//
+// 分词源由环境变量 GENIE_JIEBA_MODEL 切换（jieba 模型容器路径）：
+//   未设置 → 词表贪心最长匹配（音色包不带 jieba 时的降级路径，
+//             tests/golden/sandhi.json 锁的就是这条）
+//   已设置 → jieba 统计分词（音色包带 jieba 时的生产路径）
 
+#include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "genie/json.hpp"
 #include "genie/pinyin.hpp"
 #include "genie/utf8.hpp"
+#include "text/jieba.hpp"
 #include "text/tone_sandhi.hpp"
 
 int main() {
     std::ios::sync_with_stdio(false);
+
+    // 可选的 jieba 模型：与前端 engine.cpp 的装配同源（音色包角色 jieba）。
+    std::unique_ptr<genie::text::jieba::Tokenizer> jieba;
+    if (const char* model = std::getenv("GENIE_JIEBA_MODEL"); model != nullptr && *model != '\0') {
+        jieba = std::make_unique<genie::text::jieba::Tokenizer>(
+            genie::text::jieba::Tokenizer::load(model));
+    }
+
     std::string line;
     while (std::getline(std::cin, line)) {
         if (line.empty()) {
@@ -36,7 +52,29 @@ int main() {
             chars.emplace_back(line.substr(ch.offset, ch.length));
         }
 
-        std::vector<genie::text::sandhi::Unit> units = genie::text::sandhi::segment(chars);
+        std::vector<genie::text::sandhi::Unit> units;
+        if (jieba) {
+            // 与前端 process_han_run 的 jieba 分支一致。
+            std::string run;
+            for (const auto& c : chars) {
+                run += c;
+            }
+            for (const auto& word : jieba->cut(run)) {
+                genie::text::sandhi::Unit unit;
+                std::size_t word_offset = 0;
+                genie::utf8::Char word_ch;
+                while (genie::utf8::decode_next(word.text, word_offset, word_ch)) {
+                    unit.chars.emplace_back(word.text.substr(word_ch.offset, word_ch.length));
+                }
+                unit.finals.assign(unit.chars.size(), "");
+                units.push_back(std::move(unit));
+            }
+            if (units.empty()) {
+                units = genie::text::sandhi::segment(chars);
+            }
+        } else {
+            units = genie::text::sandhi::segment(chars);
+        }
         {
             std::size_t index = 0;
             for (auto& unit : units) {

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 # C 语言是为了 C ABI 的测试：那个测试用 **C 编译器**编译，
 # 头文件里混进 C++ 语法的话会直接编译失败。
 project(genie_tts_native
-    VERSION 0.1.0
+    VERSION 0.3.0
     DESCRIPTION "Native C++20 inference engine for Genie-TTS (GPT-SoVITS V2 / V2ProPlus)"
     LANGUAGES CXX C
 )

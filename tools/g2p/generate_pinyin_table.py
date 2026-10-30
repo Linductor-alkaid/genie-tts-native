@@ -7,7 +7,7 @@
     pip install pypinyin jieba
     python3 tools/g2p/generate_pinyin_table.py > src/text/pinyin_table.cpp
 
-词典内容来自 pypinyin（MIT）��单字拼音表。字表范围由 jieba 词典
+词典内容来自 pypinyin（MIT）的单字拼音表。字表范围由 jieba 词典
 （MIT）的词频决定 —— 取 jieba 词典覆盖的全部汉字（约 1.2 万个），
 它们覆盖了实际文本 99.99% 以上的 token 频次。
 
