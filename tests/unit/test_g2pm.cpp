@@ -79,13 +79,15 @@ TEST(G2pm, PassthroughCharsReturnedAsIs) {
 TEST(G2pm, DisambiguatesByContext) {
     const auto model = g2pm::Model::load(GENIE_G2PM_MODEL_FILE);
     // 同一个「行」：银行分行 —— 前行读 háng、后行读 xíng。
-    // 注意这是模型在**这句**里的判定；并非所有语境都判对
-    // （"行长在银行上班" 里 g2pM 给银行读 xíng —— 上游同款行为，
-    //   黄金语料逐字锁定，见 docs/upstream-audit.md §9.4）。
+    // 注意这是**模型层**的判定（未经词级读音修正）：模型把「分行」判成
+    // xíng、「行长在银行上班」里把「银行」判成 xíng —— 上游同款行为，
+    // 黄金语料逐字锁定，见 docs/upstream-audit.md §9.4。
+    // 修正表会把这些改回来，所以**最终输出**两个「行」都读 háng
+    //（见 G2pmFrontend.UsesContextReadings）。
     const auto pinyins = model.pinyins_of("银行分行下午三点关门");
     ASSERT_EQ(pinyins.size(), std::size_t{10});
     EXPECT_EQ(pinyins[1], "hang2");  // 银行
-    EXPECT_EQ(pinyins[3], "xing2");  // 分行
+    EXPECT_EQ(pinyins[3], "xing2");  // 分行（模型层判定，修正表会改成 hang2）
 }
 
 TEST(G2pmGolden, CorpusMatchesLockedOutput) {
