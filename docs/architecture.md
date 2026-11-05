@@ -220,6 +220,29 @@ genie::symbols::master_v2()   →  732 个符号，顺序即 ID
 - **异常绝不穿过 ABI 边界**：所有入口 try/catch，C++ 异常转成 `genie_status`；
 - `tests/c/test_c_api.c` **用 C 编译器编译** —— 头文件里混进 C++ 语法会直接失败。
 
+### 2.10 性能计时：常开采集，随结果返回
+
+M0.3 要性能基线、M5 要子模型级耗时占比 —— 数据从哪来？决策是
+**计时埋点常开、没有开关**，报告作为数据随结果返回（`SynthesisResult.timing`、
+`Engine::load_timing()`），而不是走日志。
+
+- **为什么常开**：每个阶段只做两次 `steady_clock` 采样（纳秒级），相对秒级的
+  合成开销可以忽略。一个永远开着、没人需要关的开关，比一个要沿
+  `synthesize → decode → decode_loop` 整条链传递的布尔参数便宜 —— 后者
+  污染每一层签名，还制造"开了计时结果会不会不一样"的心理负担。
+- **为什么随结果返回而不是打日志**：库不引入日志依赖；怎么呈现由调用方决定
+  —— CLI 打表格（`synth --timing`）、`genie-bench` 算统计写基线
+  （`docs/performance.md`）、SDK 使用者直接编程消费。同一份数据三种用途。
+- **阶段边界选在编排层**（`synthesize_impl`）+ T2S 内部再拆一层（encoder /
+  first_stage / stage_decoder×N）：前者是架构分层的自然缝，后者是成本大头
+  且计数（迭代次数）只有 decode_loop 自己知道。不做到逐 ORT-Run 级别 ——
+  那是 ORT 内建 profiler 的活（M5.1）。
+- **流式路径自动覆盖**：`synthesize_streaming` 复用 `synthesize_impl`，
+  报告暂随 result 丢弃（通道只传音频）；M6 真分块时报告挂到最后一个分块上。
+- `T2SDecoder::decode/decode_loop` 的计时走可选出参（`TimingReport*`，
+  默认 nullptr）而不是全局单例：解码器声明"只持有配置、状态在栈上"，
+  全局可变状态会破坏这个承诺。
+
 ---
 
 ## 3. 推理链路与上游的对齐点

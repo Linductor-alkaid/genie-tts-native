@@ -52,10 +52,17 @@
 
 **M0.3 性能基线**
 
-- ⏳ 模型加载时间、冷/热启动延迟
-- ⏳ 首个可播放音频块生成时间、完整合成时间、RTF
-- ⏳ 各 ONNX 子模型耗时
-- ⏳ 峰值 RSS、CPU 利用率、线程数、内存分配次数
+- ✅ 模型加载时间、冷启动延迟 —— `Engine::load_timing()`（PR #32 采集端），
+  实测见 `docs/performance.md` 冷启动表（v2ProPlus 包 7.6 s，其中音色包
+  SHA-256 校验占一半）
+- ✅ 完整合成时间、RTF —— `genie-bench`（三档默认文本 × N 次统计 +
+  warmup 消抖）；首个可播放音频块时间 = 端到端（当前流式整段推送，
+  M6 真分块后单独测）
+- ✅ 各 ONNX 子模型耗时 —— 合成阶段表（`t2s/encoder`、`t2s/first_stage`、
+  `t2s/stage_decoder`×N、`vocoder`、`text_bert`）；实测 t2s 自回归占
+  74%–86%，每 token 15–24 ms 且随序列长度上升（KV cache 无复用）
+- ✅ 峰值 RSS、CPU 利用率（进程级均值）、线程数 —— genie-bench 输出；
+  ⏳ 内存分配次数（需 allocator hook，M5 前补）、CPU 利用率时间线采样
 
 **出口条件**：推理调用链、依赖清单、Golden Dataset、性能报告全部完成。
 
@@ -168,7 +175,8 @@
 - ✅ 模型转换与模型包校验工具（`tools/deploy/`）
 - ✅ 部署与 API 文档（`docs/deployment.md`、`docs/usage.md`）
 - ⏳ 故障排查文档、性能优化文档
-- ⏳ CPU Benchmark 报告（bench 脚本待补）
+- ✅ CPU Benchmark 工具与首份报告 —— `tools/bench/`（genie-bench）+
+  `docs/performance.md`（M0.3 基线；换硬件 / 换 ORT 重测后更新该文档）
 - 🚧 **v0.2.0 发布** ✅ → **v0.3.0 发布**（文档同步 + jieba 生产路径）
 
 ---

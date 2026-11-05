@@ -27,13 +27,13 @@
 
 | 里程碑 | 状态 |
 |---|---|
-| M0 上游审计与基线 | ✅ 推理链路、模型 I/O 契约、依赖清单已固化到 [`docs/upstream-audit.md`](docs/upstream-audit.md) |
+| M0 上游审计与基线 | ✅ 推理链路、模型 I/O 契约、依赖清单已固化到 [`docs/upstream-audit.md`](docs/upstream-audit.md)；性能基线已建立（[`docs/performance.md`](docs/performance.md)，`genie-bench` 采集） |
 | M1 C++ Runtime 基础设施 | ✅ CMake 体系、ONNX Runtime 封装、张量抽象、音色包、JSON / SHA-256 / UTF-8 自带实现 |
 | M2 文本与音频前处理 | ✅ 中 / 英 / 日 / 韩 四种语言的 G2P 全部落地（符号表逐字一致、拼音全量比对一致、TextNormalizer 规范化、jieba 分词、变调与儿化、多音字 g2pM 与词级读音修正、RoBERTa 韵律特征） |
 | M3 完整推理迁移 | ✅ T2S 自回归解码、VITS、端到端引擎、流式流水线、参考音频条件、V2ProPlus |
 | M4 原生 SDK | ✅ C++ SDK + C ABI 共享库 + CLI；Linux / Windows CI |
 | M6 回归层 | ✅ Golden Dataset（模型 I/O 契约快照）|
-| M5 性能优化 / M6 分块流式 / M7 工程化 | 🚧 性能基线、分块输出、ARM64 交叉编译、CPU Benchmark 报告 |
+| M5 性能优化 / M6 分块流式 / M7 工程化 | 🚧 分块输出、ARM64 交叉编译、故障排查文档（基线数据已就绪：t2s 自回归占 74%–86%、每 token 15–24 ms，见 [`docs/performance.md`](docs/performance.md)） |
 
 已发布版本：**v0.1.0**、**v0.2.0**、**v0.3.0**（当前）。
 

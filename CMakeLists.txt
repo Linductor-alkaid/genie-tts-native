@@ -21,6 +21,7 @@ endif()
 
 option(GENIE_BUILD_TESTS    "Build the test suite"              ON)
 option(GENIE_BUILD_CLI      "Build the genie-tts CLI"            ON)
+option(GENIE_BUILD_BENCH    "Build the genie-bench benchmark"    ON)
 option(GENIE_BUILD_SHARED   "Build shared libraries"             ON)
 option(GENIE_ENABLE_ORT     "Enable the ONNX Runtime backend"    ON)
 option(GENIE_ENABLE_KAIRO   "Enable the kairo scheduling layer"  ON)
