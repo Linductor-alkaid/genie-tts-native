@@ -247,6 +247,51 @@ TEST(Engine, SynthesizesEndToEnd) {
     EXPECT_EQ(result.language, Language::Chinese);
 }
 
+TEST(Engine, ReportsStageTiming) {
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory());
+
+    // 加载报告：构造期就有内容（voice_package + 四个模型 + reference）。
+    const auto& load_report = engine.load_timing();
+    EXPECT_FALSE(load_report.stages().empty());
+    EXPECT_GT(load_report.total_milliseconds(), 0.0);
+
+    const auto result = engine.synthesize("\xE4\xBD\xA0\xE5\xA5\xBD");
+    const auto& timing = result.timing;
+
+    const auto find = [&timing](const std::string& name) {
+        for (const auto& stage : timing.stages()) {
+            if (stage.name == name) {
+                return &stage;
+            }
+        }
+        return static_cast<const StageTiming*>(nullptr);
+    };
+
+    // 顺序阶段一个不缺；t2s 的三个子阶段也要在。
+    for (const char* name : {"language_detect", "frontend", "t2s", "t2s/encoder", "t2s/first_stage",
+                             "t2s/stage_decoder", "vocoder"}) {
+        EXPECT_NE(find(name), nullptr) << "missing stage: " << name;
+    }
+
+    // 这个包没有 RoBERTa 角色 —— text_bert 不应出现。
+    EXPECT_EQ(find("text_bert"), nullptr);
+
+    // 每个阶段都不超过端到端总时长；自回归循环至少跑了一步。
+    const double total = timing.total_milliseconds();
+    for (const auto& stage : timing.stages()) {
+        EXPECT_LE(stage.milliseconds, total) << "stage: " << stage.name;
+        EXPECT_GT(stage.count, 0U) << "stage: " << stage.name;
+    }
+    const auto* stage_decoder = find("t2s/stage_decoder");
+    ASSERT_NE(stage_decoder, nullptr);
+    EXPECT_GE(stage_decoder->count, 1U);
+
+    // 同一份报告的两种呈现都要有内容（CLI / 基准工具依赖）。
+    EXPECT_FALSE(timing.to_string().empty());
+    EXPECT_NE(timing.to_json().find("\"total_ms\""), std::string::npos);
+}
+
 TEST(Engine, PrependsUpstreamSentenceMark) {
     // 上游 `tts()` 第一行是 `text = '。' + text`。
     // 音素序列因此会比原文多出句号的音素。

@@ -31,6 +31,7 @@ set(GENIE_CORE_SOURCES
     runtime/session_factory.cpp
     runtime/symbols.cpp
     runtime/text.cpp
+    runtime/timing.cpp
     runtime/utf8.cpp
     audio/audio.cpp
     text/chinese_frontend.cpp

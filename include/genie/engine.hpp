@@ -34,6 +34,7 @@
 #include "genie/session.hpp"
 #include "genie/t2s.hpp"
 #include "genie/text.hpp"
+#include "genie/timing.hpp"
 #include "genie/voice_package.hpp"
 
 namespace genie {
@@ -56,6 +57,11 @@ struct SynthesisResult {
     std::vector<std::int64_t> semantic_tokens;
     /// 实际使用的语言。
     Language language = Language::Auto;
+    /// 各阶段耗时（M0.3 性能基线）。
+    ///
+    /// 计时常开：每阶段只做两次 steady_clock 采样，开销可忽略。
+    /// CLI / 基准工具据此打印阶段表，SDK 使用者可以直接编程消费。
+    TimingReport timing;
 };
 
 /// 合成引擎。
@@ -124,6 +130,12 @@ public:
 
     /// 采样率。
     [[nodiscard]] int sample_rate() const noexcept;
+
+    /// 引擎构造期（模型加载 / 参考特征 / 全局嵌入）的分阶段耗时。
+    ///
+    /// 这是 M0.3 里"冷启动"那一半的基线数据：构造一次引擎通常只发生
+    /// 一次，其大头（每个 ONNX 会话的初始化）值得单独看。
+    [[nodiscard]] const TimingReport& load_timing() const noexcept;
 
 private:
     struct Impl;

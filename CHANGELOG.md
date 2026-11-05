@@ -3,6 +3,28 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Added
+
+- **全链路分阶段计时**（M0.3 性能基线的采集端）：
+
+  - `SynthesisResult` 新增 `timing` 字段：一次合成的各阶段耗时
+    （language_detect / frontend / text_bert / t2s 及其三个子阶段
+    t2s_encoder、t2s_first_stage、t2s_stage_decoder×N / vocoder），
+    含端到端总时长。
+  - `Engine::load_timing()` 返回构造期的加载耗时
+    （音色包校验、每个 ONNX 会话、参考特征、全局嵌入）—— 冷启动基线。
+  - `T2SDecoder::decode()` / `decode_loop()` 增加可选的
+    `TimingReport*` 出参（默认 nullptr，不影响既有调用）。
+  - CLI `synth` 命令新增 `--timing` 旗标：把加载与合成两张阶段表打到
+    stderr。
+
+  计时**常开**、没有开关：每阶段只做两次 `steady_clock` 采样
+  （纳秒级），相对秒级的合成开销可以忽略。报告随结果返回而不是
+  打日志 —— 呈现方式由调用方决定（CLI 打表格、基准工具算统计、
+  SDK 使用者直接编程消费）。
+
 ## [v0.3.1] - 2026-10-31
 
 ### Fixed

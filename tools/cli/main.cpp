@@ -57,6 +57,7 @@ Options:
   --language <lang>    auto | chinese | english | japanese | korean | hybrid-chinese-english
   --seed <n>           Reserved (see note below)
   --threads <n>        ORT intra-op threads per session (default 8)
+  --timing             Print per-stage timing (model load + synthesis) to stderr
   -h, --help           Show this help
 
 Note on --seed: sampling (TopK / temperature) lives inside the ONNX graphs
@@ -75,6 +76,7 @@ struct Options {
     std::string english_dir;
     std::uint64_t seed = 0;
     int threads = 8;
+    bool timing = false;
     bool help = false;
 };
 
@@ -122,6 +124,8 @@ bool parse_options(int argc, char** argv, Options& options) {
                 return false;
             }
             options.threads = std::atoi(value.c_str());
+        } else if (arg == "--timing") {
+            options.timing = true;
         } else if (arg == "--english-dir") {
             // 注意：这几个分支必须在"未知选项"分支**之前** ✓ ——
             // 之前 --english-dir 排在了后面 ✓，于是永远走不到 ✓
@@ -392,6 +396,12 @@ int command_synth(const Options& options) {
               << result.audio.sample_rate << " Hz, " << result.audio.duration_seconds() << " s)\n";
     std::cout << "  phonemes: " << result.phoneme_ids.size() << "\n";
     std::cout << "  semantic tokens: " << result.semantic_tokens.size() << "\n";
+
+    if (options.timing) {
+        // 阶段表打 stderr：stdout 保持只输出结果行，机器可解析。
+        std::cerr << "\n[load]\n" << engine.load_timing().to_string();
+        std::cerr << "\n[synthesis]\n" << result.timing.to_string();
+    }
     return kExitOk;
 }
 
