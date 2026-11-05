@@ -39,6 +39,7 @@
 #include "genie/scheduler.hpp"
 #include "genie/session.hpp"
 #include "genie/tensor.hpp"
+#include "genie/timing.hpp"
 
 namespace genie {
 
@@ -78,11 +79,16 @@ public:
     /// @param encoder_feed encoder 的输入（ref_seq / text_seq / ref_bert /
     ///                    text_bert / ssl_content）
     /// @param cancelled    取消检查；非空时每次循环前检查一次
+    /// @param timing       非空时把三个子阶段（"t2s/encoder"、
+    ///                    "t2s/first_stage"、"t2s/stage_decoder"）的耗时记进去
+    ///                    —— t2s 是整条链路的成本大头，子阶段拆分是 M0.3
+    ///                    基线里最有价值的一段
     ///
     /// @throws genie::Error  模型输入输出不符合契约时
     std::vector<std::int64_t> decode(ModelSession& encoder, ModelSession& first_stage,
                                      ModelSession& stage, const TensorFeed& encoder_feed,
-                                     const CancellationToken* cancelled = nullptr) const;
+                                     const CancellationToken* cancelled = nullptr,
+                                     TimingReport* timing = nullptr) const;
 
     /// 只跑自回归循环（首阶段之后的部分）。
     ///
@@ -92,10 +98,13 @@ public:
     /// @param first_stage first_stage_decoder 会话（用于读输出名）
     /// @param stage       stage_decoder 会话
     /// @param first_stage_output 首阶段的输出（y / y_emb / present_*）
+    /// @param cancelled   取消检查；非空时每次循环前检查一次
+    /// @param timing      非空时记录 "t2s/stage_decoder"（count = 实际步数）
     /// @return 解码结果
     T2SResult decode_loop(ModelSession& first_stage, ModelSession& stage,
                           const std::vector<Tensor>& first_stage_output,
-                          const CancellationToken* cancelled = nullptr) const;
+                          const CancellationToken* cancelled = nullptr,
+                          TimingReport* timing = nullptr) const;
 
     [[nodiscard]] const T2SOptions& options() const noexcept { return options_; }
 

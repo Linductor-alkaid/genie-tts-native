@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "engine/stage_timer.hpp"
 #include "genie/errors.hpp"
 #include "genie/scheduler.hpp"
 
@@ -141,7 +142,12 @@ const Tensor* find_output(const std::vector<Tensor>& outputs, const std::vector<
 
 T2SResult T2SDecoder::decode_loop(ModelSession& first_stage, ModelSession& stage,
                                   const std::vector<Tensor>& first_stage_output,
-                                  const CancellationToken* cancelled) const {
+                                  const CancellationToken* cancelled, TimingReport* timing) const {
+    // 没要报告时落进本地哑变量 —— 保持"埋点常开、无开关"的单一形态，
+    // 不为计时写 if 分支。
+    TimingReport sink;
+    TimingReport& report = timing != nullptr ? *timing : sink;
+
     const auto& first_specs = first_stage.outputs();
     const auto& stage_specs = stage.outputs();
 
@@ -149,6 +155,10 @@ T2SResult T2SDecoder::decode_loop(ModelSession& first_stage, ModelSession& stage
 
     T2SResult result;
     bool stopped = false;
+
+    // 循环里每一次 stage.run 都记在同一个阶段名下（record 同名累加），
+    // count 在循环结束后按实际步数覆盖。
+    detail::ScopedStageTimer stage_timer(report, "t2s/stage_decoder");
 
     // 上游是 `for idx in range(0, 500)`：
     //   - 正常跑完时 idx 停在 499（**不是** 500）
@@ -162,6 +172,7 @@ T2SResult T2SDecoder::decode_loop(ModelSession& first_stage, ModelSession& stage
         ++executions;  // 这一次 run 算数
         if (cancelled != nullptr && cancelled->cancelled()) {
             // 上游遇到 stop_event 直接返回 None（放弃整次合成）。
+            stage_timer.set_count(static_cast<std::uint32_t>(executions - 1));
             result.semantic_tokens.clear();
             result.iterations = executions - 1;
             result.hit_limit = false;
@@ -186,6 +197,7 @@ T2SResult T2SDecoder::decode_loop(ModelSession& first_stage, ModelSession& stage
         idx = options_.max_iterations - 1;
     }
     result.iterations = executions;
+    stage_timer.set_count(static_cast<std::uint32_t>(result.iterations));
     result.hit_limit = !stopped && executions >= options_.max_iterations;
 
     // 上游：`y[0, -1] = 0` —— 把最后一个 token 置零。
@@ -216,9 +228,17 @@ T2SResult T2SDecoder::decode_loop(ModelSession& first_stage, ModelSession& stage
 
 std::vector<std::int64_t> T2SDecoder::decode(ModelSession& encoder, ModelSession& first_stage,
                                              ModelSession& stage, const TensorFeed& encoder_feed,
-                                             const CancellationToken* cancelled) const {
+                                             const CancellationToken* cancelled,
+                                             TimingReport* timing) const {
+    TimingReport sink;
+    TimingReport& report = timing != nullptr ? *timing : sink;
+
     // 1) Encoder：产出 x 与 prompts。
-    const auto encoder_outputs = encoder.run(encoder_feed);
+    std::vector<Tensor> encoder_outputs;
+    {
+        detail::ScopedStageTimer stage_timer(report, "t2s/encoder");
+        encoder_outputs = encoder.run(encoder_feed);
+    }
     const auto& encoder_specs = encoder.outputs();
     const auto* x = find_output(encoder_outputs, encoder_specs, "x");
     const auto* prompts = find_output(encoder_outputs, encoder_specs, "prompts");
@@ -230,10 +250,14 @@ std::vector<std::int64_t> T2SDecoder::decode(ModelSession& encoder, ModelSession
     TensorFeed first_feed;
     first_feed.emplace_back("x", *x);
     first_feed.emplace_back("prompts", *prompts);
-    const auto first_outputs = first_stage.run(first_feed);
+    std::vector<Tensor> first_outputs;
+    {
+        detail::ScopedStageTimer stage_timer(report, "t2s/first_stage");
+        first_outputs = first_stage.run(first_feed);
+    }
 
-    // 3) 自回归循环。
-    return decode_loop(first_stage, stage, first_outputs, cancelled).semantic_tokens;
+    // 3) 自回归循环（子阶段计时在 decode_loop 内部）。
+    return decode_loop(first_stage, stage, first_outputs, cancelled, &report).semantic_tokens;
 }
 
 }  // namespace genie

@@ -205,3 +205,37 @@ TEST_F(OrtBackendTest, EngineLoadsViaConfigConstructor) {
     EXPECT_EQ(engine.sample_rate(), 32000);
     EXPECT_EQ(engine.manifest().name, "synthetic-package");
 }
+
+TEST_F(OrtBackendTest, EngineRecordsLoadTiming) {
+    // 冷启动报告（M0.3 基线）：四个模型 + 音色包 + 参考条件都有条目；
+    // 可选角色（RoBERTa / HuBERT）没带就不应出现。
+    const TempPackage package;
+
+    Engine engine(package.root(), SessionConfig{});
+
+    const auto& report = engine.load_timing();
+    ASSERT_FALSE(report.stages().empty());
+    EXPECT_GT(report.total_milliseconds(), 0.0);
+
+    const auto has = [&report](const char* name) {
+        for (const auto& stage : report.stages()) {
+            if (stage.name == name) {
+                return true;
+            }
+        }
+        return false;
+    };
+    EXPECT_TRUE(has("load/voice_package"));
+    EXPECT_TRUE(has("load/t2s_encoder"));
+    EXPECT_TRUE(has("load/t2s_first_stage_decoder"));
+    EXPECT_TRUE(has("load/t2s_stage_decoder"));
+    EXPECT_TRUE(has("load/vits"));
+    EXPECT_TRUE(has("load/reference"));
+    EXPECT_FALSE(has("load/roberta"));
+    EXPECT_FALSE(has("load/chinese_hubert"));
+
+    // 每个已加载模型的条目耗时不得超过冷启动总时长。
+    for (const auto& stage : report.stages()) {
+        EXPECT_LE(stage.milliseconds, report.total_milliseconds()) << "stage: " << stage.name;
+    }
+}

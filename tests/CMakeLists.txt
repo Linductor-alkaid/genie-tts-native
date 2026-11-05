@@ -42,6 +42,7 @@ add_executable(genie_unit_tests
     unit/test_roberta.cpp
     unit/test_hubert.cpp
     unit/test_t2s.cpp
+    unit/test_timing.cpp
     unit/test_engine.cpp
     unit/test_reference.cpp
     unit/test_normalizer.cpp

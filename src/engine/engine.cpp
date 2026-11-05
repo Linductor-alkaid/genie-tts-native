@@ -16,6 +16,7 @@
 #include "engine/g2pm.hpp"
 #include "engine/hubert.hpp"
 #include "engine/roberta.hpp"
+#include "engine/stage_timer.hpp"
 #include "genie/errors.hpp"
 #include "genie/onnx_graph.hpp"
 #include "genie/reference.hpp"
@@ -175,6 +176,10 @@ struct Engine::Impl {
     /// 最近一次流式合成的任务 id。
     std::atomic<Scheduler::TaskId> streaming_task{0};
 
+    /// 构造期的分阶段耗时（模型加载 / 参考特征 / 全局嵌入），经
+    /// Engine::load_timing() 公开 —— 冷启动基线只采这一次。
+    TimingReport load_timing;
+
     /// 参考音频条件（来自音色包）。
     ///
     /// **形状必须显式给对** —— 形状错了模型不会报错，只会输出垃圾。
@@ -240,28 +245,35 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     auto impl = std::make_unique<Impl>();
     impl->root = std::move(root);
 
+    // 冷启动总时长与各阶段耗时都记进 impl->load_timing（M0.3 基线）。
+    const auto load_start = std::chrono::steady_clock::now();
+
     // 1) 音色包。
-    impl->package = VoicePackage::load(impl->root, /*verify_hash=*/true);
+    {
+        detail::ScopedStageTimer timer(impl->load_timing, "load/voice_package");
+        impl->package = VoicePackage::load(impl->root, /*verify_hash=*/true);
+    }
     impl->manifest = impl->package.manifest();
     impl->sample_rate = impl->manifest.sample_rate > 0 ? impl->manifest.sample_rate : 32000;
 
-    // 2) 模型会话。
-    const auto load = [&factory, &config](const std::string& path) {
-        auto session = factory(path, config);
+    // 2) 模型会话。每个会话的初始化是冷启动的大头，按角色单独计时。
+    const auto load = [&impl, &factory, &config](const ModelRole role, std::string stage) {
+        detail::ScopedStageTimer timer(impl->load_timing, std::move(stage));
+        auto session = factory(impl->package.model_path(role), config);
         if (!session) {
-            throw_error(ErrorCode::ModelLoadError,
-                        "session factory returned no session for: " + path);
+            throw_error(ErrorCode::ModelLoadError, "session factory returned no session for: " +
+                                                       impl->package.model_path(role));
         }
         return session;
     };
 
-    impl->encoder = load(impl->package.model_path(ModelRole::T2sEncoder));
-    impl->first_stage = load(impl->package.model_path(ModelRole::T2sFirstStageDecoder));
-    impl->stage = load(impl->package.model_path(ModelRole::T2sStageDecoder));
-    impl->vocoder = load(impl->package.model_path(ModelRole::Vits));
+    impl->encoder = load(ModelRole::T2sEncoder, "load/t2s_encoder");
+    impl->first_stage = load(ModelRole::T2sFirstStageDecoder, "load/t2s_first_stage_decoder");
+    impl->stage = load(ModelRole::T2sStageDecoder, "load/t2s_stage_decoder");
+    impl->vocoder = load(ModelRole::Vits, "load/vits");
 
     if (impl->v2proplus()) {
-        impl->prompt_encoder = load(impl->package.model_path(ModelRole::PromptEncoder));
+        impl->prompt_encoder = load(ModelRole::PromptEncoder, "load/prompt_encoder");
         // 说话人验证模型是 V2ProPlus 的**硬依赖**：
         // 上游的 update_global_emb() 只有在 SV 模型加载成功时才会算
         // global_emb；算不出来就没法喂 vits 的 ge / ge_advanced。
@@ -271,13 +283,14 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
                         "V2ProPlus 音色包缺少说话人验证模型（speaker_verification）—— "
                         "没有它算不出 ge / ge_advanced，V2ProPlus 分支不可用");
         }
-        impl->speaker_verifier = load(impl->package.model_path(ModelRole::SpeakerVerification));
+        impl->speaker_verifier = load(ModelRole::SpeakerVerification, "load/speaker_verification");
     }
 
     // 3) 文本前端。g2pM（多音字消歧）先于前端装配 —— 前端持有它做
     //    上下文读音判定；模型缺失时前端退化为单字最常用读音
     //    （与 RoBERTa / HuBERT 的可选降级同款模式）。
     if (impl->package.has(ModelRole::Jieba)) {
+        detail::ScopedStageTimer timer(impl->load_timing, "load/jieba");
         impl->jieba_ = std::make_unique<text::jieba::Tokenizer>(
             text::jieba::Tokenizer::load(impl->package.model_path(ModelRole::Jieba)));
     }
@@ -297,10 +310,12 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
             english_resources.word_segment_dir =
                 impl->package.model_path(ModelRole::EnglishWordSegment);
         }
+        detail::ScopedStageTimer timer(impl->load_timing, "load/english_frontend");
         impl->english_frontend = text::make_english_frontend(english_resources);
     }
 
     // 3.2) 韩文前端（不需要外部资源 ✓ —— 规则与数据都内置 ✓）。
+    //      纯内存构造，没有可测的加载成本，不计时。
     impl->korean_frontend = text::make_korean_frontend();
 
     // 3.3) 日文前端（OpenJTalk）：词典（约 103 MB ✓）由音色包给出 ✓ ——
@@ -309,6 +324,7 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     //      日文即使包里带了词典 ✓，也只会报"音色包缺少 OpenJTalk 词典"✓。
 #ifdef GENIE_HAVE_OPENJTALK
     if (impl->package.has(ModelRole::JapaneseDictionary)) {
+        detail::ScopedStageTimer timer(impl->load_timing, "load/japanese_frontend");
         text::JapaneseG2pResources japanese_resources;
         japanese_resources.dictionary_dir = impl->package.model_path(ModelRole::JapaneseDictionary);
         impl->japanese_frontend = text::make_japanese_frontend(japanese_resources);
@@ -316,6 +332,7 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
 #endif
 
     if (impl->package.has(ModelRole::G2pm)) {
+        detail::ScopedStageTimer timer(impl->load_timing, "load/g2pm");
         impl->g2pm_model = std::make_unique<g2pm::Model>(
             g2pm::Model::load(impl->package.model_path(ModelRole::G2pm)));
         impl->frontend = text::make_chinese_frontend(impl->g2pm_model.get(), impl->jieba_.get(),
@@ -329,15 +346,16 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     // 3.5) RoBERTa（中文韵律）：模型与分词器一起加载，二者缺一不可 ——
     // 分词器词表与模型必须配套，加载期就报清楚。
     if (impl->package.has(ModelRole::Roberta)) {
+        detail::ScopedStageTimer timer(impl->load_timing, "load/roberta");
         const auto model_path = impl->package.model_path(ModelRole::Roberta);
-        impl->roberta = load(model_path);
+        impl->roberta = load(ModelRole::Roberta, "load/roberta_session");
         const auto vocab_path = std::filesystem::path(model_path).parent_path() / "vocab.txt";
         impl->roberta_tokenizer = text::RobertaTokenizer::load(vocab_path.string());
     }
 
     // 3.6) HuBERT（参考音频内容特征）：缺失时 ssl_content 保持全零降级。
     if (impl->package.has(ModelRole::ChineseHubert)) {
-        impl->hubert = load(impl->package.model_path(ModelRole::ChineseHubert));
+        impl->hubert = load(ModelRole::ChineseHubert, "load/chinese_hubert");
     }
 
     // 4) 参考音频条件。
@@ -353,11 +371,15 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
                 " —— " + missing_frontend_hint(impl->manifest.language));
     }
     {
-        impl->reference = load_reference(impl->root, *reference_frontend, impl->sample_rate);
+        {
+            detail::ScopedStageTimer timer(impl->load_timing, "load/reference");
+            impl->reference = load_reference(impl->root, *reference_frontend, impl->sample_rate);
+        }
 
         // 参考音频的内容特征：有 HuBERT 就算真的，没有保持全零降级
         // （与上游 ReferenceAudio.__init__ 一致）。
         if (impl->hubert) {
+            detail::ScopedStageTimer timer(impl->load_timing, "load/reference_ssl");
             impl->reference.ssl = hubert::compute_ssl(*impl->hubert, impl->reference.audio_16k);
         }
 
@@ -371,6 +393,7 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
         // "RoBERTa 的 token 数与音素数对不上"而直接报错 ✓。
         if (impl->roberta_tokenizer && !impl->reference.text.empty() &&
             uses_chinese_bert(impl->manifest.language)) {
+            detail::ScopedStageTimer timer(impl->load_timing, "load/reference_bert");
             const auto sequence = impl->frontend->convert(impl->reference.text);
             if (!sequence.ids.empty()) {
                 impl->reference.bert = roberta::compute_text_bert(
@@ -384,8 +407,15 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     // 上游是在第一次推理时算（ReferenceAudio.update_global_emb 会缓存结果），
     // 这里提前到加载期 —— 形状不对的话早失败比合成出垃圾好。
     if (impl->prompt_encoder != nullptr) {
+        detail::ScopedStageTimer timer(impl->load_timing, "load/global_embeddings");
         impl->compute_global_embeddings();
     }
+
+    // 端到端总时长。它与各阶段之和的差 = manifest 校验、前端装配这些
+    // 未单独计时的开销 —— 这个差值本身也是 M0.3 要观测的对象。
+    impl->load_timing.set_total_ms(
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - load_start)
+            .count());
 
     impl_ = std::move(impl);
 }
@@ -414,6 +444,10 @@ int Engine::sample_rate() const noexcept {
     return impl_->sample_rate;
 }
 
+const TimingReport& Engine::load_timing() const noexcept {
+    return impl_->load_timing;
+}
+
 SynthesisResult Engine::synthesize(std::string_view text, const SynthesisOptions& options) {
     return synthesize_impl(text, options, nullptr);
 }
@@ -432,10 +466,19 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
             "no text frontend for language: " + language_to_string(impl_->manifest.language));
     }
 
+    // 各阶段耗时报告（M0.3 性能基线）。埋点常开 —— 每个阶段只做两次
+    // steady_clock 采样（纳秒级），相对秒级的合成开销可以忽略。
+    TimingReport report;
+    const auto synth_start = std::chrono::steady_clock::now();
+
     // 1) 语言与文本前端。
     //    纯英文文本走英文前端；中文 / 混读走中文前端（混读路径内部
     //    再按语言块分派）。
-    const auto language = detect_language(text, options.language);
+    Language language;
+    {
+        detail::ScopedStageTimer timer(report, "language_detect");
+        language = detect_language(text, options.language);
+    }
     const text::TextFrontend* frontend = impl_->frontend_for(language);
     if (frontend == nullptr) {
         // 以前这里是静默回退到中文前端 ✓ —— 后果是"别的语言没有对应资源"
@@ -445,7 +488,11 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
                         missing_frontend_hint(language));
     }
     const std::string prepared = std::string(kUpstreamTextPrefix) + std::string(text);
-    const auto phonemes = frontend->convert(prepared);
+    text::PhonemeSequence phonemes;
+    {
+        detail::ScopedStageTimer timer(report, "frontend");
+        phonemes = frontend->convert(prepared);
+    }
 
     SynthesisResult result;
     result.language = language;
@@ -471,6 +518,7 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     // "RoBERTa 的 token 行数与音素数对不上"而抛异常 ✓ ——
     // 上游 expand_by_word2ph 遇到对不上的布局也是直接 raise ✓。
     if (impl_->roberta_tokenizer && uses_chinese_bert(language)) {
+        detail::ScopedStageTimer timer(report, "text_bert");
         // 混读序列按语言块逐块编码（前端在 bert_chunks 里给出分块与对齐），
         // 单块（纯中文）路径用整段规范化文本 —— 两者与上游逐块 / 单块一致。
         const auto normalized = text::normalize(prepared, language);
@@ -487,13 +535,19 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     encoder_feed.emplace_back("ref_bert", reference.bert);
     encoder_feed.emplace_back("ssl_content", reference.ssl);
 
-    auto semantic = impl_->decoder.decode(*impl_->encoder, *impl_->first_stage, *impl_->stage,
-                                          encoder_feed, cancelled);
-    semantic = truncate_at_eos(std::move(semantic));
-    result.semantic_tokens = semantic;
+    // T2S 是链路的成本大头；decode() 内部还会把三个子阶段
+    // （encoder / first_stage / 自回归循环）记进同一份报告。
+    std::vector<std::int64_t> semantic;
+    {
+        detail::ScopedStageTimer timer(report, "t2s");
+        semantic = impl_->decoder.decode(*impl_->encoder, *impl_->first_stage, *impl_->stage,
+                                         encoder_feed, cancelled, &report);
+        semantic = truncate_at_eos(std::move(semantic));
+        result.semantic_tokens = semantic;
 
-    if (semantic.empty()) {
-        throw_error(ErrorCode::InvalidArgument, "t2s produced no semantic tokens");
+        if (semantic.empty()) {
+            throw_error(ErrorCode::InvalidArgument, "t2s produced no semantic tokens");
+        }
     }
 
     // 3) 声码器：语义 token → 波形。
@@ -511,7 +565,11 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
                                  reference.audio.samples));
     }
 
-    const auto audio = impl_->vocoder->run(vocoder_feed);
+    std::vector<Tensor> audio;
+    {
+        detail::ScopedStageTimer timer(report, "vocoder");
+        audio = impl_->vocoder->run(vocoder_feed);
+    }
     const auto* wave = find_output(audio, impl_->vocoder->outputs(), "audio");
     if (wave == nullptr) {
         throw_error(ErrorCode::InvalidArgument, "vocoder has no 'audio' output");
@@ -521,6 +579,11 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     result.audio.samples.assign(samples.begin(), samples.end());
     result.audio.sample_rate =
         options.output_sample_rate > 0 ? options.output_sample_rate : impl_->sample_rate;
+
+    report.set_total_ms(
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - synth_start)
+            .count());
+    result.timing = std::move(report);
     return result;
 }
 
@@ -545,6 +608,8 @@ std::shared_ptr<AudioChunkChannel> Engine::synthesize_streaming(std::string_view
         [target, owned_text, options, channel](const CancellationToken& token) {
             try {
                 const auto result = target->synthesize_impl(owned_text, options, &token);
+                // 各阶段耗时报告随 result 析构丢弃 —— 通道目前只传音频块。
+                // M6 真分块流式时，报告应挂在最后一个分块上交给消费者。
                 channel->try_push(result.audio);
             } catch (...) {
                 // 错误通过"通道提前关闭"传达给消费者。
