@@ -40,12 +40,18 @@ namespace genie::text {
 /// 再 `np.concatenate`），块与块之间没有跨块的注意力 —— 所以韵律特征
 /// 不能拿"把所有中文块拼成一段"的文本算一次，必须逐块编码、逐块展开。
 struct BertChunk {
-    /// 该块的文本（中文块是逐块规范化后的结果，喂给 RoBERTa tokenizer）。
+    /// 该块的文本（中文块是逐块规范化后的结果，喂给 RoBERTa tokenizer；
+    /// 零特征块不跑模型，文本只为诊断保留）。
     std::string text;
     /// 该块在 `PhonemeSequence::word2ph` 里的起始下标。
     std::size_t word_offset = 0;
     /// 该块占的 word2ph 条数；这些条目的和 = 该块的音素数。
     std::size_t word_count = 0;
+    /// **全零特征块**（混读里的英文块）：上游的英文路径不产 RoBERTa
+    /// 特征，逐块拼接时这些位置是全零行（upstream-audit §6.3）——
+    /// 但分块必须**占位**，否则块覆盖对不上序列长度。装配时直接填零，
+    /// 不跑模型。
+    bool zero_features = false;
 };
 
 /// 音素序列。
@@ -58,7 +64,8 @@ struct PhonemeSequence {
     /// 本实现按**单字**统计（没有分词），见 docs/upstream-audit.md。
     std::vector<std::int32_t> word2ph;
     /// 混读路径的 BERT 分块。各块的 [word_offset, word_offset+word_count)
-    /// 连续覆盖整个 word2ph。**空** = 单块路径：整段文本跑一次 RoBERTa
+    /// 连续覆盖整个 word2ph —— 包括英文块的零特征占位块（不占位的话
+    /// 块覆盖对不上序列长度）。**空** = 单块路径：整段文本跑一次 RoBERTa
     /// （纯中文走这条，与上游 'chinese' 模式一致）。
     std::vector<BertChunk> bert_chunks;
 

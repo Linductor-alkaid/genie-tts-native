@@ -295,7 +295,7 @@ public:
                     // 没有英文前端时丢弃（与旧版"过滤字母"的行为一致）。
                     if (english_ != nullptr) {
                         const auto english_sequence = english_->convert(chunk.content);
-                        const std::size_t offset = sequence.symbols.size();
+                        const std::size_t word_offset = sequence.word2ph.size();
                         sequence.symbols.insert(sequence.symbols.end(),
                                                 english_sequence.symbols.begin(),
                                                 english_sequence.symbols.end());
@@ -304,7 +304,16 @@ public:
                         sequence.word2ph.insert(sequence.word2ph.end(),
                                                 english_sequence.word2ph.begin(),
                                                 english_sequence.word2ph.end());
-                        (void)offset;
+                        if (sequence.word2ph.size() > word_offset) {
+                            // 英文块不产 RoBERTa 特征（audit §6.3：上游给
+                            // 全零行），但**必须进分块占位** —— 否则块的
+                            // word2ph 覆盖对不上序列长度。
+                            // 缺陷回归（2026-11-05）：英文 G2P 接入时漏了
+                            // 这一步，混读合成报 "bert chunks cover N phones"。
+                            sequence.bert_chunks.push_back(BertChunk{
+                                chunk.content, word_offset, sequence.word2ph.size() - word_offset,
+                                /*zero_features=*/true});
+                        }
                     }
                     continue;
                 }
