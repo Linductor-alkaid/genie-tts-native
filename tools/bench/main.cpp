@@ -21,8 +21,12 @@
 #include <vector>
 
 #ifdef _WIN32
-#include <psapi.h>
+// windows.h **必须**先于 psapi.h（后者依赖前者定义的 BOOL / DWORD）。
+// clang-format 会按字母序重排同一个 include 块（它曾把 psapi.h 排到
+// windows.h 前面，Windows CI 因此红过一次）—— 所以这里拆成两块。
 #include <windows.h>
+
+#include <psapi.h>
 #else
 #include <sys/resource.h>
 #endif
