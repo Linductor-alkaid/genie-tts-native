@@ -330,7 +330,19 @@ text_bert = np.concatenate(list_berts, axis=0)
 24/24 语料逐块一致，黄金语料 `tests/golden/language_split.json`）；
 前端对每个中文块单独走完整 TextNormalizer + G2P，RoBERTa 按块编码再拼接
 （`PhonemeSequence::bert_chunks` 携带分块与 word2ph 对齐）。
-英文块本实现暂且丢弃 —— 上游产出英文音素（见 §9.4 英文 G2P）。
+英文块 2026-10-29 起接入英文 G2P（§17）：产出英文音素，BERT 位置是
+**全零行占位块**（`BertChunk::zero_features`）—— 拼接覆盖全序列，
+与上游"英文块全零行 + 逐块 concatenate"语义一致。
+
+**缺陷记录（2026-11-05 修复）**：英文 G2P 接入时，英文块产出音素与
+word2ph 却**没有进 bert_chunks** —— 分块不再连续覆盖 word2ph，混读合成
+在 RoBERTa 装配处报 `bert chunks cover N phones, sequence has M`
+（英文块音素越多越早触发；基准工具首跑即撞上）。此前的单测拦不住它：
+测试里的混读前端没挂英文前端，英文块被整体丢弃，分块不变量恒真。
+修复：英文块进分块（零特征占位）+ RoBERTa 装配填零行；回归测试用
+**挂了英文前端**的混读前端锁定不变量（`HybridFrontend.
+EnglishChunkEntersBertChunksAsZero`、`RobertaChunked.
+ZeroFeatureChunkFillsZeroRows`）。
 
 ---
 

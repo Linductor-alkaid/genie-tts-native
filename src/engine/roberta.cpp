@@ -111,9 +111,18 @@ Tensor compute_text_bert(const text::RobertaTokenizer& tokenizer, ModelSession& 
             begin, begin + static_cast<std::ptrdiff_t>(chunk.word_count));
         const auto chunk_phones = static_cast<std::size_t>(
             std::accumulate(chunk_word2ph.begin(), chunk_word2ph.end(), std::int64_t{0}));
+        const auto chunk_bytes = chunk_phones * static_cast<std::size_t>(kDim);
+
+        if (chunk.zero_features) {
+            // 英文块：上游的英文路径不跑 RoBERTa，拼接时是全零行
+            //（upstream-audit §6.3）—— 占位块只填零，不推理。
+            rows.insert(rows.end(), chunk_bytes, 0.0F);
+            phone_total += chunk_phones;
+            continue;
+        }
+
         auto chunk_bert =
             compute_text_bert(tokenizer, model, chunk.text, chunk_word2ph, chunk_phones);
-        const auto chunk_bytes = chunk_phones * static_cast<std::size_t>(kDim);
         if (chunk_bert.floats().size() != chunk_bytes) {
             throw_error(ErrorCode::InferenceError, "roberta chunk produced wrong feature count");
         }

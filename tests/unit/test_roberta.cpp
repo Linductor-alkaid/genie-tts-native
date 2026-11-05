@@ -226,3 +226,47 @@ TEST(RobertaCompute, RejectsLayoutMismatchLoudly) {
     // 是 ValueError，这里必须是 Error，不能安静输出垃圾。
     EXPECT_THROW((roberta::compute_text_bert(*tokenizer, *session, "你好.", {2, 2, 1}, 6)), Error);
 }
+
+TEST(RobertaChunked, ZeroFeatureChunkFillsZeroRows) {
+    // 缺陷回归（2026-11-05）：混读的英文块此前不进 bert_chunks，块覆盖
+    // 小于序列长度 → 合成期报 "bert chunks cover N phones, sequence has M"
+    // （英文块音素越多越早触发）。上游（audit §6.3）：英文块不跑
+    // RoBERTa，拼接时是**全零行** —— 分块占位、装配填零。
+    const auto paths = find_golden();
+    if (!paths.has_value()) {
+        GTEST_SKIP() << "golden files not present under tests/golden/";
+    }
+    const auto tokenizer = text::RobertaTokenizer::load(paths->vocab.string());
+    auto session = FakeSession::roberta();
+
+    // 数据刻意用**单字**中文块（编码 [CLS]+字+[SEP] 共 3 行，去首尾
+    // 剩 1 行 == word2ph 条数）：多字块会撞上 expand_by_word2ph 的
+    // "行数 == 音素数 → 视作音素级"启发式，测不到目标路径。
+    // 音素 8 个：你(2) + hello(全零占位 4) + 世(2)；word2ph 3 条连续覆盖。
+    text::PhonemeSequence sequence;
+    sequence.ids.assign(8, 0);
+    sequence.word2ph = {2, 4, 2};
+    sequence.bert_chunks = {
+        {"你", 0, 1, false},
+        {"hello", 1, 1, true},
+        {"世", 2, 1, false},
+    };
+
+    const auto bert = roberta::compute_text_bert(*tokenizer, *session, sequence, "");
+    ASSERT_EQ(bert.rank(), 2);
+    EXPECT_EQ(bert.dim(0), 8);
+    EXPECT_EQ(bert.dim(1), kTestBertDim);
+    const auto& rows = bert.floats();
+    ASSERT_EQ(rows.size(), 8U * static_cast<std::size_t>(kTestBertDim));
+
+    // 英文块的 4 行全零。
+    constexpr std::size_t kDim = 1024;
+    for (std::size_t i = 2U * kDim; i < 6U * kDim; ++i) {
+        EXPECT_EQ(rows[i], 0.0F) << "index " << i;
+    }
+    // 中文块的行来自假 RoBERTa（首列 = token id，非零）。
+    const auto you_id = static_cast<float>(tokenizer->encode("你").ids[1]);
+    const auto shi_id = static_cast<float>(tokenizer->encode("世").ids[1]);
+    EXPECT_FLOAT_EQ(rows[0], you_id);
+    EXPECT_FLOAT_EQ(rows[6U * kDim], shi_id);
+}

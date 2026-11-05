@@ -8,12 +8,15 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "genie/json.hpp"
 #include "genie/text.hpp"
+#include "text/frontend_factory_internal.hpp"
 #include "text/language_split.hpp"
 
 #ifndef GENIE_HYBRID_GOLDEN_FILE
@@ -153,8 +156,9 @@ TEST(LanguageSplit, HasAsciiLetterMatchesUpstreamGate) {
 // ---------------------------------------------------------------------------
 
 TEST(HybridFrontend, EnglishDroppedChineseKept) {
-    // 英文块丢弃是**记录在案的偏差**（audit §9.4：还没有英文 G2P）；
-    // 中文块的音素必须原样保留。
+    // 裸前端（无英文资源）的降级路径：英文块整体丢弃 —— 与"音色包缺
+    // 英文词典"的生产降级一致；中文块的音素必须原样保留。
+    // （挂了英文前端的行为见 EnglishChunkEntersBertChunksAsZero。）
     //
     // 注意比对方式：块边界同时也是**变调的边界**（上游逐块调
     // chinese_to_phones，块间不做三声连读）—— 所以这里必须与
@@ -207,6 +211,73 @@ TEST(HybridFrontend, ChunkWithoutPhonesIsSkipped) {
     EXPECT_EQ(hybrid.word2ph_size, std::size_t{0});
 }
 
+/// 挂了**英文前端**的混读前端。
+///
+/// 缺陷回归的必要条件：上面的 convert_hybrid 走裸前端（没有英文
+/// 资源），英文块被整体丢弃 —— 无音素、无 word2ph，分块不变量恒真，
+/// 拦不住"英文块不进分块"这个缺陷。真实音色包带英文词典，英文块
+/// 产出音素与 word2ph，覆盖缺口只有这条路径能暴露。
+/// 返回 nullopt = 英文资源缺失（调用方据此 GTEST_SKIP，不许依赖网络）。
+std::optional<HybridResult> try_convert_hybrid_with_english(const std::string& text) {
+    text::EnglishG2pResources resources;
+    resources.cmu_dict = GENIE_ENGLISH_CMU_DICT;
+    resources.pos_tagger = GENIE_ENGLISH_POS_TAGGER;
+    resources.g2p_model = GENIE_ENGLISH_G2P_MODEL;
+    for (const std::string* path :
+         {&resources.cmu_dict, &resources.pos_tagger, &resources.g2p_model}) {
+        if (!std::filesystem::exists(*path)) {
+            return std::nullopt;
+        }
+    }
+    // 与引擎同款装配（engine.cpp 的 make_chinese_frontend 直连）：
+    // 公开的 make_frontend(Hybrid, resources) 目前不接英文资源 ——
+    // 见下方测试的对照断言与 PR 说明。
+    const auto english = make_english_frontend(resources);
+    if (english == nullptr) {
+        return std::nullopt;
+    }
+    const auto frontend = make_chinese_frontend(nullptr, nullptr, english.get());
+    const auto sequence = frontend->convert(text);
+
+    HybridResult result;
+    for (const auto& symbol : sequence.symbols) {
+        if (!result.symbols.empty()) {
+            result.symbols += ' ';
+        }
+        result.symbols += symbol;
+    }
+    result.chunks = sequence.bert_chunks;
+    result.word2ph_size = sequence.word2ph.size();
+    return result;
+}
+
+TEST(HybridFrontend, EnglishChunkEntersBertChunksAsZero) {
+    // 缺陷回归（2026-11-05）：英文 G2P 接入后，英文块产出音素与
+    // word2ph 却**没有进 bert_chunks** —— 分块不再连续覆盖 word2ph，
+    // 混读合成在 RoBERTa 装配处报 "bert chunks cover N phones,
+    // sequence has M"。
+    //
+    // 上游语义（audit §6.3）：英文块不跑 RoBERTa，拼接时是**全零行**，
+    // 但必须占位 —— 块覆盖 == 序列长度。
+    const auto maybe_hybrid = try_convert_hybrid_with_english("你好hello世界");
+    if (!maybe_hybrid.has_value()) {
+        GTEST_SKIP() << "english resources not present";
+    }
+    const auto& hybrid = *maybe_hybrid;
+    ASSERT_FALSE(hybrid.symbols.empty());
+    ASSERT_EQ(hybrid.chunks.size(), std::size_t{3});
+    expect_chunks_partition(hybrid, "英文块占位");
+
+    // 中间那块是英文：零特征标记，word2ph 覆盖英文音素。
+    ASSERT_EQ(hybrid.chunks[1].text, "hello");
+    EXPECT_TRUE(hybrid.chunks[1].zero_features);
+    EXPECT_EQ(hybrid.chunks[1].word_offset, hybrid.chunks[0].word_count);
+    EXPECT_GT(hybrid.chunks[1].word_count, std::size_t{0});
+
+    // 与裸前端（英文被整体丢弃）对照：英文音素真的进了序列。
+    EXPECT_NE(hybrid.symbols, convert_hybrid("你好hello世界").symbols);
+}
+
 // ---------------------------------------------------------------------------
 // 黄金语料（tools/verify_language_split.py 以上游正则逻辑为参照生成）
 // ---------------------------------------------------------------------------
@@ -236,8 +307,9 @@ TEST(HybridGolden, CorpusMatchesLockedOutput) {
                 << text << " chunk " << i;
         }
 
-        // 2) 前端的 BERT 分块 == 其中文块（英文块丢弃是记录在案的偏差），
-        //    且各块连续覆盖 word2ph。
+        // 2) 前端的 BERT 分块 == 其中文块（黄金语料生成时英文块尚被
+        //    丢弃；挂英文前端时英文块是零特征占位块，见
+        //    EnglishChunkEntersBertChunksAsZero），且各块连续覆盖 word2ph。
         const auto result = convert_hybrid(text);
         expect_chunks_partition(result, text);
         const auto& expected_bert = obj.at("bert_chunks").as_array();
