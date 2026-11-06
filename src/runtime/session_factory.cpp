@@ -6,6 +6,7 @@
 #include "genie/session.hpp"
 
 #include "genie/errors.hpp"
+#include "genie/version.hpp"
 
 #if !defined(GENIE_HAVE_ONNXRUNTIME)
 
@@ -22,6 +23,11 @@ std::unique_ptr<ModelSession> create_session(const std::string& model_path,
 
 bool has_onnxruntime_backend() noexcept {
     return false;
+}
+
+const char* onnxruntime_version_string() noexcept {
+    // 与 ort_backend.cpp 的真实现同名配对 —— 两种构建都必须能链接。
+    return "";
 }
 
 }  // namespace genie

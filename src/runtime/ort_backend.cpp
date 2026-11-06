@@ -243,6 +243,10 @@ private:
 
 }  // namespace
 
+const char* onnxruntime_version_string() noexcept {
+    return OrtGetApiBase()->GetVersionString();
+}
+
 std::unique_ptr<ModelSession> create_session(const std::string& model_path,
                                              const SessionConfig& config) {
     return std::make_unique<OrtModelSession>(model_path, config);
