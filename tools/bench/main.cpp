@@ -8,9 +8,14 @@
 //
 // 计时数据全部来自埋点（SynthesisResult.timing / Engine::load_timing），
 // 本工具只做采样与统计，不自己插桩。
+//
+// JSON 输出自包含采集环境（ORT 版本 / OS / CPU 型号）、每 run 原始样本
+// 与解码步数：采样在 ONNX 图内完成、不可复现，每次运行的语义 token 数
+// 都不同，跨版本对比必须按 ms/token 归一（docs/performance.md）。
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -29,6 +34,7 @@
 #include <psapi.h>
 #else
 #include <sys/resource.h>
+#include <sys/utsname.h>
 #endif
 
 #include "genie/config.hpp"
@@ -47,9 +53,9 @@ constexpr int kExitUsage = 2;
 // 内置样例文本：短 / 中 / 长三档，覆盖"调用开销为主"与"解码长度为主"
 // 两种工况。--text 可覆盖（可重复传入，逐条独立测量）。
 //
-// 默认样例刻意保持**纯中文**：混读（拉丁字母相邻中文）目前会触发
-// bert_chunks 与音素序列对不上的缺陷（见 docs/performance.md 已知问题），
-// 基准工具的默认路径必须是绿的。
+// 默认样例保持**纯中文**是为了与既有基线（docs/performance.md）可比。
+// 混读链路的缺陷已修复（#34），需要时用
+// `--language hybrid-chinese-english --text ...` 单独测混读工况。
 // ------------------------------------------------------------------------------------------
 const std::vector<std::string> kDefaultTexts = {
     "今天天气真不错。",
@@ -73,6 +79,11 @@ Options:
   --runs <n>        Measured runs per text (default 5)
   --json <file>     Also write the aggregate as JSON to this path
   -h, --help        Show this help
+
+Notes:
+  The JSON includes the collection environment (ORT version / OS / CPU),
+  per-run samples and decode iterations. Per-text failures do not change
+  the exit code — check the "errors" count and "error" fields.
 )";
 }
 
@@ -200,6 +211,53 @@ double process_cpu_seconds() {
 }
 
 // ------------------------------------------------------------------------------------------
+// 环境元数据。基准数字只在同代硬件 + 同 ORT 版本上可比（docs/performance.md
+// 开头的告诫），所以 JSON 记录必须自包含采集环境。读不到的字段写
+// "unknown" —— 工具必须在所有 CI 平台上可编译、可运行。
+// ------------------------------------------------------------------------------------------
+
+/// OS 与内核标识（如 "Linux 6.8.0-124-generic x86_64"）。
+std::string os_identifier() {
+#if defined(_WIN32)
+    // Windows 没有轻量可移植的版本查询（GetVersionEx 已废弃），先只写平台名。
+    return "Windows";
+#else
+    utsname info{};
+    if (uname(&info) != 0) {
+        return "unknown";
+    }
+    return std::string(info.sysname) + " " + info.release + " " + info.machine;
+#endif
+}
+
+/// CPU 型号（如 "13th Gen Intel(R) Core(TM) i9-13900KF"）。
+///
+/// 只实现了 Linux 的 /proc/cpuinfo 解析。bench 不在 Windows CI 里跑，
+/// 真要采 Windows 基线时再补 cpuid brand string，不为它提前写平台分支。
+std::string cpu_model() {
+#if !defined(_WIN32)
+    std::ifstream cpuinfo("/proc/cpuinfo");
+    std::string line;
+    while (std::getline(cpuinfo, line)) {
+        if (line.rfind("model name", 0) != 0) {
+            continue;
+        }
+        const auto sep = line.find(':');
+        if (sep == std::string::npos) {
+            continue;
+        }
+        const std::string value = line.substr(sep + 1);
+        const auto first = value.find_first_not_of(" \t");
+        const auto last = value.find_last_not_of(" \t\r\n");
+        if (first != std::string::npos) {
+            return value.substr(first, last - first + 1);
+        }
+    }
+#endif
+    return "unknown";
+}
+
+// ------------------------------------------------------------------------------------------
 // 统计与格式化。
 // ------------------------------------------------------------------------------------------
 
@@ -257,22 +315,53 @@ std::string json_escape(const std::string& text) {
     return out;
 }
 
+/// 单次运行的原始样本。
+///
+/// 汇总统计会抹掉分布信息，而对比优化前后恰恰要看分布（方差、离群
+/// run）。iterations 尤其关键：采样在 ONNX 图内、不可复现，每次运行
+/// 的语义 token 数都不同，总耗时里混着生成长度的随机波动 —— 不记录
+/// 步数就无法按 ms/token 归一，跨版本对比无从谈起。
+struct RunSample {
+    double wall_ms = 0.0;
+    double rtf = 0.0;
+    double cpu_cores = -1.0;  // (user+sys) / wall；不可用时为负
+    /// t2s/stage_decoder 的解码步数（== 最终语义 token 数）。
+    std::uint32_t iterations = 0;
+    /// 本次运行各阶段毫秒数（按阶段首见顺序）。
+    std::vector<std::pair<std::string, double>> stage_ms;
+};
+
 /// 一条文本的聚合结果：每个阶段一组采样（按首次出现顺序），加上
-/// RTF / 墙钟 / 音频时长 / CPU 核占用四条运行级指标。
+/// 一组运行级原始样本。
 struct TextAggregate {
     std::string text;
     /// 阶段名 → 各次运行的毫秒数。用 vector 保持首见顺序（map 会按字典序打乱，
     /// 与 CLI --timing 的阶段顺序不一致）。
     std::vector<std::pair<std::string, std::vector<double>>> stages;
-    std::vector<double> rtf;           // 合成墙钟 / 音频时长（越低越好）
-    std::vector<double> wall_seconds;  // 调用级墙钟（比 timing.total 多一层调用开销）
     std::vector<double> audio_seconds;
-    std::vector<double> cpu_cores;  // (user+sys) / wall；不可用时为负
-    std::string error;              // 非空表示这条文本合成失败
+    std::vector<RunSample> samples;
+    std::string error;  // 非空表示这条文本合成失败
 };
+
+/// 抽取样本的某个数值字段，喂给 stats_of。
+template <typename Member>
+std::vector<double> sample_values(const std::vector<RunSample>& samples, Member member) {
+    std::vector<double> values;
+    values.reserve(samples.size());
+    for (const auto& sample : samples) {
+        values.push_back(static_cast<double>(sample.*member));
+    }
+    return values;
+}
 
 void collect_run(TextAggregate& aggregate, const genie::SynthesisResult& result,
                  const double wall_seconds, const double cpu_seconds) {
+    RunSample sample;
+    sample.wall_ms = wall_seconds * 1000.0;
+    const double audio = result.audio.duration_seconds();
+    sample.rtf = audio > 0.0 ? wall_seconds / audio : 0.0;
+    sample.cpu_cores = wall_seconds > 0.0 && cpu_seconds >= 0.0 ? cpu_seconds / wall_seconds : -1.0;
+
     for (const auto& stage : result.timing.stages()) {
         bool found = false;
         for (auto& entry : aggregate.stages) {
@@ -285,13 +374,13 @@ void collect_run(TextAggregate& aggregate, const genie::SynthesisResult& result,
         if (!found) {
             aggregate.stages.emplace_back(stage.name, std::vector<double>{stage.milliseconds});
         }
+        sample.stage_ms.emplace_back(stage.name, stage.milliseconds);
+        if (stage.name == "t2s/stage_decoder") {
+            sample.iterations = stage.count;
+        }
     }
-    const double audio = result.audio.duration_seconds();
-    aggregate.wall_seconds.push_back(wall_seconds);
     aggregate.audio_seconds.push_back(audio);
-    aggregate.rtf.push_back(audio > 0.0 ? wall_seconds / audio : 0.0);
-    aggregate.cpu_cores.push_back(
-        wall_seconds > 0.0 && cpu_seconds >= 0.0 ? cpu_seconds / wall_seconds : -1.0);
+    aggregate.samples.push_back(std::move(sample));
 }
 
 void print_aggregate(const TextAggregate& aggregate, const Options& options) {
@@ -309,22 +398,40 @@ void print_aggregate(const TextAggregate& aggregate, const Options& options) {
         std::cout << line;
     }
 
-    const Stats wall_stats = stats_of(aggregate.wall_seconds);
+    const Stats wall_stats = stats_of(sample_values(aggregate.samples, &RunSample::wall_ms));
     char line[160];
     std::snprintf(line, sizeof(line), "  %-34s %8.2f %8.2f %8.2f %8.2f\n", "  total(wall)",
-                  wall_stats.mean * 1000.0, wall_stats.min * 1000.0, wall_stats.max * 1000.0,
-                  wall_stats.median * 1000.0);
+                  wall_stats.mean, wall_stats.min, wall_stats.max, wall_stats.median);
     std::cout << line;
 
-    const Stats rtf_stats = stats_of(aggregate.rtf);
+    const Stats rtf_stats = stats_of(sample_values(aggregate.samples, &RunSample::rtf));
     std::snprintf(line, sizeof(line),
-                  "  RTF (wall / audio, lower is better): mean %.3f  min %.3f  max %.3f\n",
-                  rtf_stats.mean, rtf_stats.min, rtf_stats.max);
+                  "  RTF (wall / audio, lower is better): mean %.3f  min %.3f  median %.3f  max "
+                  "%.3f\n",
+                  rtf_stats.mean, rtf_stats.min, rtf_stats.median, rtf_stats.max);
     std::cout << line;
+
+    // 解码步数与 ms/token：跨版本对比的主指标。stage_decoder 的总耗时
+    // 混着"这次生成了多少 token"的随机性，只有除以步数才可比。
+    const Stats iter_stats = stats_of(sample_values(aggregate.samples, &RunSample::iterations));
+    if (iter_stats.mean > 0.0) {
+        std::snprintf(line, sizeof(line), "  decode iterations: mean %.1f  min %.0f  max %.0f\n",
+                      iter_stats.mean, iter_stats.min, iter_stats.max);
+        std::cout << line;
+        const auto decoder =
+            std::find_if(aggregate.stages.begin(), aggregate.stages.end(),
+                         [](const auto& entry) { return entry.first == "t2s/stage_decoder"; });
+        if (decoder != aggregate.stages.end()) {
+            const Stats decoder_stats = stats_of(decoder->second);
+            std::snprintf(line, sizeof(line), "  stage_decoder ms/token: mean %.2f\n",
+                          decoder_stats.mean / iter_stats.mean);
+            std::cout << line;
+        }
+    }
 
     const Stats audio_stats = stats_of(aggregate.audio_seconds);
-    const Stats cpu_stats = stats_of(aggregate.cpu_cores);
-    if (!aggregate.cpu_cores.empty() && aggregate.cpu_cores.front() >= 0.0) {
+    const Stats cpu_stats = stats_of(sample_values(aggregate.samples, &RunSample::cpu_cores));
+    if (!aggregate.samples.empty() && aggregate.samples.front().cpu_cores >= 0.0) {
         std::snprintf(line, sizeof(line), "  audio: mean %.2f s   cpu cores used: mean %.1f\n",
                       audio_stats.mean, cpu_stats.mean);
     } else {
@@ -334,17 +441,37 @@ void print_aggregate(const TextAggregate& aggregate, const Options& options) {
     std::cout << line;
 }
 
+/// 数值字段的 JSON 片段。变量长度的行（samples / 阶段对象）不用单个
+/// 大 snprintf 拼 —— 缓冲截断会产出"看起来正常"的坏 JSON。
+std::string json_number(double value, const char* format) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), format, value);
+    return buf;
+}
+
 std::string to_json(const std::vector<TextAggregate>& aggregates, const Options& options,
                     const double rss_kb) {
-    // 单条 stage 记录（名字 + 四个统计值 + 缩进）能超过 120 字节 ——
-    // 缓冲必须留足；snprintf 截断会产出"看起来正常"的坏 JSON。
+    // 固定长度的统计行（名字 + 四个统计值 + 缩进）能超过 120 字节 ——
+    // 缓冲必须留足。
     static constexpr int kJsonBufSize = 512;
     char number[kJsonBufSize];
+
+    std::size_t error_count = 0;
+    for (const auto& aggregate : aggregates) {
+        if (!aggregate.error.empty()) {
+            ++error_count;
+        }
+    }
 
     std::string out;
     out += "{\n";
     out += "  \"model\": \"" + json_escape(options.model_dir) + "\",\n";
     out += "  \"version\": \"" + std::string(genie::version_string()) + "\",\n";
+    // 采集环境：基准数字只在同硬件 + 同 ORT 版本上可比（ORT 版本对齐
+    // 是上游钉死 1.22.1 的原因，见 docs/upstream-audit.md §7）。
+    out += "  \"environment\": {\"ort\": \"" + std::string(genie::onnxruntime_version_string()) +
+           "\", \"os\": \"" + json_escape(os_identifier()) + "\", \"cpu\": \"" +
+           json_escape(cpu_model()) + "\"},\n";
     std::snprintf(number, sizeof(number), "  \"threads\": %d, \"runs\": %d, \"warmup\": %d,\n",
                   options.threads, options.runs, options.warmup);
     out += number;
@@ -354,6 +481,7 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
         std::snprintf(number, sizeof(number), "  \"peak_rss_kb\": %.0f,\n", rss_kb);
         out += number;
     }
+    out += "  \"errors\": " + std::to_string(error_count) + ",\n";
     out += "  \"texts\": [\n";
     for (std::size_t i = 0; i < aggregates.size(); ++i) {
         const auto& aggregate = aggregates[i];
@@ -361,15 +489,37 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
         if (!aggregate.error.empty()) {
             out += "\"error\": \"" + json_escape(aggregate.error) + "\"";
         } else {
-            const Stats rtf_stats = stats_of(aggregate.rtf);
+            const Stats rtf_stats = stats_of(sample_values(aggregate.samples, &RunSample::rtf));
             std::snprintf(number, sizeof(number),
-                          "\"rtf\": {\"mean\": %.3f, \"min\": %.3f, \"max\": %.3f}, ",
-                          rtf_stats.mean, rtf_stats.min, rtf_stats.max);
+                          "\"rtf\": {\"mean\": %.3f, \"min\": %.3f, \"median\": %.3f, \"max\": "
+                          "%.3f}, ",
+                          rtf_stats.mean, rtf_stats.min, rtf_stats.median, rtf_stats.max);
             out += number;
             const Stats audio_stats = stats_of(aggregate.audio_seconds);
             std::snprintf(number, sizeof(number), "\"audio_seconds\": {\"mean\": %.3f}, ",
                           audio_stats.mean);
             out += number;
+            const Stats wall_stats =
+                stats_of(sample_values(aggregate.samples, &RunSample::wall_ms));
+            std::snprintf(number, sizeof(number),
+                          "\"total_wall_ms\": {\"mean\": %.1f, \"min\": %.1f, \"max\": %.1f}, ",
+                          wall_stats.mean, wall_stats.min, wall_stats.max);
+            out += number;
+            const Stats cpu_stats =
+                stats_of(sample_values(aggregate.samples, &RunSample::cpu_cores));
+            if (!aggregate.samples.empty() && aggregate.samples.front().cpu_cores >= 0.0) {
+                std::snprintf(number, sizeof(number), "\"cpu_cores\": {\"mean\": %.2f}, ",
+                              cpu_stats.mean);
+                out += number;
+            }
+            const Stats iter_stats =
+                stats_of(sample_values(aggregate.samples, &RunSample::iterations));
+            if (iter_stats.mean > 0.0) {
+                std::snprintf(number, sizeof(number),
+                              "\"iterations\": {\"mean\": %.1f, \"min\": %.0f, \"max\": %.0f}, ",
+                              iter_stats.mean, iter_stats.min, iter_stats.max);
+                out += number;
+            }
             out += "\"stages\": [\n";
             for (std::size_t s = 0; s < aggregate.stages.size(); ++s) {
                 const auto& [name, samples] = aggregate.stages[s];
@@ -380,6 +530,24 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
                               name.c_str(), stats.mean, stats.min, stats.max, stats.median,
                               s + 1 < aggregate.stages.size() ? "," : "");
                 out += number;
+            }
+            out += "    ],\n    \"samples\": [\n";
+            for (std::size_t s = 0; s < aggregate.samples.size(); ++s) {
+                const auto& sample = aggregate.samples[s];
+                std::string stages_obj = "{";
+                for (std::size_t k = 0; k < sample.stage_ms.size(); ++k) {
+                    stages_obj += "\"" + sample.stage_ms[k].first +
+                                  "\": " + json_number(sample.stage_ms[k].second, "%.3f") +
+                                  (k + 1 < sample.stage_ms.size() ? ", " : "");
+                }
+                stages_obj += "}";
+                // 阶段数可变，逐段拼接而不是塞进同一个 snprintf 缓冲。
+                out += "      {\"wall_ms\": " + json_number(sample.wall_ms, "%.1f") +
+                       ", \"rtf\": " + json_number(sample.rtf, "%.4f") +
+                       ", \"cpu_cores\": " + json_number(sample.cpu_cores, "%.2f") +
+                       ", \"iterations\": " + std::to_string(sample.iterations) +
+                       ", \"stages\": " + stages_obj + "}";
+                out += s + 1 < aggregate.samples.size() ? ",\n" : "\n";
             }
             out += "    ]";
         }
@@ -481,6 +649,19 @@ int main(int argc, char** argv) {
                       << "\n";
         }
         aggregates.push_back(std::move(aggregate));
+    }
+
+    std::size_t error_count = 0;
+    for (const auto& aggregate : aggregates) {
+        if (!aggregate.error.empty()) {
+            ++error_count;
+        }
+    }
+    if (error_count > 0) {
+        // 退出码保持 0（单条文本失败不影响其他条的测量）—— 但失败必须
+        // 在终端上可见，不能只藏在 JSON 的 error 字段里。
+        std::cerr << "warning: " << error_count << "/" << aggregates.size()
+                  << " text(s) failed to synthesize\n";
     }
 
     const double rss = peak_rss_kb();

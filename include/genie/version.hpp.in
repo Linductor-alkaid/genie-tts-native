@@ -35,6 +35,13 @@ struct BuildFeatures {
 
 [[nodiscard]] BuildFeatures build_features() noexcept;
 
+/// ONNX Runtime 后端版本字符串（如 "1.31.0"）。
+///
+/// 基准数据**只在同 ORT 版本上可比**（上游钉死 1.22.1 的原因见
+/// docs/upstream-audit.md §7），bench 工具靠它把版本写进测量记录。
+/// 未启用 ORT 的构建返回空串。
+[[nodiscard]] const char* onnxruntime_version_string() noexcept;
+
 }  // namespace genie
 
 #endif  // GENIE_VERSION_HPP

@@ -23,6 +23,23 @@
 
 ### Added
 
+- **`genie-bench` 测量基建硬化**（M5 优化前后对比的前提）：
+
+  - JSON 输出自包含采集环境：ORT 版本（新增公开 API
+    `genie::onnxruntime_version_string()`）、OS、CPU 型号 —— 基线数字
+    只在同硬件 + 同 ORT 版本上可比，测量记录必须能自证环境。
+  - 输出解码步数 `iterations` 与 `stage_decoder ms/token`（终端 + JSON）：
+    采样在 ONNX 图内、不可复现，每次运行的 token 数都不同，
+    跨版本对比必须按 ms/token 归一（`TimingReport` 的 count 此前
+    已采集但 bench 未消费）。
+  - JSON 增加每 run 原始样本 `samples`（墙钟 / RTF / 步数 / 核占用 /
+    逐阶段毫秒）、`total_wall_ms`、RTF median、顶层 `errors` 计数；
+    有文本失败时终端打 warning（退出码行为不变，由脚本查 `errors`）。
+  - 基线 JSON 入库：`docs/benchmarks/baseline-2026-11-06.json`
+    （此前基线数据在 /tmp，未受版本控制）。
+  - 修正 `docs/performance.md` 与本工具注释里仍声称"混读长文本会失败"
+    的过时表述 —— 已由 #34 修复；混读基线待补。
+
 - **全链路分阶段计时**（M0.3 性能基线的采集端）：
 
   - `SynthesisResult` 新增 `timing` 字段：一次合成的各阶段耗时

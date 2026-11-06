@@ -88,10 +88,10 @@ cmake --preset release && cmake --build --preset release
 
 ## 已知问题（影响基准覆盖面）
 
-- **混读长文本会失败**：拉丁字母与中文相邻的文本触发
-  `bert chunks cover N phones, sequence has M`（bert_chunks 与音素序列
-  对不上的缺陷）。genie-bench 的默认样例因此刻意保持纯中文；
-  缺陷修复（独立 issue）后补充混读基线。
+- ~~混读长文本会失败~~：已在 #34 修复（英文 BERT 块以全零特征占位）。
+  混读工况可用 `genie-bench --language hybrid-chinese-english --text ...`
+  单独测量；**混读基线尚未采集**，待补。默认样例仍保持纯中文，
+  以便与既有基线可比。
 
 ## 未覆盖指标（M0.3 遗留）
 
