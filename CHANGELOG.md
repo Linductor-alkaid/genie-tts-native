@@ -5,6 +5,24 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **解码热路径的宿主拷贝消除**（M5.2，语义不变）—— M0.3 基线显示
+  `t2s/stage_decoder` 占合成耗时 62%–83% 且每 token 耗时随长度上升，
+  审计发现每步解码把 KV cache（48 个张量，长句末段约 34 MB）完整拷贝
+  约五遍：
+
+  - `T2SDecoder` 解码循环改 move 语义：`read_output` / `build_stage_feed`
+    对 y_emb 与 KV cache 走 move（state 每轮被新输出整体替换，中间态
+    无人再读）；tokens 仍拷贝（循环结束后的 EOS 归零与切片要用）。
+  - `to_ort_value` 零拷贝包装 Tensor 存储：`CreateTensor` 直接引用
+    输入缓冲，废除"ORT 分配器分配 + memcpy"（契约：feed 生命周期覆盖
+    Run、ORT CPU EP 不改写输入；风险与回退见 architecture.md §2.11）。
+  - 新增 `Tensor::from_raw(type, shape, const void*)`（单次 memcpy），
+    `from_ort_value` 改走它 —— 原先"拷进临时 vector 再 memcpy"两遍。
+  - 会话级复用 `Ort::MemoryInfo`，删除每 run / 每张量新建的分配器。
+  - 决策记录：architecture.md §2.11；审计记录：upstream-audit.md §21。
+
 ### Fixed
 
 - **CI runner 镜像升级后单元测试编译失败**：`tests/unit/test_english.cpp`

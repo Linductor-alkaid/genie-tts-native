@@ -82,3 +82,28 @@ TEST(Tensor, DimOutOfRangeIsZero) {
     EXPECT_EQ(tensor.dim(1), 2);
     EXPECT_EQ(tensor.dim(2), 0);
 }
+
+// from_raw 是后端把执行器输出缓冲转成 Tensor 的单次 memcpy 路径
+// （ort_backend 的 from_ort_value 用它），必须与 from_float32 等价。
+TEST(Tensor, RawRoundTripMatchesFactory) {
+    const std::vector<float> data = {1.5F, -2.25F, 3.0F};
+    const auto raw = Tensor::from_raw(ElementType::Float32, {1, 3}, data.data());
+    const auto via_vector = Tensor::from_float32({1, 3}, data);
+    EXPECT_EQ(raw.type(), ElementType::Float32);
+    EXPECT_EQ(raw.shape_string(), via_vector.shape_string());
+    ASSERT_EQ(raw.floats().size(), 3U);
+    EXPECT_FLOAT_EQ(raw.floats()[1], -2.25F);
+
+    const std::vector<std::int64_t> ints = {7, 8};
+    const auto raw_int = Tensor::from_raw(ElementType::Int64, {2}, ints.data());
+    ASSERT_EQ(raw_int.ints().size(), 2U);
+    EXPECT_EQ(raw_int.ints()[1], 8);
+}
+
+TEST(Tensor, RawEmptyIsLegalNullptrIsNot) {
+    // 零元素张量（动态维推理里真实存在）允许 nullptr。
+    const auto empty = Tensor::from_raw(ElementType::Float32, {0}, nullptr);
+    EXPECT_EQ(empty.element_count(), 0U);
+    EXPECT_TRUE(empty.bytes().empty());
+    EXPECT_THROW(Tensor::from_raw(ElementType::Float32, {2}, nullptr), Error);
+}

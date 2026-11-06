@@ -1374,3 +1374,35 @@ RoBERTa 是**中文**模型 ✓ —— 喂别的语言的音素只会得到行�
 > 是在其后补上的 ✓ —— 只有 #28 的话，包里带了词典也仍是"缺词典"报错 ✗。
 > `english_word_segment` 的 manifest 登记同样在此批补上 ✓（此前目录是死重，
 > 英文 OOV 静默降级到 GRU ✓，见 §17）。
+
+---
+
+## 21. 解码热路径的宿主拷贝纪律（2026-11-06，M5.2）
+
+### 21.1 上游对照
+
+上游 Python（`Core/Inference.py::t2s_cpu()`）每步解码后用
+`present_key_values` 整体替换 `past_key_values`，numpy 切片赋值是引用
+语义，没有显式拷贝。C++ 移植里 `Tensor` 是值语义，"整体替换"天然变成
+"深拷贝"—— 初版实现在每步解码里把 KV cache（`present_k/v_layer_0..23`，
+共 48 个张量，体积随序列线性增长）完整拷贝了约五遍（read_output 拷入
+state、build_stage_feed 按值拷入 feed、to_ort_value 分配 + memcpy、
+输出拷回临时 vector、再 memcpy 进 Tensor 存储）。这不是上游行为的偏差，
+是 C++ 值语义下的多余开销，但对齐目标不变：**模型输入输出的内容与
+形状逐字节不变**。
+
+### 21.2 本次的改动（M5.2）
+
+- `read_output` / `build_stage_feed` 改 move 语义（state 张量成员每轮
+  被新输出整体替换，中间态无人再读；tokens 仍拷贝——EOS 归零与切片要用）。
+- `to_ort_value` 零拷贝包装 Tensor 存储（原"分配 + memcpy"路径废除；
+  依赖"feed 生命周期覆盖 Run、ORT CPU EP 不改写输入"的契约）。
+- `from_ort_value` 改走 `Tensor::from_raw` 单次 memcpy（原两遍）。
+
+### 21.3 影响评估
+
+- 模型 I/O 契约不变：`tests/component/test_model_contract.cpp`（图签名）
+  与 `tests/regression`（FakeSession 的 I/O 形状 trace）必须原样通过。
+- 采样随机性不受影响：采样在图内，宿主侧拷贝方式不进入随机路径。
+- 风险与回退见 `docs/architecture.md` §2.11：若 ORT 某算子将来要就地
+  改写输入缓冲，零拷贝契约失效，回退点在 `to_ort_value`。

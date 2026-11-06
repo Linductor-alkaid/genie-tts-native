@@ -243,6 +243,43 @@ M0.3 要性能基线、M5 要子模型级耗时占比 —— 数据从哪来？�
   默认 nullptr）而不是全局单例：解码器声明"只持有配置、状态在栈上"，
   全局可变状态会破坏这个承诺。
 
+### 2.11 解码热路径的宿主拷贝纪律（M5.2）
+
+**背景**：M0.3 基线（`docs/performance.md`）显示 `t2s/stage_decoder` 占合成
+耗时 62%–83%，且每 token 耗时随序列长度上升（15.3 → 24.3 ms）。审计发现
+每步解码把 KV cache（48 个张量，长句末段约 34 MB）在宿主侧完整拷贝约
+五遍：`read_output` 拷入 state → `build_stage_feed` 按值拷入 feed →
+`to_ort_value` 分配 + memcpy 进 ORT 张量 → 输出拷回临时 `vector` →
+再 memcpy 进 Tensor 存储。这些拷贝量与序列长度成正比，是 ms/token
+随长度上升的主要嫌疑之一。
+
+**决策**（三层，语义全部不变）：
+
+1. **move 语义贯穿解码循环**（`src/engine/t2s.cpp`）：`read_output` 从
+   输出里 move 出 y_emb / KV cache；`build_stage_feed` 改为可变引用，
+   把这两类成员 move 进 feed。安全性依赖一个循环不变式：state 的
+   张量成员每轮 run 之后都被新输出**整体替换**，中间态无人再读；
+   `state.tokens` 留在原地（循环结束后的 EOS 归零与切片还要用）。
+2. **输入零拷贝包装**（`src/runtime/ort_backend.cpp`）：`to_ort_value`
+   改为 `CreateTensor` 直接引用 Tensor 的存储缓冲，不再"分配 + memcpy"。
+   契约：buffer 生命周期覆盖 Run 调用（feed 以 const 引用贯穿）、
+   ORT CPU EP 不改写输入。这推翻了初版"避免 const_cast"的取舍 ——
+   cast 掉的 const 只来自 `run(const TensorFeed&)` 的接口签名，底层
+   存储本来就可写；别名问题与 Tensor 既有的 `reinterpret_span` 视图同款。
+   若未来 ORT 某算子需要就地改写输入，此契约失效，必须回退拷贝路径
+   （在 `to_ort_value` 的注释里有同样的警示）。
+3. **输出单次拷贝**：新增 `Tensor::from_raw(type, shape, const void*)`
+   （恰好一次 memcpy），`from_ort_value` 改走它 —— 此前是"拷进临时
+   vector 再 memcpy 进存储"两遍。
+
+**备选与不选的原因**：IOBinding / 预分配输出缓冲可以做到输出也零拷贝，
+但需要为 50 个 KV 张量维护跨步复用的缓冲池并管理 ORT arena 交互，
+复杂度显著更高；先落这批"语义不变、无新状态"的改动，用实测数据决定
+是否值得再上 IOBinding。
+
+**验证**：模型 I/O 契约测试、回归 IoTrace、真实模型端到端全绿；
+`genie-bench` 前后对比数据记入 `docs/performance.md`。
+
 ---
 
 ## 3. 推理链路与上游的对齐点

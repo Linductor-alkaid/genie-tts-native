@@ -122,6 +122,22 @@ Tensor Tensor::from_bool(Shape shape, std::vector<bool> data) {
     return tensor;
 }
 
+Tensor Tensor::from_raw(ElementType type, Shape shape, const void* data) {
+    Tensor tensor;
+    tensor.type_ = type;
+    tensor.shape_ = std::move(shape);
+    tensor.element_count_ = product_of(tensor.shape_);
+    const std::size_t bytes = tensor.element_count_ * element_size(type);
+    if (bytes != 0 && data == nullptr) {
+        throw_error(ErrorCode::InvalidArgument, "tensor data pointer is null");
+    }
+    tensor.storage_.resize(bytes);
+    if (bytes != 0) {
+        std::memcpy(tensor.storage_.data(), data, bytes);
+    }
+    return tensor;
+}
+
 std::int64_t Tensor::dim(std::size_t dim) const noexcept {
     return dim < shape_.size() ? shape_[dim] : 0;
 }

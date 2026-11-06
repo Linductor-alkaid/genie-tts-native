@@ -108,8 +108,6 @@ public:
     [[nodiscard]] const std::string& model_path() const override { return model_path_; }
 
     [[nodiscard]] std::vector<Tensor> run(const TensorFeed& feed) override {
-        Ort::AllocatorWithDefaultOptions allocator;
-
         // 名字 → 张量 索引表，便于按名字绑定。
         std::vector<const char*> input_names;
         std::vector<Ort::Value> input_values;
@@ -140,7 +138,6 @@ public:
         for (std::size_t i = 0; i < raw.size(); ++i) {
             result.push_back(from_ort_value(raw[i]));
         }
-        (void)allocator;
         return result;
     }
 
@@ -177,35 +174,47 @@ private:
         return spec;
     }
 
-    /// 把本项目的 Tensor 转换为 Ort::Value。
+    /// CPU / 默认分配器的内存描述符，所有张量包装共用。
     ///
-    /// ORT 的 CreateTensor(info, p_data, ...) 需要非 const 指针，而输入张量
-    /// 在语义上是只读的。因此改用 ORT 分配器创建张量再 memcpy 进去 ——
-    /// 既避免了 const_cast，也不引入 strict-aliasing 问题。
+    /// MemoryInfo 只是"内存在哪种分配器上"的标记，构造一次即可；
+    /// 此前每个张量每次 run 都新建一个（连同 ORT 分配器），纯开销。
+    static const Ort::MemoryInfo& cpu_memory_info() {
+        static const Ort::MemoryInfo info =
+            Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+        return info;
+    }
+
+    /// 把本项目的 Tensor **零拷贝**包装为 Ort::Value。
+    ///
+    /// 直接引用 Tensor 的存储缓冲：输入数据在 Run 的整个执行期间存活
+    /// （feed 以 const 引用贯穿 run() 调用），ORT 的 CPU EP 不会改写
+    /// 输入缓冲，因此可以安全借用。此前走"ORT 分配器分配 + memcpy"，
+    /// 每步自回归解码多出一份与 KV cache 等体积的宿主拷贝
+    /// （M5.2，见 docs/architecture.md 张量一节）。
+    ///
+    /// 历史注记：最初实现刻意绕开 const_cast（担心 strict-aliasing 与
+    /// ORT 写入）。CreateTensor(info, p_data, ...) 需要非 const 指针；
+    /// 这里 cast 掉的 const 只来自 run(const TensorFeed&) 的接口签名，
+    /// 底层存储本来就可写（Tensor::bytes() 有非 const 重载）。
+    /// strict-aliasing 与 tensor.cpp 里的 reinterpret_span 视图同款：
+    /// 存储内容本来就是由 memcpy 写入的目标类型字节。若未来某 ORT
+    /// 算子要就地改写输入，这个借用契约即被破坏 —— 必须回退拷贝路径。
     static Ort::Value to_ort_value(const Tensor& tensor) {
         const std::int64_t* shape = tensor.shape().data();
         const std::size_t rank = tensor.rank();
-        Ort::AllocatorWithDefaultOptions allocator;
+        void* data = const_cast<void*>(static_cast<const void*>(tensor.bytes().data()));
+        const auto& info = cpu_memory_info();
 
         switch (tensor.type()) {
-            case ElementType::Float32: {
-                Ort::Value value = Ort::Value::CreateTensor<float>(allocator, shape, rank);
-                std::memcpy(value.GetTensorMutableData<float>(), tensor.floats().data(),
-                            tensor.element_count() * sizeof(float));
-                return value;
-            }
-            case ElementType::Int64: {
-                Ort::Value value = Ort::Value::CreateTensor<std::int64_t>(allocator, shape, rank);
-                std::memcpy(value.GetTensorMutableData<std::int64_t>(), tensor.ints().data(),
-                            tensor.element_count() * sizeof(std::int64_t));
-                return value;
-            }
-            case ElementType::Bool: {
-                Ort::Value value = Ort::Value::CreateTensor<bool>(allocator, shape, rank);
-                std::memcpy(value.GetTensorMutableData<bool>(), tensor.bools().data(),
-                            tensor.element_count() * sizeof(bool));
-                return value;
-            }
+            case ElementType::Float32:
+                return Ort::Value::CreateTensor<float>(info, static_cast<float*>(data),
+                                                       tensor.element_count(), shape, rank);
+            case ElementType::Int64:
+                return Ort::Value::CreateTensor<std::int64_t>(
+                    info, static_cast<std::int64_t*>(data), tensor.element_count(), shape, rank);
+            case ElementType::Bool:
+                return Ort::Value::CreateTensor<bool>(info, static_cast<bool*>(data),
+                                                      tensor.element_count(), shape, rank);
         }
         throw_error(ErrorCode::Internal, "unreachable tensor type");
     }
@@ -215,21 +224,14 @@ private:
         const std::vector<std::int64_t> shape = info.GetShape();
 
         switch (info.GetElementType()) {
-            case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT: {
-                const float* data = value.GetTensorData<float>();
-                return Tensor::from_float32(
-                    shape, std::vector<float>(data, data + info.GetElementCount()));
-            }
-            case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64: {
-                const std::int64_t* data = value.GetTensorData<std::int64_t>();
-                return Tensor::from_int64(
-                    shape, std::vector<std::int64_t>(data, data + info.GetElementCount()));
-            }
-            case ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL: {
-                const bool* data = value.GetTensorData<bool>();
-                std::vector<bool> values(data, data + info.GetElementCount());
-                return Tensor::from_bool(shape, std::move(values));
-            }
+            case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+                return Tensor::from_raw(ElementType::Float32, shape, value.GetTensorData<float>());
+            case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+                return Tensor::from_raw(ElementType::Int64, shape,
+                                        value.GetTensorData<std::int64_t>());
+            case ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
+                // ORT 的 bool 张量每元素 1 字节，与本项目的存储约定一致。
+                return Tensor::from_raw(ElementType::Bool, shape, value.GetTensorData<bool>());
             default:
                 throw_error(ErrorCode::Unsupported, "unsupported ONNX output element type");
         }
