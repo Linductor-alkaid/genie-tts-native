@@ -84,11 +84,13 @@ struct SessionConfig {
     /// 是否启用 CPU 内存 arena。
     bool enable_cpu_mem_arena = true;
     /// intra-op 线程空闲时是否自旋等待（ORT 的
-    /// session.intra_op.allow_spinning）。自旋降低同步延迟但常驻烧 CPU：
-    /// 引擎一次合成只有**一个**会话在干活，其余会话的自旋线程纯属内耗；
-    /// 在 P/E 核混合的 CPU 上还会挤占 E 核、放大调度方差。默认保持 ORT
-    /// 行为（开），M5.3 实测数据见 docs/performance.md。
-    bool allow_spinning = true;
+    /// session.intra_op.allow_spinning）。自旋用 CPU 常驻占用换同步延迟：
+    /// 引擎一次合成只有**一个**会话在干活，其余会话的自旋线程纯属内耗。
+    /// M5.3 实测（i9-13900KF，docs/performance.md §参数扫描）：关掉自旋
+    /// 延迟持平或更优（短句 12.5 vs 14.4 ms/token），核占用降至 1/3–1/4；
+    /// 高线程数 × 自旋还是本机已知的不稳定区（ORT 线程超订阅历史上在
+    /// 这台机器上出过段错误/浮点异常，见 tools/cli 的注释）。默认**关**。
+    bool allow_spinning = false;
 };
 
 }  // namespace genie

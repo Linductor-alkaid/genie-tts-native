@@ -59,8 +59,10 @@
   warmup 消抖）；首个可播放音频块时间 = 端到端（当前流式整段推送，
   M6 真分块后单独测）
 - ✅ 各 ONNX 子模型耗时 —— 合成阶段表（`t2s/encoder`、`t2s/first_stage`、
-  `t2s/stage_decoder`×N、`vocoder`、`text_bert`）；实测 t2s 自回归占
-  74%–86%，每 token 15–24 ms 且随序列长度上升（KV cache 无复用）
+  `t2s/stage_decoder`×N、`vocoder`、`text_bert`）；基线实测 stage_decoder
+  占合成 65%–84%，每 token 18–26 ms 且随序列长度上升（KV cache 逐轮
+  变长、宿主侧每步全量拷贝 —— M5 第一轮优化后降至 13–18 ms/token，
+  见 `docs/performance.md`）
 - ✅ 峰值 RSS、CPU 利用率（进程级均值）、线程数 —— genie-bench 输出；
   ⏳ 内存分配次数（需 allocator hook，M5 前补）、CPU 利用率时间线采样
 
@@ -141,12 +143,21 @@
 - ⏳ 内存泄漏、模型重复加载、异常恢复、长文本稳定性、连续推理检查
 - ✅ **v0.1.0 / v0.2.0 发布**
 
-### M5 CPU 端侧性能优化 — ⏳
+### M5 CPU 端侧性能优化 — 🚧
 
 - ⏳ 子模型级性能分析（各阶段耗时占比、算子耗时、Cache Miss、SIMD 利用率）
-- ⏳ KV Cache 复用、预分配解码缓冲区、减少 Host 内存拷贝
-- ⏳ ONNX Runtime 参数搜索（线程数、图优化、执行模式、内存 arena/pattern、CPU 亲和性、ORT Format）
+  —— ✅ 阶段占比与 ms/token 归一（genie-bench 输出 iterations，
+  `docs/performance.md`）；⏳ ORT 内建 profiler 的算子级耗时
+- 🚧 KV Cache 复用、预分配解码缓冲区、减少 Host 内存拷贝 ——
+  ✅ 第一轮：解码循环 move 语义、输入零拷贝包装、输出单次拷贝
+  （ms/token -23%~-31%，`docs/performance.md`）；
+  ⏳ 剩余：IOBinding / 跨步预分配缓冲池
+- 🚧 ONNX Runtime 参数搜索（线程数、图优化、执行模式、内存 arena/pattern、
+  CPU 亲和性、ORT Format）—— ✅ 第一轮：线程数 × 自旋扫描
+  （默认 threads=8、自旋关，`docs/performance.md`）；
+  ⏳ 剩余：图优化 / 执行模式 / arena / 亲和性 / ORT Format
 - ⏳ 模型常驻、参考音频缓存、文本特征缓存、缓冲区复用、模型共享
+  —— 参考音频特征已在加载期算好常驻（engine 构造期）；其余未做
 - ⏳ 量化（FP32 → 图简化 → 权重量化 → 动态 INT8 → 静态 INT8 → 混合精度）
 - ⏳ CPU 微架构优化（AVX2/AVX-512、NEON、内存对齐、NUMA）
 
