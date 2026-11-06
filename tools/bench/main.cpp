@@ -75,6 +75,7 @@ Options:
   --text <text>     Text to synthesize (repeatable; defaults to 3 built-in samples)
   --language <lang> auto | chinese | english | japanese | korean | hybrid-chinese-english
   --threads <n>     ORT intra-op threads per session (default 8)
+  --spinning <0|1>  ORT intra-op spin-wait (session.intra_op.allow_spinning, default 0)
   --warmup <n>      Warmup runs per text, excluded from stats (default 1)
   --runs <n>        Measured runs per text (default 5)
   --json <file>     Also write the aggregate as JSON to this path
@@ -93,6 +94,7 @@ struct Options {
     std::string json_path;
     std::vector<std::string> texts;
     int threads = 8;
+    int spinning = 0;
     int warmup = 1;
     int runs = 5;
     bool help = false;
@@ -127,7 +129,8 @@ bool parse_options(int argc, char** argv, Options& options) {
             if (!next(options.language)) {
                 return false;
             }
-        } else if (arg == "--threads" || arg == "--warmup" || arg == "--runs") {
+        } else if (arg == "--threads" || arg == "--spinning" || arg == "--warmup" ||
+                   arg == "--runs") {
             std::string value;
             if (!next(value)) {
                 return false;
@@ -135,6 +138,8 @@ bool parse_options(int argc, char** argv, Options& options) {
             int parsed = std::atoi(value.c_str());
             if (arg == "--threads") {
                 options.threads = parsed;
+            } else if (arg == "--spinning") {
+                options.spinning = parsed;
             } else if (arg == "--warmup") {
                 options.warmup = parsed;
             } else {
@@ -472,8 +477,9 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
     out += "  \"environment\": {\"ort\": \"" + std::string(genie::onnxruntime_version_string()) +
            "\", \"os\": \"" + json_escape(os_identifier()) + "\", \"cpu\": \"" +
            json_escape(cpu_model()) + "\"},\n";
-    std::snprintf(number, sizeof(number), "  \"threads\": %d, \"runs\": %d, \"warmup\": %d,\n",
-                  options.threads, options.runs, options.warmup);
+    std::snprintf(number, sizeof(number),
+                  "  \"threads\": %d, \"spinning\": %d, \"runs\": %d, \"warmup\": %d,\n",
+                  options.threads, options.spinning, options.runs, options.warmup);
     out += number;
     if (rss_kb < 0.0) {
         out += "  \"peak_rss_kb\": null,\n";
@@ -573,8 +579,10 @@ int main(int argc, char** argv) {
         std::cerr << "genie-bench requires --model <dir>\n";
         return kExitUsage;
     }
-    if (options.runs < 1 || options.warmup < 0 || options.threads < 1) {
-        std::cerr << "--runs/--threads must be >= 1, --warmup must be >= 0\n";
+    if (options.runs < 1 || options.warmup < 0 || options.threads < 1 ||
+        (options.spinning != 0 && options.spinning != 1)) {
+        std::cerr << "--runs/--threads must be >= 1, --warmup must be >= 0, "
+                     "--spinning must be 0 or 1\n";
         return kExitUsage;
     }
     if (!genie::has_onnxruntime_backend()) {
@@ -603,6 +611,7 @@ int main(int argc, char** argv) {
     // 否则 4-6 个会话各开满全部核心，多核机器上互相踩踏。
     genie::SessionConfig config;
     config.intra_op_threads = options.threads;
+    config.allow_spinning = options.spinning != 0;
 
     std::cout << "constructing engine (cold start) from: " << options.model_dir << "\n";
     genie::Engine engine(options.model_dir, config);

@@ -83,6 +83,12 @@ struct SessionConfig {
     bool enable_mem_pattern = true;
     /// 是否启用 CPU 内存 arena。
     bool enable_cpu_mem_arena = true;
+    /// intra-op 线程空闲时是否自旋等待（ORT 的
+    /// session.intra_op.allow_spinning）。自旋降低同步延迟但常驻烧 CPU：
+    /// 引擎一次合成只有**一个**会话在干活，其余会话的自旋线程纯属内耗；
+    /// 在 P/E 核混合的 CPU 上还会挤占 E 核、放大调度方差。默认保持 ORT
+    /// 行为（开），M5.3 实测数据见 docs/performance.md。
+    bool allow_spinning = true;
 };
 
 }  // namespace genie

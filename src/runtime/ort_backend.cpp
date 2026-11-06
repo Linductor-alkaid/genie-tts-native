@@ -76,6 +76,11 @@ public:
         if (!config.enable_cpu_mem_arena) {
             options.DisableCpuMemArena();
         }
+        // ORT 默认自旋等待（低延迟 ↔ CPU 常驻占用的交换）。引擎一次合成
+        // 只串行使用一个会话，闲置会话的自旋线程纯属内耗；M5.3 的实测
+        // 数据与默认值选择见 docs/performance.md。
+        options.AddConfigEntry("session.intra_op.allow_spinning",
+                               config.allow_spinning ? "1" : "0");
 
         switch (config.graph_optimization_level) {
             case 0:
