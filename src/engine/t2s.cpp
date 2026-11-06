@@ -51,6 +51,12 @@ struct StageState {
 }
 
 /// 拆解模型输出：token 序列 / y_emb / KV cache。
+///
+/// y_emb 与 KV cache **move** 而不是拷贝：每步解码 50 个张量、体积随
+/// 序列长度线性增长，逐份拷贝是 M0.3 基线里 ms/token 随长度上升的
+/// 主要宿主开销之一（M5.2）。outputs 在调用后是残壳 —— decode_loop
+/// 每轮都用新输出整体替换 state，不再读旧值。`y` 是 int64 序列
+/// （几 KB），照抄拷贝。
 [[nodiscard]] StageState read_output(const std::vector<Tensor>& outputs,
                                      const std::vector<TensorSpec>& specs, const char* who) {
     StageState state;
@@ -62,10 +68,10 @@ struct StageState {
             state.tokens = read_tokens(outputs[i]);
             has_y = true;
         } else if (name == "y_emb") {
-            state.y_emb = outputs[i];
+            state.y_emb = std::move(outputs[i]);
             has_y_emb = true;
         } else if (name.rfind(kPresentPrefix, 0) == 0) {
-            state.kv_cache.emplace_back(name, outputs[i]);
+            state.kv_cache.emplace_back(name, std::move(outputs[i]));
         }
     }
     if (!has_y) {
@@ -82,9 +88,14 @@ struct StageState {
 ///
 /// **按名字**绑定 —— 名字取自模型的实际输入描述。
 ///
+/// y_emb 与 KV cache 从 state **move** 进 feed：state 的这两个成员在
+/// 每轮 run 之后都会被 read_output 的新输出整体替换，中间态不需要
+/// 保留（run 抛异常则整次合成失败，state 也不再有用）。`state.tokens`
+/// 必须留在原地 —— 循环结束后的 EOS 归零与切片逻辑还要用它。
+///
 /// `iy` 传的是**完整**的 token 序列：模型内部做的是
 /// `y = Concat(iy, 新 token)`，所以喂标量的话输出长度就不对了。
-[[nodiscard]] TensorFeed build_stage_feed(ModelSession& stage, const StageState& state) {
+[[nodiscard]] TensorFeed build_stage_feed(ModelSession& stage, StageState& state) {
     TensorFeed feed;
     const auto& inputs = stage.inputs();
     feed.reserve(inputs.size());
@@ -95,7 +106,7 @@ struct StageState {
                 spec.name, Tensor::from_int64({1, static_cast<std::int64_t>(state.tokens.size())},
                                               state.tokens));
         } else if (spec.name == "iy_emb") {
-            feed.emplace_back(spec.name, state.y_emb);
+            feed.emplace_back(spec.name, std::move(state.y_emb));
         } else if (spec.name.rfind(kPastPrefix, 0) == 0) {
             const auto suffix = spec.name.substr(kPastPrefix.size());
             const auto it = std::find_if(
@@ -108,7 +119,7 @@ struct StageState {
                             "t2s stage decoder needs KV cache '" + spec.name +
                                 "' but the previous stage did not provide it");
             }
-            feed.emplace_back(spec.name, it->second);
+            feed.emplace_back(spec.name, std::move(it->second));
         }
         // 契约之外的输入不喂 —— 由模型自己决定缺省值。
     }

@@ -52,6 +52,16 @@ public:
     [[nodiscard]] static Tensor from_int64(Shape shape, std::vector<std::int64_t> data);
     [[nodiscard]] static Tensor from_bool(Shape shape, std::vector<bool> data);
 
+    /// 由裸字节缓冲构造（恰好一次 memcpy）。
+    ///
+    /// 推理后端把执行器输出缓冲（如 ORT 的 GetTensorData）转成 Tensor 时
+    /// 手上只有"裸指针 + 隐含元素数"——走 from_float32 要先抄进临时
+    /// vector、再 memcpy 进存储，等于每步自回归解码多整拷一遍随长度
+    /// 线性增长的 KV cache（M5.2，见 docs/architecture.md 张量一节）。
+    /// data 必须指向 element_count 个元素的连续内存；data == nullptr 且
+    /// 元素数非零时抛 genie::Error。
+    [[nodiscard]] static Tensor from_raw(ElementType type, Shape shape, const void* data);
+
     [[nodiscard]] ElementType type() const noexcept { return type_; }
     [[nodiscard]] const Shape& shape() const noexcept { return shape_; }
     [[nodiscard]] std::size_t rank() const noexcept { return shape_.size(); }
