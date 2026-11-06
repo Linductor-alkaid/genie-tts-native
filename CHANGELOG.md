@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- **CI runner 镜像升级后单元测试编译失败**：`tests/unit/test_english.cpp`
+  使用 `std::find` 但依赖其它头文件间接带入 `<algorithm>`，ubuntu-latest
+  镜像升级后的 GCC 不再传递包含 —— 显式补上。纯移植性修复，无行为变化。
+
 - **中英混读合成失败**：混读文本里的英文块产出音素与 word2ph 却没有进
   BERT 分块（2026-10-29 接入英文 G2P 时引入）—— 分块不再连续覆盖
   word2ph，RoBERTa 装配时报
