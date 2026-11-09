@@ -62,6 +62,13 @@ cmake --preset release -DGENIE_ONNXRUNTIME_ROOT=<ort 包> && cmake --build --pre
 实测冷启动 7406 → 3589 ms（-51.5%），`load/voice_package` 3789 → 0.2 ms
 —— 上表数字为默认（校验开启）口径。
 
+**fp16 权重包**（`weight_format: fp16`，包体积 2.4 → 1.9 GB）：加载
+13.2 s（fp32 基线 7.4 s）—— 上转开销 ~5.8 s 分布在 t2s 双解码器
+（各 ~1.1 s）、vits（1.35 s）、HuBERT（0.94 s）等带外部权重的会话；
+RoBERTa 自包含不受影响（3.28 s）。合成阶段无差异（运行时仍是 FP32）。
+**fp16 是分发体积方案**：冷启动敏感场景用 fp32 + 信任模式；上转
+多线程化是后续候选。
+
 ### 合成（5 次 mean，单位 ms）
 
 | 文本 | 语义 token | 音频 (s) | total wall | RTF mean | stage_decoder | first_stage | vocoder | text_bert |

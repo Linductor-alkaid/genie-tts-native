@@ -74,6 +74,14 @@ struct ModelEntry {
     std::string absolute_path;
 };
 
+/// 外部权重文件的存储精度。
+enum class WeightFormat {
+    Fp32,  ///< fp32 权重（.onnx 图直接引用，运行时原样加载）
+    Fp16,  ///< fp16 权重（HF 上游的 `*_fp16.bin`）—— 加载期在内存里
+           ///< 上转为 FP32 再建会话，包体积减半、运行时仍是 FP32。
+           ///< 借鉴上游 Genie-TTS 的分发格式（docs/architecture.md）。
+};
+
 /// 音色包清单。
 struct VoiceManifest {
     /// 音色包名称。
@@ -91,6 +99,11 @@ struct VoiceManifest {
         bool v2proplus = false;  ///< 是否包含 prompt_encoder
         bool roberta = false;    ///< 是否包含中文 RoBERTa
     } capabilities;
+    /// 外部权重精度（manifest 的 "weight_format"，缺省 fp32）。
+    ///
+    /// 自包含模型（如 RoBERTa 的 1.2 GB 单文件）不受此开关影响 ——
+    /// fp16 模式只改写带 external data 的模型。
+    WeightFormat weight_format = WeightFormat::Fp32;
     /// 模型清单，按角色索引。
     std::map<ModelRole, ModelEntry> models;
 };

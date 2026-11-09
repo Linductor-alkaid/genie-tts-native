@@ -189,6 +189,67 @@ private:
     std::string root_str_;
 };
 
+/// fp16 包夹具：模型带 external data（HF fp16 打包布局），manifest 声明
+/// weight_format = "fp16" —— 引擎走「内存上转」路径。
+class TempFp16Package {
+public:
+    TempFp16Package() {
+        static int counter = 0;
+        const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        root_ = std::filesystem::temp_directory_path() /
+                ("genie_ort_fp16_" + std::to_string(stamp) + "_" + std::to_string(counter++));
+        std::filesystem::create_directories(root_ / "models");
+        std::filesystem::create_directories(root_ / "reference");
+        root_str_ = root_.string();
+
+        const auto graph = test::synthetic_model("echo_fp16.onnx");
+        const auto data = test::synthetic_model("echo_fp16_data.bin");
+        for (const char* name : {"t2s_encoder.onnx", "t2s_first_stage_decoder.onnx",
+                                 "t2s_stage_decoder.onnx", "vits.onnx"}) {
+            std::filesystem::copy_file(graph, root_ / "models" / name);
+        }
+        // external location 相对每个 .onnx —— 四个角色共享同一份打包数据。
+        std::filesystem::copy_file(data, root_ / "models" / "echo_fp16_data.bin");
+
+        genie::AudioBuffer audio;
+        audio.sample_rate = 32000;
+        audio.samples.assign(32000, 0.1F);
+        genie::WavCodec::write_pcm16((root_ / "reference" / "audio.wav").string(), audio);
+        std::ofstream text(root_ / "reference" / "text.txt");
+        text << "\xE5\x8F\x82\xE8\x80\x83";
+
+        std::ofstream manifest(root_ / "manifest.json");
+        manifest << R"({
+  "name": "synthetic-fp16-package",
+  "format_version": 1,
+  "model_version": "v2",
+  "language": "chinese",
+  "sample_rate": 32000,
+  "weight_format": "fp16",
+  "models": [
+    {"role": "t2s_encoder", "file": "models/t2s_encoder.onnx"},
+    {"role": "t2s_first_stage_decoder", "file": "models/t2s_first_stage_decoder.onnx"},
+    {"role": "t2s_stage_decoder", "file": "models/t2s_stage_decoder.onnx"},
+    {"role": "vits", "file": "models/vits.onnx"}
+  ]
+})";
+    }
+
+    ~TempFp16Package() {
+        std::error_code ec;
+        std::filesystem::remove_all(root_, ec);
+    }
+
+    TempFp16Package(const TempFp16Package&) = delete;
+    TempFp16Package& operator=(const TempFp16Package&) = delete;
+
+    [[nodiscard]] const std::string& root() const noexcept { return root_str_; }
+
+private:
+    std::filesystem::path root_;
+    std::string root_str_;
+};
+
 }  // namespace
 
 TEST_F(OrtBackendTest, EngineLoadsViaConfigConstructor) {
@@ -238,4 +299,29 @@ TEST_F(OrtBackendTest, EngineRecordsLoadTiming) {
     for (const auto& stage : report.stages()) {
         EXPECT_LE(stage.milliseconds, report.total_milliseconds()) << "stage: " << stage.name;
     }
+}
+
+// fp16 打包外部权重 + 内存上转路径的端到端回归（assets 见
+// tools/make_synthetic_model.py --external-fp16）。w 全 1.0 ⇒ out_f == beta，
+// 转码错一个字节就会在这条测试上失败。资产缺失时跳过（与 echo.onnx 同策略）。
+TEST_F(OrtBackendTest, EngineLoadsFp16PackageViaMemoryUpcast) {
+    // 只测构造：fp16 路径 = 读图 + 解析外部 fp16 bin + 上转内联 + 从内存
+    // 建会话 —— 任一环节出错都会在 ORT 解析时炸。推理级验证由
+    // tests/unit/test_onnx_graph.cpp 的字节级断言覆盖（echo 模型的输入名
+    // 与真实 t2s/vits 契约不同，不能走 synthesize）。
+    const auto graph = test::synthetic_model("echo_fp16.onnx");
+    if (!std::filesystem::exists(graph)) {
+        GTEST_SKIP() << "echo_fp16.onnx not available at " << graph.string();
+    }
+    TempFp16Package package;
+    genie::Engine engine(package.root(), genie::SessionConfig{});
+    EXPECT_EQ(engine.manifest().weight_format, genie::WeightFormat::Fp16);
+    EXPECT_EQ(engine.sample_rate(), 32000);
+    bool has_stage = false;
+    for (const auto& stage : engine.load_timing().stages()) {
+        if (stage.name == "load/t2s_stage_decoder") {
+            has_stage = true;
+        }
+    }
+    EXPECT_TRUE(has_stage);
 }

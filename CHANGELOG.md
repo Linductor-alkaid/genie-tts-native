@@ -31,6 +31,24 @@
     上游参照：Genie-TTS ModelManager 的 fp16 权重内存注入；格式判定
     依据的实测记录见 tools/deploy/convert_fp16_weights.py 的模块注释。
 
+
+- **fp16 权重分发支持**（M5，借鉴上游 Genie-TTS 的分发格式）：
+
+  - 音色包 manifest 新增 `"weight_format": "fp16"`（缺省 fp32）：外部
+    权重用 HF 上游的 fp16 打包布局，引擎加载期在内存里上转 FP32 再
+    建会话（新增公开 API `create_session_from_memory`）。包体积
+    2.4 → 1.9 GB（-21%）；加载比 fp32 慢 ~5.8 s（上转开销，单线程）——
+    fp16 是分发体积方案，冷启动敏感场景仍用 fp32（+信任模式，见
+    trust-mode 切片）。
+  - `tools/make_synthetic_model.py --external-fp16` 生成 fp16 打包的
+    回归资产；集成测试覆盖「fp16 包 → 内存上转 → 建会话」全链路
+    （资产缺失时与 echo.onnx 同策略跳过）。
+  - `tools/deploy/make_voice_package.py --weights fp16`：保留 HF 的
+    `*_fp16.bin`（目标名不变 —— external location 写死在图里），
+    manifest 自动登记 weight_format。自包含模型（RoBERTa）不受影响。
+  - 决策与取舍：docs/architecture.md §2.13；库侧转码器
+    `inline_external_fp16_weights` 随 fp16 地基切片合入。
+
 ### Changed
 
 - **ORT 会话默认值调优**（M5.3，本机扫描数据驱动）：

@@ -60,6 +60,24 @@ public:
 [[nodiscard]] std::unique_ptr<ModelSession> create_session(const std::string& model_path,
                                                            const SessionConfig& config);
 
+/// 从内存中的模型字节创建会话（fp16 上转路径用）。
+///
+/// 模型字节必须是**完整的 ONNX 模型**：external 初始化器已内联
+/// （见 genie::inline_external_fp16_weights）。带外部数据的模型从内存
+/// 加载时，外部文件无法按相对路径解析。
+///
+/// ORT 在 CreateSessionFromArray 时把模型解析进自己的存储，调用返回后
+/// 缓冲即可释放 —— 该契约由真实模型的端到端测试锁定（合成发生在加载
+/// 作用域结束之后，若 ORT 保留指针会立刻以 use-after-free 暴露）。
+///
+/// @param model_name 会话的显示名（model_path() 返回它，用于报错与计时）
+/// @throws genie::Error ModelLoadError —— ONNX 解析失败
+/// @throws genie::Error BackendUnavailable —— 构建时未启用 ONNX Runtime
+[[nodiscard]] std::unique_ptr<ModelSession> create_session_from_memory(const void* model_data,
+                                                                       std::size_t model_data_size,
+                                                                       std::string model_name,
+                                                                       const SessionConfig& config);
+
 /// 当前构建是否具备真实推理能力。
 [[nodiscard]] bool has_onnxruntime_backend() noexcept;
 

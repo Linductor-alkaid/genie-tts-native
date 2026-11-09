@@ -90,6 +90,24 @@ VoiceManifest parse_manifest(const json::Value& root) {
         manifest.capabilities.roberta = capabilities->get_bool("roberta", false);
     }
 
+    if (const json::Value* weight_format = root.find("weight_format"); weight_format != nullptr) {
+        // 值本身就是字符串：用 as_string() 取内容。get_string(key) 是对象
+        // 成员访问 —— 对字符串值调用会静默返回 fallback（fp16 包被当成
+        // fp32 加载，外部 bin 偏移全错，报错离根因很远）。
+        if (!weight_format->is_string()) {
+            throw_error(ErrorCode::InvalidArgument, "manifest: 'weight_format' must be a string");
+        }
+        const auto& value = weight_format->as_string();
+        if (value == "fp32") {
+            manifest.weight_format = WeightFormat::Fp32;
+        } else if (value == "fp16") {
+            manifest.weight_format = WeightFormat::Fp16;
+        } else {
+            throw_error(ErrorCode::InvalidArgument,
+                        "manifest: unknown weight_format '" + value + "' (supported: fp32 / fp16)");
+        }
+    }
+
     manifest.models = parse_models(root);
 
     for (const ModelRole role : kRequiredRoles) {
