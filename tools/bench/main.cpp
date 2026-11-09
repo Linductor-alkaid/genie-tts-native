@@ -76,6 +76,9 @@ Options:
   --language <lang> auto | chinese | english | japanese | korean | hybrid-chinese-english
   --threads <n>     ORT intra-op threads per session (default 8)
   --spinning <0|1>  ORT intra-op spin-wait (session.intra_op.allow_spinning, default 0)
+  --graph-opt <n>   Graph optimization level 0-3 (default 3 = ORT_ENABLE_ALL)
+  --arena <0|1>     ORT CPU memory arena (default 1)
+  --mem-pattern <0|1> ORT memory pattern (default 1)
   --no-verify       Skip voice package SHA-256 verification (faster cold start)
   --warmup <n>      Warmup runs per text, excluded from stats (default 1)
   --runs <n>        Measured runs per text (default 5)
@@ -96,6 +99,9 @@ struct Options {
     std::vector<std::string> texts;
     int threads = 8;
     int spinning = 0;
+    int graph_opt = 3;
+    int arena = 1;
+    int mem_pattern = 1;
     int warmup = 1;
     int runs = 5;
     bool no_verify = false;
@@ -131,7 +137,8 @@ bool parse_options(int argc, char** argv, Options& options) {
             if (!next(options.language)) {
                 return false;
             }
-        } else if (arg == "--threads" || arg == "--spinning" || arg == "--warmup" ||
+        } else if (arg == "--threads" || arg == "--spinning" || arg == "--graph-opt" ||
+                   arg == "--arena" || arg == "--mem-pattern" || arg == "--warmup" ||
                    arg == "--runs") {
             std::string value;
             if (!next(value)) {
@@ -142,6 +149,12 @@ bool parse_options(int argc, char** argv, Options& options) {
                 options.threads = parsed;
             } else if (arg == "--spinning") {
                 options.spinning = parsed;
+            } else if (arg == "--graph-opt") {
+                options.graph_opt = parsed;
+            } else if (arg == "--arena") {
+                options.arena = parsed;
+            } else if (arg == "--mem-pattern") {
+                options.mem_pattern = parsed;
             } else if (arg == "--warmup") {
                 options.warmup = parsed;
             } else {
@@ -482,8 +495,10 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
            "\", \"os\": \"" + json_escape(os_identifier()) + "\", \"cpu\": \"" +
            json_escape(cpu_model()) + "\"},\n";
     std::snprintf(number, sizeof(number),
-                  "  \"threads\": %d, \"spinning\": %d, \"runs\": %d, \"warmup\": %d,\n",
-                  options.threads, options.spinning, options.runs, options.warmup);
+                  "  \"threads\": %d, \"spinning\": %d, \"graph_opt\": %d, \"arena\": %d, "
+                  "\"mem_pattern\": %d, \"runs\": %d, \"warmup\": %d,\n",
+                  options.threads, options.spinning, options.graph_opt, options.arena,
+                  options.mem_pattern, options.runs, options.warmup);
     out += number;
     if (rss_kb < 0.0) {
         out += "  \"peak_rss_kb\": null,\n";
@@ -584,9 +599,13 @@ int main(int argc, char** argv) {
         return kExitUsage;
     }
     if (options.runs < 1 || options.warmup < 0 || options.threads < 1 ||
-        (options.spinning != 0 && options.spinning != 1)) {
+        (options.spinning != 0 && options.spinning != 1) ||
+        (options.arena != 0 && options.arena != 1) ||
+        (options.mem_pattern != 0 && options.mem_pattern != 1) || options.graph_opt < 0 ||
+        options.graph_opt > 3) {
         std::cerr << "--runs/--threads must be >= 1, --warmup must be >= 0, "
-                     "--spinning must be 0 or 1\n";
+                     "--spinning/--arena/--mem-pattern must be 0 or 1, "
+                     "--graph-opt must be 0-3\n";
         return kExitUsage;
     }
     if (!genie::has_onnxruntime_backend()) {
@@ -616,6 +635,11 @@ int main(int argc, char** argv) {
     genie::EngineConfig config;
     config.session.intra_op_threads = options.threads;
     config.session.allow_spinning = options.spinning != 0;
+    // M5.3 参数扫描的另外三个维度（图优化级别 / arena / 内存模式）：
+    // SessionConfig 字段早已存在，bench 此前只暴露了线程与自旋。
+    config.session.graph_optimization_level = options.graph_opt;
+    config.session.enable_cpu_mem_arena = options.arena != 0;
+    config.session.enable_mem_pattern = options.mem_pattern != 0;
     if (options.no_verify) {
         // 基准关心的是"引擎冷启动"，校验是其中最大的一块可开关开销；
         // 跳过与否都必须写进测量记录，不能靠猜。
