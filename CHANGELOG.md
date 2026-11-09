@@ -7,24 +7,29 @@
 
 ### Added
 
-- **`genie-bench` 补齐 ORT 会话参数旗标**（M5.3 收口）：`--graph-opt <0-3>`、
-  `--arena <0|1>`、`--mem-pattern <0|1>`（SessionConfig 字段早已存在，
-  bench 此前只暴露线程与自旋），JSON 头记录全部参数。第二轮扫描
-  （图优化 / arena / 内存模式）结论：各组合差异在 run 间噪声带内，
-  默认配置（graph_opt=3 + arena + mem pattern 全开）保留不变，
-  数据见 `docs/performance.md` §参数扫描第二轮。
+- **ONNX 外部权重内联转码器**（fp16 分发的库侧地基，M5 借鉴上游方向）：
 
-- **音色包信任模式**（`EngineConfig::verify_voice_package`，默认仍校验）：
-
-  - SHA-256 逐文件全量校验的成本与包体积线性（2.4 GB ≈ 3.8 s，
-    占冷启动一半）—— 常驻进程只付一次；"每次进程冷起"的 CLI 场景
-    它就是主成本。跳过校验仅建议用于包由本机受信流程产出的场景，
-    文件存在性检查不受开关影响。
-  - 新增 `EngineConfig`（加载侧配置 + 内嵌会话配置）与两个 Engine
-    构造重载；CLI 与 genie-bench 新增 `--no-verify`，跳过时终端打
-    warning（不做静默行为）。
-  - 实测（i9-13900KF / multilang 包 2.4 GB）：冷启动 7406 → 3589 ms
-    （**-51.5%**），`load/voice_package` 阶段 3789 → 0.2 ms。
+  - `genie::inline_external_fp16_weights(model, source)`：wire-format 级
+    转码，把 external-data 初始化器内联为 raw_data。每个外部文件的精度
+    按"图声明区间 vs 文件大小"自动判定：装得下 → 逐字节原样内联
+    （fp32 bin / 自包含 fp16 张量）；只有一半装得下 → 按 HF 上游的
+    fp16 打包格式解释（图声明 FLOAT、offset/length 为 fp32 字节单位，
+    文件在 offset/2 处存 length/2 字节 fp16 —— 本项目六模型的实测
+    布局，`t2s_shared` 的 291+291 个外部张量全部 4 字节对齐且 span 总长
+    恰等于 fp32 bin 大小），拷贝时上转 FP32；两种解释都装不下 →
+    ModelLoadError，不做歧义回退。
+  - external_data / data_location 字段按 ONNX 规范清除（禁止与
+    raw_data 并存，否则 ORT 会忽略 raw_data 走外部文件路径，
+    内联即失效）。
+  - 手写 wire-format 与现有只读解析器同风格，零 protobuf 依赖；
+    IEEE half → single 含次正规 / Inf / NaN 全分支。
+  - 错误路径：external 条目缺 length、两种解释下都越界、provider 缺
+    文件、fp16 打包张量非 4 字节对齐或声明为非 FLOAT，均报
+    ModelLoadError / Unsupported。
+  - 9 个单测覆盖 fp16 上转 / fp32 原样 / 非浮点原样 / 无外部数据透传 /
+    无关字段保留 / 错误路径（tests/unit/test_onnx_graph.cpp）。
+    上游参照：Genie-TTS ModelManager 的 fp16 权重内存注入；格式判定
+    依据的实测记录见 tools/deploy/convert_fp16_weights.py 的模块注释。
 
 ### Changed
 
