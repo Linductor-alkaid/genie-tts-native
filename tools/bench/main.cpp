@@ -76,6 +76,7 @@ Options:
   --language <lang> auto | chinese | english | japanese | korean | hybrid-chinese-english
   --threads <n>     ORT intra-op threads per session (default 8)
   --spinning <0|1>  ORT intra-op spin-wait (session.intra_op.allow_spinning, default 0)
+  --no-verify       Skip voice package SHA-256 verification (faster cold start)
   --warmup <n>      Warmup runs per text, excluded from stats (default 1)
   --runs <n>        Measured runs per text (default 5)
   --json <file>     Also write the aggregate as JSON to this path
@@ -97,6 +98,7 @@ struct Options {
     int spinning = 0;
     int warmup = 1;
     int runs = 5;
+    bool no_verify = false;
     bool help = false;
 };
 
@@ -145,6 +147,8 @@ bool parse_options(int argc, char** argv, Options& options) {
             } else {
                 options.runs = parsed;
             }
+        } else if (arg == "--no-verify") {
+            options.no_verify = true;
         } else if (arg == "--json") {
             if (!next(options.json_path)) {
                 return false;
@@ -609,9 +613,15 @@ int main(int argc, char** argv) {
 
     // 线程预算与 CLI synth 同款：每会话一个保守的 intra-op 预算，
     // 否则 4-6 个会话各开满全部核心，多核机器上互相踩踏。
-    genie::SessionConfig config;
-    config.intra_op_threads = options.threads;
-    config.allow_spinning = options.spinning != 0;
+    genie::EngineConfig config;
+    config.session.intra_op_threads = options.threads;
+    config.session.allow_spinning = options.spinning != 0;
+    if (options.no_verify) {
+        // 基准关心的是"引擎冷启动"，校验是其中最大的一块可开关开销；
+        // 跳过与否都必须写进测量记录，不能靠猜。
+        config.verify_voice_package = false;
+        std::cerr << "warning: skipping voice package SHA-256 verification (--no-verify)\n";
+    }
 
     std::cout << "constructing engine (cold start) from: " << options.model_dir << "\n";
     genie::Engine engine(options.model_dir, config);

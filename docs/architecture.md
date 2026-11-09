@@ -346,6 +346,14 @@ genie::AudioChunkChannel  ──►  消费者（播放 / 落盘）
 
 ## 5. 模型包（voice package）格式
 
+
+**校验与信任模式**：manifest 登记的 SHA-256 是完整性契约的落地
+（`VoicePackage::load(root, verify_hash)`）。校验是逐文件全量读盘，
+成本与包体积线性 —— 默认开启；`EngineConfig::verify_voice_package`
+可以显式关掉（CLI / bench 的 `--no-verify`），用于包由受信流程产出、
+冷启动敏感的场景。跳过校验只跳过**哈希计算**，文件存在性检查仍然生效：
+缺文件与坏 manifest 的报错路径不变。
+
 ```text
 voice-package/
 ├── manifest.json

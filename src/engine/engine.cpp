@@ -231,7 +231,7 @@ struct Engine::Impl {
     }
 };
 
-Engine::Engine(std::string root) : Engine(std::move(root), SessionConfig{}) {}
+Engine::Engine(std::string root) : Engine(std::move(root), EngineConfig{}) {}
 
 Engine::Engine(std::string root, const SessionConfig& config)
     : Engine(
@@ -239,19 +239,31 @@ Engine::Engine(std::string root, const SessionConfig& config)
           [](const std::string& path, const SessionConfig& cfg) {
               return create_session(path, cfg);
           },
+          EngineConfig{.session = config}) {}
+
+Engine::Engine(std::string root, const EngineConfig& config)
+    : Engine(
+          std::move(root),
+          [](const std::string& path, const SessionConfig& cfg) {
+              return create_session(path, cfg);
+          },
           config) {}
 
-Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& config) {
+Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& config)
+    : Engine(std::move(root), std::move(factory), EngineConfig{.session = config}) {}
+
+Engine::Engine(std::string root, SessionFactory factory, const EngineConfig& config) {
     auto impl = std::make_unique<Impl>();
     impl->root = std::move(root);
 
     // 冷启动总时长与各阶段耗时都记进 impl->load_timing（M0.3 基线）。
     const auto load_start = std::chrono::steady_clock::now();
 
-    // 1) 音色包。
+    // 1) 音色包。校验是逐文件全量读盘（成本与包体积线性），受
+    //    EngineConfig::verify_voice_package 控制；存在性检查不受影响。
     {
         detail::ScopedStageTimer timer(impl->load_timing, "load/voice_package");
-        impl->package = VoicePackage::load(impl->root, /*verify_hash=*/true);
+        impl->package = VoicePackage::load(impl->root, config.verify_voice_package);
     }
     impl->manifest = impl->package.manifest();
     impl->sample_rate = impl->manifest.sample_rate > 0 ? impl->manifest.sample_rate : 32000;
@@ -259,7 +271,7 @@ Engine::Engine(std::string root, SessionFactory factory, const SessionConfig& co
     // 2) 模型会话。每个会话的初始化是冷启动的大头，按角色单独计时。
     const auto load = [&impl, &factory, &config](const ModelRole role, std::string stage) {
         detail::ScopedStageTimer timer(impl->load_timing, std::move(stage));
-        auto session = factory(impl->package.model_path(role), config);
+        auto session = factory(impl->package.model_path(role), config.session);
         if (!session) {
             throw_error(ErrorCode::ModelLoadError, "session factory returned no session for: " +
                                                        impl->package.model_path(role));

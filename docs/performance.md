@@ -57,8 +57,10 @@ cmake --preset release -DGENIE_ONNXRUNTIME_ROOT=<ort 包> && cmake --build --pre
 | `load/g2pm` | 9 | 0.1% | |
 | **合计** | **7536** | | 未单独计时的装配开销 ≈ 各阶段之和与 total 的差 |
 
-冷启动本轮未动。一半时间在音色包完整性校验（SHA-256 扫 2.4 GB）——
-"信任模式跳过校验"仍是 M5 候选（需显式开关，默认仍校验）。
+音色包完整性校验（SHA-256 扫 2.4 GB）占冷启动一半。**信任模式已落地**
+（`EngineConfig::verify_voice_package` / `--no-verify`，默认仍校验）：
+实测冷启动 7406 → 3589 ms（-51.5%），`load/voice_package` 3789 → 0.2 ms
+—— 上表数字为默认（校验开启）口径。
 
 ### 合成（5 次 mean，单位 ms）
 
