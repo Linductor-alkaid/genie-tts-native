@@ -47,6 +47,20 @@ namespace genie {
 using SessionFactory = std::function<std::unique_ptr<ModelSession>(const std::string& path,
                                                                    const SessionConfig& config)>;
 
+/// 引擎加载侧配置。
+struct EngineConfig {
+    /// 是否校验音色包 manifest 登记的 SHA-256（逐文件全量读盘）。
+    ///
+    /// 校验成本与包体积线性（2.4 GB ≈ 3.8 s，冷启动的一半）—— 常驻进程
+    /// 只付一次；"每次进程冷起"的 CLI 场景它是主成本。跳过校验仅建议
+    /// 用于"包由本机受信流程产出"的场景；文件存在性检查不受此开关影响，
+    /// 缺文件照样报错。默认**开启**校验。
+    bool verify_voice_package = true;
+
+    /// 模型会话配置（线程数、图优化、自旋等）。
+    SessionConfig session;
+};
+
 /// 合成结果。
 struct SynthesisResult {
     /// 合成出的音频。
@@ -81,12 +95,25 @@ public:
     /// @param config 会话配置（线程数、图优化等）
     Engine(std::string root, const SessionConfig& config);
 
+    /// 加载音色包并创建模型会话（加载侧 + 会话配置）。
+    ///
+    /// @param root   音色包根目录
+    /// @param config 加载与 会话配置
+    Engine(std::string root, const EngineConfig& config);
+
     /// 加载音色包，用自定义的会话工厂创建模型会话。
     ///
     /// @param root    音色包根目录
     /// @param factory 会话工厂
     /// @param config  会话配置
     Engine(std::string root, SessionFactory factory, const SessionConfig& config = {});
+
+    /// 加载音色包，用自定义的会话工厂创建模型会话（加载侧 + 会话配置）。
+    ///
+    /// @param root    音色包根目录
+    /// @param factory 会话工厂
+    /// @param config  加载与会话配置
+    Engine(std::string root, SessionFactory factory, const EngineConfig& config);
 
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;

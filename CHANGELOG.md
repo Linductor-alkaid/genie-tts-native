@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- **音色包信任模式**（`EngineConfig::verify_voice_package`，默认仍校验）：
+
+  - SHA-256 逐文件全量校验的成本与包体积线性（2.4 GB ≈ 3.8 s，
+    占冷启动一半）—— 常驻进程只付一次；"每次进程冷起"的 CLI 场景
+    它就是主成本。跳过校验仅建议用于包由本机受信流程产出的场景，
+    文件存在性检查不受开关影响。
+  - 新增 `EngineConfig`（加载侧配置 + 内嵌会话配置）与两个 Engine
+    构造重载；CLI 与 genie-bench 新增 `--no-verify`，跳过时终端打
+    warning（不做静默行为）。
+  - 实测（i9-13900KF / multilang 包 2.4 GB）：冷启动 7406 → 3589 ms
+    （**-51.5%**），`load/voice_package` 阶段 3789 → 0.2 ms。
+
 ### Changed
 
 - **ORT 会话默认值调优**（M5.3，本机扫描数据驱动）：

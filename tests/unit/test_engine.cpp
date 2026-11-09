@@ -689,5 +689,45 @@ TEST(Engine, CancelsStreaming) {
     (void)channel;
 }
 
+// 信任模式（EngineConfig::verify_voice_package）：manifest 登记了错误的
+// SHA-256 时，默认构造必须报错，显式关掉校验后构造放行 —— 文件存在性
+// 检查不受开关影响（模型文件是存在的，只是内容对不上校验值）。
+TEST(Engine, TrustModeSkipsPackageChecksumVerification) {
+    TempVoicePackage package;
+    // 把 manifest 覆写为带错误校验和的版本（TempVoicePackage 默认不写 sha256，
+    // 校验是空操作 —— 这里显式登记一个必然不匹配的值）。
+    std::ofstream manifest(std::filesystem::path(package.root()) / "manifest.json",
+                           std::ios::trunc);
+    manifest << R"({
+  "name": "fake",
+  "format_version": 1,
+  "model_version": "v2",
+  "language": "chinese",
+  "sample_rate": 32000,
+  "models": [
+    {"role": "t2s_encoder", "file": "models/t2s_encoder.onnx",
+     "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    {"role": "t2s_first_stage_decoder", "file": "models/t2s_first_stage_decoder.onnx"},
+    {"role": "t2s_stage_decoder", "file": "models/t2s_stage_decoder.onnx"},
+    {"role": "vits", "file": "models/vits.onnx"}
+  ]
+})";
+    manifest.close();
+    ASSERT_TRUE(manifest.good());
+
+    EngineConfig trusted;
+    trusted.verify_voice_package = false;
+    EXPECT_NO_THROW(Engine(package.root(), fake_factory(), trusted));
+
+    EngineConfig verify;
+    verify.verify_voice_package = true;
+    try {
+        Engine(package.root(), fake_factory(), verify);
+        FAIL() << "expected checksum mismatch to throw";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::ModelLoadError);
+    }
+}
+
 }  // namespace
 }  // namespace genie

@@ -57,6 +57,8 @@ Options:
   --language <lang>    auto | chinese | english | japanese | korean | hybrid-chinese-english
   --seed <n>           Reserved (see note below)
   --threads <n>        ORT intra-op threads per session (default 8)
+  --no-verify          Skip voice package SHA-256 verification (faster cold start;
+                       only for packages produced by a trusted local workflow)
   --timing             Print per-stage timing (model load + synthesis) to stderr
   -h, --help           Show this help
 
@@ -76,6 +78,7 @@ struct Options {
     std::string english_dir;
     std::uint64_t seed = 0;
     int threads = 8;
+    bool no_verify = false;
     bool timing = false;
     bool help = false;
 };
@@ -126,6 +129,8 @@ bool parse_options(int argc, char** argv, Options& options) {
             options.threads = std::atoi(value.c_str());
         } else if (arg == "--timing") {
             options.timing = true;
+        } else if (arg == "--no-verify") {
+            options.no_verify = true;
         } else if (arg == "--english-dir") {
             // 注意：这几个分支必须在"未知选项"分支**之前** ✓ ——
             // 之前 --english-dir 排在了后面 ✓，于是永远走不到 ✓
@@ -288,8 +293,8 @@ int inspect_onnx(const std::string& path) {
 }
 
 /// 打印一个音色包的清单。
-int inspect_voice_package(const std::string& root) {
-    const auto package = genie::VoicePackage::load(root, /*verify_hash=*/true);
+int inspect_voice_package(const std::string& root, bool verify_hash) {
+    const auto package = genie::VoicePackage::load(root, verify_hash);
     const auto& manifest = package.manifest();
 
     std::cout << "voice package: " << root << "\n";
@@ -322,7 +327,7 @@ int command_inspect(const Options& options) {
 
     // 传入的是目录 → 优先当作音色包；没有 manifest 就退回列出 .onnx 文件。
     if (std::filesystem::exists(std::filesystem::path(options.model_dir) / "manifest.json")) {
-        return inspect_voice_package(options.model_dir);
+        return inspect_voice_package(options.model_dir, !options.no_verify);
     }
 
     std::cout << "voice package: " << options.model_dir << "\n";
@@ -374,9 +379,15 @@ int command_synth(const Options& options) {
     // 在多核机器上是上百个自旋线程 —— 调度器一忙就互相踩踏
     // （实测 32 核机器上高负载时段错误/浮点异常都出在 ORT 内部）。
     // CLI 单请求场景给一个保守的每会话预算，可用 --threads 覆盖。
-    genie::SessionConfig config;
+    genie::EngineConfig config;
     if (options.threads > 0) {
-        config.intra_op_threads = options.threads;
+        config.session.intra_op_threads = options.threads;
+    }
+    if (options.no_verify) {
+        // 跳过的决定必须在终端上可见 —— 冷启动快了 4 秒的同时也放弃了
+        // 完整性保证，不能是静默行为。
+        config.verify_voice_package = false;
+        std::cerr << "warning: skipping voice package SHA-256 verification (--no-verify)\n";
     }
 
     genie::Engine engine(options.model_dir, config);
