@@ -20,8 +20,19 @@
 
 用法：
     python3 tools/make_synthetic_model.py <输出路径>
+    python3 tools/make_synthetic_model.py --external-fp16 <输出目录>
+
+--external-fp16 额外生成一对文件：echo_fp16.onnx + echo_fp16_data.bin。
+图与 echo.onnx 同 I/O 契约，但 out_f = beta * w，其中 w 是 [1024] 的
+FLOAT 初始化器、external data 指向 echo_fp16_data.bin —— 文件里是
+**fp16 连续打包**的全 1.0（HF 上游 `*_fp16.bin` 的布局：图声明 fp32、
+offset/length 为 fp32 字节单位，文件按一半偏移存 fp16）。引擎的 fp16
+上转路径（manifest.weight_format = "fp16"）用它做端到端回归：
+w 全 1.0 ⇒ out_f == beta，转码错一个字节测试就会失败。
 """
 
+import argparse
+import pathlib
 import sys
 
 import numpy as np
@@ -73,14 +84,87 @@ def build() -> onnx.ModelProto:
     return model
 
 
+def build_external_fp16(out_dir: pathlib.Path) -> None:
+    """生成 echo_fp16.onnx + echo_fp16_data.bin（HF fp16 打包布局的回归资产）。
+
+    w 是 [1024] FLOAT 初始化器、external data 指向 echo_fp16_data.bin：
+    图里的 offset/length 按 fp32 字节写（0 / 4096），文件按 HF fp16 打包
+    存 2048 字节的全 1.0（half 0x3C00 × 1024）。out_f = beta * w，
+    w 全 1.0 ⇒ out_f == beta。
+    """
+    dim = 1024
+    alpha = helper.make_tensor_value_info("alpha", TensorProto.INT64, ["batch", "n"])
+    beta = helper.make_tensor_value_info("beta", TensorProto.FLOAT, ["n", dim])
+    gamma = helper.make_tensor_value_info("gamma", TensorProto.FLOAT, ["batch", 768, "s"])
+    out_i = helper.make_tensor_value_info("out_i", TensorProto.INT64, ["batch", "n"])
+    out_f = helper.make_tensor_value_info("out_f", TensorProto.FLOAT, ["n", dim])
+    out_scalar = helper.make_tensor_value_info("out_scalar", TensorProto.BOOL, [])
+
+    # 外部权重：图声明 fp32（offset=0, length=4096 字节）；文件存 fp16 打包。
+    tensor = onnx.TensorProto()
+    tensor.name = "w"
+    tensor.data_type = TensorProto.FLOAT
+    tensor.dims.extend([dim])
+    tensor.data_location = onnx.TensorProto.EXTERNAL
+    for k, v in (("location", "echo_fp16_data.bin"), ("offset", "0"), ("length", str(dim * 4))):
+        entry = tensor.external_data.add()
+        entry.key = k
+        entry.value = v
+
+    nodes = [
+        helper.make_node("Identity", ["alpha"], ["out_i"], name="id_alpha"),
+        helper.make_node("Mul", ["beta", "w"], ["out_f"], name="scale_beta"),
+        helper.make_node(
+            "Constant",
+            [],
+            ["out_scalar"],
+            name="stop_const",
+            value=numpy_helper.from_array(np.array(False), name="stop_value"),
+        ),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "genie_synthetic_fp16",
+        [alpha, beta, gamma],
+        [out_i, out_f, out_scalar],
+        [tensor],
+        doc_string="synthetic model with fp16-packed external weights",
+    )
+    model = helper.make_model(
+        graph,
+        producer_name="genie-tts-native",
+        opset_imports=[helper.make_opsetid("", 17)],
+    )
+    model.ir_version = 8
+    # 不跑 onnx.checker：fp16 打包（声明 4096 字节 / 文件 2048 字节）故意
+    # 不符合 ONNX 规范 —— 这是 HF 上游 `*_fp16.bin` 的真实布局，本引擎的
+    # fp16 上转路径就是为它设计的。
+    onnx.save(model, str(out_dir / "echo_fp16.onnx"))
+
+    # fp16 打包数据：1024 个 1.0 的 half = 2048 字节全 0x3C00。
+    halves = np.full(dim, 0x3C00, dtype="<u2")
+    (out_dir / "echo_fp16_data.bin").write_bytes(halves.tobytes())
+    print(f"wrote {out_dir / 'echo_fp16.onnx'} + echo_fp16_data.bin "
+          f"({dim * 2} 字节 fp16 打包数据)")
+
+
 def main() -> int:
-    if len(sys.argv) < 2:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("out_path", nargs="?", help="自包含模型的输出路径")
+    parser.add_argument("--external-fp16", type=pathlib.Path,
+                        help="输出目录：额外生成 echo_fp16.onnx + echo_fp16_data.bin")
+    args = parser.parse_args()
+    if args.out_path:
+        model = build()
+        onnx.save(model, args.out_path)
+        print(f"wrote {args.out_path} ({len(model.graph.node)} nodes)")
+    if args.external_fp16:
+        args.external_fp16.mkdir(parents=True, exist_ok=True)
+        build_external_fp16(args.external_fp16)
+    if not args.out_path and not args.external_fp16:
         print(__doc__)
         return 2
-    out_path = sys.argv[1]
-    model = build()
-    onnx.save(model, out_path)
-    print(f"wrote {out_path} ({len(model.graph.node)} nodes)")
     return 0
 
 

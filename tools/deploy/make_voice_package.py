@@ -114,6 +114,11 @@ def main() -> None:
     parser.add_argument("--reference-text", type=pathlib.Path,
                         help="参考文本（可选；给了才有 ref_seq）")
     parser.add_argument("--language", default="chinese", help="manifest.language（默认 chinese）")
+    parser.add_argument("--weights", choices=("fp32", "fp16"), default="fp32",
+                        help="外部权重精度（默认 fp32）。fp16 = 保留 HF 上游的 "
+                             "*_fp16.bin（包体积减半），引擎加载期在内存里上转 FP32 "
+                             "（manifest 会写 weight_format: fp16）；自包含模型"
+                             "（RoBERTa 等）不受影响")
     parser.add_argument("--output", required=True, type=pathlib.Path, help="音色包输出目录")
     args = parser.parse_args()
 
@@ -130,6 +135,15 @@ def main() -> None:
         entries.append({"role": role, "file": f"models/{dest_name}",
                         "sha256": sha256_of(dest)})
         print(f"  {role:<22} <- {src.name}")
+
+    # fp16 模式：源文件用 HF 的 *_fp16.bin，**目标文件名保持不变** ——
+    # external data 的 location 写死在图里（指向 fp32 名），引擎加载期
+    # 按 manifest 的 weight_format 走 fp16 上转路径。
+    def weight_source_name(dest_name: str) -> str:
+        if args.weights == "fp16":
+            return dest_name.replace("_fp32.bin", "_fp16.bin").replace(
+                "_weights.bin", "_weights_fp16.bin")
+        return dest_name
 
     def place_weights(src: pathlib.Path, dest_name: str) -> None:
         """外部权重**不写 manifest** —— 清单只登记 .onnx 角色；
@@ -148,18 +162,22 @@ def main() -> None:
     # 才报 "no such file: xxx.bin" ✓（external data 的 location 写死在图里 ✓），
     # 那个报错离"打包时少拷了一个文件"太远了 ✓。
     for role, filename in TTS_WEIGHTS:
-        src = args.tts_models / filename
+        src = args.tts_models / weight_source_name(filename)
         if not src.exists():
-            raise SystemExit(
-                f"缺少 {src}（{role} 的 external data 权重，文件名不能改、必须与 onnx 同目录）")
+            hint = "" if args.weights == "fp32" else \
+                f"（fp16 模式需要 HF 的 {weight_source_name(filename)}；不存在就用 --weights fp32）"
+            raise SystemExit(f"缺少 {src}（{role} 的 external data 权重，"
+                             f"文件名不能改、必须与 onnx 同目录）{hint}")
         place_weights(src, filename)
     # V2ProPlus 的 prompt_encoder 权重：跟着 prompt_encoder 图走 ✓。
     if (args.tts_models / "prompt_encoder_fp32.onnx").exists():
         for role, filename in V2PROPLUS_WEIGHTS:
-            src = args.tts_models / filename
+            src = args.tts_models / weight_source_name(filename)
             if not src.exists():
-                raise SystemExit(
-                    f"缺少 {src}（{role} 的 external data 权重，文件名不能改、必须与 onnx 同目录）")
+                hint = "" if args.weights == "fp32" else \
+                    "（fp16 模式需要 HF 的 fp16 版本；不存在就用 --weights fp32）"
+                raise SystemExit(f"缺少 {src}（{role} 的 external data 权重，"
+                                 f"文件名不能改、必须与 onnx 同目录）{hint}")
             place_weights(src, filename)
 
     # V2ProPlus：prompt_encoder（上面）+ 说话人验证 + HuBERT 内容特征。
@@ -169,7 +187,7 @@ def main() -> None:
     if args.hubert:
         place("chinese_hubert", args.hubert / "chinese-hubert-base.onnx",
               "chinese-hubert-base.onnx")
-        weights = args.hubert / "chinese-hubert-base_weights.bin"
+        weights = args.hubert / weight_source_name("chinese-hubert-base_weights.bin")
         if weights.exists():
             place_weights(weights, "chinese-hubert-base_weights.bin")
 
@@ -239,6 +257,7 @@ def main() -> None:
         "model_version": "v2ProPlus" if v2proplus else "v2",
         "language": args.language,
         "sample_rate": 32000,
+        "weight_format": args.weights,
         "capabilities": {"v2proplus": v2proplus,
                          "roberta": args.roberta is not None},
         "models": entries,

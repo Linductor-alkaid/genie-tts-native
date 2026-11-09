@@ -63,48 +63,35 @@ Ort::Env& shared_env() {
 /// 基于 ORT 的会话实现。
 class OrtModelSession final : public ModelSession {
 public:
-    OrtModelSession(const std::string& model_path, const SessionConfig& config) {
-        Ort::SessionOptions options;
-
-        options.SetIntraOpNumThreads(config.intra_op_threads);
-        options.SetInterOpNumThreads(config.inter_op_threads);
-        options.SetExecutionMode(config.parallel_execution ? ORT_PARALLEL : ORT_SEQUENTIAL);
-        // ORT 默认开启内存模式与 CPU arena，这里按配置反向关闭。
-        if (!config.enable_mem_pattern) {
-            options.DisableMemPattern();
-        }
-        if (!config.enable_cpu_mem_arena) {
-            options.DisableCpuMemArena();
-        }
-        // ORT 默认自旋等待（低延迟 ↔ CPU 常驻占用的交换）。引擎一次合成
-        // 只串行使用一个会话，闲置会话的自旋线程纯属内耗；M5.3 的实测
-        // 数据与默认值选择见 docs/performance.md。
-        options.AddConfigEntry("session.intra_op.allow_spinning",
-                               config.allow_spinning ? "1" : "0");
-
-        switch (config.graph_optimization_level) {
-            case 0:
-                options.SetGraphOptimizationLevel(ORT_DISABLE_ALL);
-                break;
-            case 1:
-                options.SetGraphOptimizationLevel(ORT_ENABLE_BASIC);
-                break;
-            case 2:
-                options.SetGraphOptimizationLevel(ORT_ENABLE_EXTENDED);
-                break;
-            default:
-                options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
-                break;
-        }
-
+    OrtModelSession(const std::string& model_path, const SessionConfig& config)
+        : OrtModelSession(config, model_path) {
         try {
-            session_ = std::make_unique<Ort::Session>(shared_env(), model_path.c_str(), options);
+            session_ = std::make_unique<Ort::Session>(shared_env(), model_path.c_str(),
+                                                      make_options(config));
         } catch (const Ort::Exception& e) {
             throw_error(ErrorCode::ModelLoadError,
                         "failed to load ONNX model '" + model_path + "': " + e.what());
         }
 
         model_path_ = model_path;
+        collect_specs();
+    }
+
+    /// 内存构造（fp16 上转路径）：model_data 必须是 external 初始化器
+    /// 已内联的完整 ONNX 模型。ORT 在 CreateSessionFromArray 时把模型
+    /// 解析进自己的存储 —— 契约由真实模型的端到端测试锁定。
+    OrtModelSession(const void* model_data, const std::size_t model_data_size,
+                    std::string model_name, const SessionConfig& config)
+        : OrtModelSession(config, model_name) {
+        try {
+            session_ = std::make_unique<Ort::Session>(shared_env(), model_data, model_data_size,
+                                                      make_options(config));
+        } catch (const Ort::Exception& e) {
+            throw_error(ErrorCode::ModelLoadError,
+                        "failed to load ONNX model from memory (" + model_name + "): " + e.what());
+        }
+
+        model_path_ = std::move(model_name);
         collect_specs();
     }
 
@@ -147,6 +134,46 @@ public:
     }
 
 private:
+    /// 委托目标：只初始化 std::string 等成员，真正的 ORT 会话由公开
+    /// 构造函数体在 make_options 之后创建（两个重载共享成员初始化，
+    /// 避免把 options 组装复制两份）。
+    OrtModelSession(const SessionConfig&, const std::string&) {}
+
+    [[nodiscard]] static Ort::SessionOptions make_options(const SessionConfig& config) {
+        Ort::SessionOptions options;
+        options.SetIntraOpNumThreads(config.intra_op_threads);
+        options.SetInterOpNumThreads(config.inter_op_threads);
+        options.SetExecutionMode(config.parallel_execution ? ORT_PARALLEL : ORT_SEQUENTIAL);
+        // ORT 默认开启内存模式与 CPU arena，这里按配置反向关闭。
+        if (!config.enable_mem_pattern) {
+            options.DisableMemPattern();
+        }
+        if (!config.enable_cpu_mem_arena) {
+            options.DisableCpuMemArena();
+        }
+        // ORT 默认自旋等待（低延迟 ↔ CPU 常驻占用的交换）。引擎一次合成
+        // 只串行使用一个会话，闲置会话的自旋线程纯属内耗；M5.3 的实测
+        // 数据与默认值选择见 docs/performance.md。
+        options.AddConfigEntry("session.intra_op.allow_spinning",
+                               config.allow_spinning ? "1" : "0");
+
+        switch (config.graph_optimization_level) {
+            case 0:
+                options.SetGraphOptimizationLevel(ORT_DISABLE_ALL);
+                break;
+            case 1:
+                options.SetGraphOptimizationLevel(ORT_ENABLE_BASIC);
+                break;
+            case 2:
+                options.SetGraphOptimizationLevel(ORT_ENABLE_EXTENDED);
+                break;
+            default:
+                options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
+                break;
+        }
+        return options;
+    }
+
     void collect_specs() {
         Ort::AllocatorWithDefaultOptions allocator;
         const std::size_t input_count = session_->GetInputCount();
@@ -257,6 +284,14 @@ const char* onnxruntime_version_string() noexcept {
 std::unique_ptr<ModelSession> create_session(const std::string& model_path,
                                              const SessionConfig& config) {
     return std::make_unique<OrtModelSession>(model_path, config);
+}
+
+std::unique_ptr<ModelSession> create_session_from_memory(const void* model_data,
+                                                         std::size_t model_data_size,
+                                                         std::string model_name,
+                                                         const SessionConfig& config) {
+    return std::make_unique<OrtModelSession>(model_data, model_data_size, std::move(model_name),
+                                             config);
 }
 
 bool has_onnxruntime_backend() noexcept {

@@ -8,6 +8,8 @@
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <fstream>
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -269,12 +271,65 @@ Engine::Engine(std::string root, SessionFactory factory, const EngineConfig& con
     impl->sample_rate = impl->manifest.sample_rate > 0 ? impl->manifest.sample_rate : 32000;
 
     // 2) 模型会话。每个会话的初始化是冷启动的大头，按角色单独计时。
-    const auto load = [&impl, &factory, &config](const ModelRole role, std::string stage) {
+    //
+    // fp16 包（manifest.weight_format = "fp16"）的加载路径见 load 内注释。
+    // fp16 权重经内存上转后运行时仍是 FP32 —— 精度影响只来自存储格式，
+    // 与 HF 上游发布的 fp16 bin 一致。
+    const bool upcast_fp16 = impl->manifest.weight_format == WeightFormat::Fp16;
+    std::map<std::string, std::vector<std::byte>> fp16_files;
+    std::vector<std::byte> model_bytes;
+
+    const auto read_all_bytes = [](const std::string& file_path) {
+        std::ifstream file(file_path, std::ios::binary);
+        if (!file) {
+            throw_error(ErrorCode::IoError, "cannot open model file: " + file_path);
+        }
+        std::vector<std::byte> bytes;
+        char buffer[1 << 16];
+        while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) {
+            const auto count = static_cast<std::size_t>(file.gcount());
+            bytes.insert(bytes.end(), reinterpret_cast<std::byte*>(buffer),
+                         reinterpret_cast<std::byte*>(buffer) + count);
+            if (!file) {
+                break;
+            }
+        }
+        return bytes;
+    };
+
+    const auto load = [&impl, &factory, &config, &upcast_fp16, &fp16_files, &model_bytes,
+                       &read_all_bytes](const ModelRole role, std::string stage) {
         detail::ScopedStageTimer timer(impl->load_timing, std::move(stage));
-        auto session = factory(impl->package.model_path(role), config.session);
+        const auto path = impl->package.model_path(role);
+        std::unique_ptr<ModelSession> session;
+        if (upcast_fp16) {
+            // fp16 包：读图 + 外部 fp16 bin → 内存里上转 FP32 并内联 →
+            // 从内存建会话（包体积减半，运行时仍是 FP32；借鉴上游
+            // Genie-TTS 的分发格式）。内联缓冲在会话创建后即可释放
+            // （ORT 解析时拷贝，契约由端到端测试锁定）。
+            model_bytes = read_all_bytes(path);
+            const auto spec = read_onnx_graph_from_memory(model_bytes);
+            fp16_files.clear();
+            for (const auto& file : spec.external_data_files) {
+                const auto bin_path = (std::filesystem::path(path).parent_path() / file).string();
+                fp16_files.emplace(file, read_all_bytes(bin_path));
+            }
+            const ExternalWeightSource source =
+                [&fp16_files](const std::string& location) -> const std::vector<std::byte>* {
+                const auto it = fp16_files.find(location);
+                return it == fp16_files.end() ? nullptr : &it->second;
+            };
+            auto inlined = inline_external_fp16_weights(model_bytes, source);
+            session =
+                create_session_from_memory(inlined.data(), inlined.size(), path, config.session);
+        } else {
+            // SessionFactory 注入缝只覆盖 fp32 路径 —— 假会话无法消费
+            // fp16 的字节流，fp16 路径走真实 ORT。
+            session = factory(path, config.session);
+        }
         if (!session) {
-            throw_error(ErrorCode::ModelLoadError, "session factory returned no session for: " +
-                                                       impl->package.model_path(role));
+            throw_error(ErrorCode::ModelLoadError,
+                        "session factory returned no session for: " + path);
         }
         return session;
     };
