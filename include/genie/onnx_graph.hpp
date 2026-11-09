@@ -17,6 +17,8 @@
 #ifndef GENIE_ONNX_GRAPH_HPP
 #define GENIE_ONNX_GRAPH_HPP
 
+#include <functional>
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -77,6 +79,39 @@ struct OnnxGraphSpec {
 ///
 /// @throws genie::Error IoError —— 缓冲区不是合法 ONNX
 [[nodiscard]] OnnxGraphSpec read_onnx_graph_from_memory(const std::vector<std::byte>& data);
+
+/// 外部权重提供器：按 external_data 的 location（.bin 文件名，相对模型
+/// 同目录）返回整个权重文件的字节。返回 nullptr 表示该文件不可用。
+using ExternalWeightSource =
+    std::function<const std::vector<std::byte>*(const std::string& location)>;
+
+/// 把模型里 external-data 的初始化器**内联**为 raw_data，返回新的模型字节。
+///
+/// 每个外部文件的精度由转码器按"图声明区间 vs 文件大小"自动判定：
+///
+/// - 文件装得下图的 fp32 区间 → 逐字节原样内联（fp32 / 整数声明类型
+///   都不变，对应 fp32 bin 与自包含 fp16 张量）；
+/// - 否则若**一半区间**装得下 → 按 HF 上游的 fp16 打包格式解释：
+///   图声明 FLOAT、offset/length 以 fp32 字节为单位，文件里同一张量
+///   在 offset/2 处占 length/2 字节 fp16 —— 拷贝时上转为 FP32 内联
+///   （包体积减半，运行时仍是 FP32；这正是 HF 仓库 `*_fp16.bin` 的
+///   实测布局，见 docs/architecture.md）；
+/// - 两种解释都不行 → ModelLoadError，不做歧义回退。
+///
+/// 未触及的 protobuf 字段逐字节保留（node 属性等不透明拷贝，不依赖
+/// schema）；external_data / data_location 按 ONNX 规范清除（禁止与
+/// raw_data 并存，否则 ORT 会忽略 raw_data）；已有 raw_data 的初始化器
+/// 原样通过。
+///
+/// @param model  原始模型字节（可为"图壳 + external data"形态）
+/// @param source 权重文件提供器
+/// @return 内联后的模型字节 —— 可直接交给支持内存加载的推理后端
+///
+/// @throws genie::Error ModelLoadError —— external 条目缺 length、
+///         两种解释下都越界、provider 找不到文件、fp16 打包张量
+///         非 4 字节对齐或声明为非 FLOAT
+[[nodiscard]] std::vector<std::byte> inline_external_fp16_weights(
+    const std::vector<std::byte>& model, const ExternalWeightSource& source);
 
 }  // namespace genie
 
