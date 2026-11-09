@@ -7,6 +7,13 @@
 
 ### Added
 
+- **`genie-bench` 补齐 ORT 会话参数旗标**（M5.3 收口）：`--graph-opt <0-3>`、
+  `--arena <0|1>`、`--mem-pattern <0|1>`（SessionConfig 字段早已存在，
+  bench 此前只暴露线程与自旋），JSON 头记录全部参数。第二轮扫描
+  （图优化 / arena / 内存模式）结论：各组合差异在 run 间噪声带内，
+  默认配置（graph_opt=3 + arena + mem pattern 全开）保留不变，
+  数据见 `docs/performance.md` §参数扫描第二轮。
+
 - **音色包信任模式**（`EngineConfig::verify_voice_package`，默认仍校验）：
 
   - SHA-256 逐文件全量校验的成本与包体积线性（2.4 GB ≈ 3.8 s，

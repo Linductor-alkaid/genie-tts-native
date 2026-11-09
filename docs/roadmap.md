@@ -153,9 +153,11 @@
   （ms/token -23%~-31%，`docs/performance.md`）；
   ⏳ 剩余：IOBinding / 跨步预分配缓冲池
 - 🚧 ONNX Runtime 参数搜索（线程数、图优化、执行模式、内存 arena/pattern、
-  CPU 亲和性、ORT Format）—— ✅ 第一轮：线程数 × 自旋扫描
-  （默认 threads=8、自旋关，`docs/performance.md`）；
-  ⏳ 剩余：图优化 / 执行模式 / arena / 亲和性 / ORT Format
+  CPU 亲和性、ORT Format）—— ✅ 线程 × 自旋（默认 8 线程、自旋关）、
+  图优化级别 / arena / 内存模式（默认全开，扫描无稳健更优组合，
+  `docs/performance.md`）；
+  ⏳ 剩余：CPU 亲和性（等坏核排查）、ORT Format（需离线转换工具链）；
+  执行模式 Parallel 明确不采（与串行解码形态不匹配）
 - ⏳ 模型常驻、参考音频缓存、文本特征缓存、缓冲区复用、模型共享
   —— 参考音频特征已在加载期算好常驻（engine 构造期）；其余未做
 - ⏳ 量化（FP32 → 图简化 → 权重量化 → 动态 INT8 → 静态 INT8 → 混合精度）
