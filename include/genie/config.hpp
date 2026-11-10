@@ -91,6 +91,16 @@ struct SessionConfig {
     /// 高线程数 × 自旋还是本机已知的不稳定区（ORT 线程超订阅历史上在
     /// 这台机器上出过段错误/浮点异常，见 tools/cli 的注释）。默认**关**。
     bool allow_spinning = false;
+    /// 建会话时把各节点的权重预打包（PrePack）摊到本会话的 intra-op 线程池上
+    /// 并行做（ORT 的 session.prepack.enable_parallel —— **1.31 起**才有这个
+    /// 键，更早的版本（含上游钉的 1.22）会忽略它、等价于关闭；且只在
+    /// intra_op_threads > 1 时生效）。
+    ///
+    /// 实测（i9-13900KF，ORT 1.31，docs/performance.md §加载期并行）：冷启动
+    /// -8%（fp32 包三轮均值 3.77 → 3.46 s），但**常驻**内存 +0.5 GB（RSS
+    /// 时间线显示加载后不回落）—— 用内存换启动时间，默认**关**；内存宽裕、
+    /// 冷启动敏感的部署可以打开。
+    bool parallel_prepack = false;
 };
 
 }  // namespace genie

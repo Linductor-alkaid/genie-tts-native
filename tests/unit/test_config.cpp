@@ -58,3 +58,15 @@ TEST(Config, ExplicitLanguageIsRespected) {
     EXPECT_EQ(detect_language("hello", Language::English), Language::English);
     EXPECT_EQ(detect_language("你好", Language::English), Language::English);
 }
+
+TEST(Config, SessionDefaultsAreTheMeasuredOnes) {
+    // 两个默认值都来自实测（docs/performance.md），改动需要新数据支撑：
+    // 自旋关 —— 延迟持平、核占用降到 1/3–1/4；并行预打包关 —— 冷启动
+    // -8% 换常驻内存 +0.5 GB，不值得默认开。
+    const SessionConfig config;
+    EXPECT_FALSE(config.allow_spinning);
+    EXPECT_FALSE(config.parallel_prepack);
+    EXPECT_EQ(config.graph_optimization_level, 3);
+    EXPECT_TRUE(config.enable_cpu_mem_arena);
+    EXPECT_TRUE(config.enable_mem_pattern);
+}

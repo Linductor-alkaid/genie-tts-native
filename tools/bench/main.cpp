@@ -79,6 +79,8 @@ Options:
   --graph-opt <n>   Graph optimization level 0-3 (default 3 = ORT_ENABLE_ALL)
   --arena <0|1>     ORT CPU memory arena (default 1)
   --mem-pattern <0|1> ORT memory pattern (default 1)
+  --parallel-prepack <0|1> Pre-pack weights across the intra-op pool while
+                    creating sessions (session.prepack.enable_parallel, default 0)
   --no-verify       Skip voice package SHA-256 verification (faster cold start)
   --warmup <n>      Warmup runs per text, excluded from stats (default 1)
   --runs <n>        Measured runs per text (default 5)
@@ -102,6 +104,7 @@ struct Options {
     int graph_opt = 3;
     int arena = 1;
     int mem_pattern = 1;
+    int parallel_prepack = 0;
     int warmup = 1;
     int runs = 5;
     bool no_verify = false;
@@ -138,8 +141,8 @@ bool parse_options(int argc, char** argv, Options& options) {
                 return false;
             }
         } else if (arg == "--threads" || arg == "--spinning" || arg == "--graph-opt" ||
-                   arg == "--arena" || arg == "--mem-pattern" || arg == "--warmup" ||
-                   arg == "--runs") {
+                   arg == "--arena" || arg == "--mem-pattern" || arg == "--parallel-prepack" ||
+                   arg == "--warmup" || arg == "--runs") {
             std::string value;
             if (!next(value)) {
                 return false;
@@ -155,6 +158,8 @@ bool parse_options(int argc, char** argv, Options& options) {
                 options.arena = parsed;
             } else if (arg == "--mem-pattern") {
                 options.mem_pattern = parsed;
+            } else if (arg == "--parallel-prepack") {
+                options.parallel_prepack = parsed;
             } else if (arg == "--warmup") {
                 options.warmup = parsed;
             } else {
@@ -496,9 +501,9 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
            json_escape(cpu_model()) + "\"},\n";
     std::snprintf(number, sizeof(number),
                   "  \"threads\": %d, \"spinning\": %d, \"graph_opt\": %d, \"arena\": %d, "
-                  "\"mem_pattern\": %d, \"runs\": %d, \"warmup\": %d,\n",
+                  "\"mem_pattern\": %d, \"parallel_prepack\": %d, \"runs\": %d, \"warmup\": %d,\n",
                   options.threads, options.spinning, options.graph_opt, options.arena,
-                  options.mem_pattern, options.runs, options.warmup);
+                  options.mem_pattern, options.parallel_prepack, options.runs, options.warmup);
     out += number;
     if (rss_kb < 0.0) {
         out += "  \"peak_rss_kb\": null,\n";
@@ -606,10 +611,11 @@ int main(int argc, char** argv) {
     if (options.runs < 1 || options.warmup < 0 || options.threads < 1 ||
         (options.spinning != 0 && options.spinning != 1) ||
         (options.arena != 0 && options.arena != 1) ||
-        (options.mem_pattern != 0 && options.mem_pattern != 1) || options.graph_opt < 0 ||
+        (options.mem_pattern != 0 && options.mem_pattern != 1) ||
+        (options.parallel_prepack != 0 && options.parallel_prepack != 1) || options.graph_opt < 0 ||
         options.graph_opt > 3) {
         std::cerr << "--runs/--threads must be >= 1, --warmup must be >= 0, "
-                     "--spinning/--arena/--mem-pattern must be 0 or 1, "
+                     "--spinning/--arena/--mem-pattern/--parallel-prepack must be 0 or 1, "
                      "--graph-opt must be 0-3\n";
         return kExitUsage;
     }
@@ -645,6 +651,7 @@ int main(int argc, char** argv) {
     config.session.graph_optimization_level = options.graph_opt;
     config.session.enable_cpu_mem_arena = options.arena != 0;
     config.session.enable_mem_pattern = options.mem_pattern != 0;
+    config.session.parallel_prepack = options.parallel_prepack != 0;
     if (options.no_verify) {
         // 基准关心的是"引擎冷启动"，校验是其中最大的一块可开关开销；
         // 跳过与否都必须写进测量记录，不能靠猜。

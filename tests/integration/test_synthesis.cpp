@@ -111,6 +111,26 @@ TEST_F(OrtBackendTest, BindsInputsByNameNotByPosition) {
     EXPECT_FALSE(std::get<bool>(*scalar));
 }
 
+TEST_F(OrtBackendTest, ParallelPrepackOptionKeepsResultsIdentical) {
+    // 并行预打包只改变建会话时的工作分配，不改变权重 —— 推理结果必须
+    // 一致（intra_op_threads > 1 时该选项才生效；ORT < 1.31 不认识这个键、
+    // 直接忽略 —— 这条用例在那些版本上验证的是"写入未知键不会出错"）。
+    config_.intra_op_threads = 2;
+    config_.parallel_prepack = true;
+    auto session = create_session(model_path_.string(), config_);
+
+    const std::vector<float> beta(4U * 1024U, 0.75F);
+    const auto outputs = session->run({
+        {"alpha", Tensor::from_int64({1, 4}, std::vector<std::int64_t>(4, 5))},
+        {"beta", Tensor::from_float32({4, 1024}, beta)},
+        {"gamma", Tensor::from_float32({1, 768, 8}, std::vector<float>(768U * 8U, 0.0F))},
+    });
+    ASSERT_EQ(outputs.size(), 3U);
+    EXPECT_EQ(outputs[0].ints()[0], 5);
+    ASSERT_EQ(outputs[1].floats().size(), beta.size());
+    EXPECT_EQ(outputs[1].floats()[0], 0.75F);
+}
+
 TEST_F(OrtBackendTest, MissingModelThrowsModelLoadError) {
     EXPECT_THROW(create_session("/definitely/not/here/model.onnx", config_), Error);
 }

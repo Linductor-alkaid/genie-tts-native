@@ -163,6 +163,11 @@ private:
         // 数据与默认值选择见 docs/performance.md。
         options.AddConfigEntry("session.intra_op.allow_spinning",
                                config.allow_spinning ? "1" : "0");
+        // 预打包在 intra-op 线程池上并行。键是 ORT 1.31 才加的；更早的版本
+        // 不认识它、直接忽略（等价于关闭），所以无条件写入是安全的。
+        if (config.parallel_prepack) {
+            options.AddConfigEntry("session.prepack.enable_parallel", "1");
+        }
 
         switch (config.graph_optimization_level) {
             case 0:
