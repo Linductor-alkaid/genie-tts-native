@@ -7,6 +7,14 @@
 
 ### Added
 
+- **`SessionConfig::parallel_prepack`**（opt-in，默认关）：建会话时把权重
+  预打包摊到本会话的 intra-op 线程池（ORT `session.prepack.enable_parallel`
+  —— 1.31 起才有，更早的版本忽略它）。实测冷启动 -8%（fp32 包三轮均值
+  3.77 → 3.46 s），但常驻内存 +0.5 GB，因此默认关。`genie-bench
+  --parallel-prepack <0|1>` 复现，JSON 记录该项。跨会话并行建会话未采用：
+  kairo 默认池的单核绑定会被 ORT 的 intra-op 线程继承（见
+  docs/architecture.md §2.14）。
+
 - **fp16 权重分发支持**（M5，借鉴上游 Genie-TTS 的分发格式）：
 
   - 音色包 manifest 新增 `"weight_format": "fp16"`（缺省 fp32）：外部
