@@ -4,11 +4,14 @@
 
 #include <atomic>
 #include <chrono>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
 #include "genie/audio.hpp"
+#include "genie/errors.hpp"
 #include "genie/scheduler.hpp"
+#include "scheduler/parallel.hpp"
 
 using namespace genie;
 using namespace std::chrono_literals;
@@ -139,4 +142,49 @@ TEST(AudioChunkChannelTest, PopWithTimeoutReturnsFalseWhenEmpty) {
     AudioChunkChannel channel(4);
     AudioBuffer received;
     EXPECT_FALSE(channel.pop(received, 20ms));
+}
+
+// --------------------------------------------------------------------------- parallel_for
+
+TEST_F(SchedulerTest, ParallelForRunsEveryItem) {
+    std::vector<std::atomic<int>> slots(64);
+    for (auto& slot : slots) {
+        slot.store(0);
+    }
+    detail::parallel_for(slots.size(), 8, [&slots](const std::size_t i) { slots[i].fetch_add(1); });
+    for (std::size_t i = 0; i < slots.size(); ++i) {
+        EXPECT_EQ(slots[i].load(), 1) << "item " << i;
+    }
+}
+
+TEST_F(SchedulerTest, ParallelForPropagatesLowestIndexError) {
+    // 两项都抛错：重抛的必须是下标最小的那个 —— 结果与调度顺序无关。
+    try {
+        detail::parallel_for(4, 4, [](const std::size_t i) {
+            if (i == 3) {
+                throw_error(ErrorCode::Internal, "later");
+            }
+            if (i == 1) {
+                throw_error(ErrorCode::InvalidArgument, "earlier");
+            }
+        });
+        FAIL() << "expected an error";
+    } catch (const Error& e) {
+        EXPECT_EQ(e.code(), ErrorCode::InvalidArgument);
+        EXPECT_NE(std::string(e.what()).find("earlier"), std::string::npos);
+    }
+}
+
+TEST_F(SchedulerTest, ParallelForSerialWhenWorkersIsOne) {
+    // max_workers = 1：就地串行（不碰执行器）。顺序也必须是下标序。
+    std::vector<std::size_t> order;
+    detail::parallel_for(8, 1, [&order](const std::size_t i) { order.push_back(i); });
+    ASSERT_EQ(order.size(), 8U);
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        EXPECT_EQ(order[i], i);
+    }
+}
+
+TEST_F(SchedulerTest, ParallelForEmptyIsNoop) {
+    detail::parallel_for(0, 8, [](const std::size_t) { FAIL() << "no items, no calls"; });
 }

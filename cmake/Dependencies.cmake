@@ -99,7 +99,7 @@ endif()
 # 注意：kairo 仓库没有 tag，且浅克隆无法取到任意 commit，
 # 因此这里必须用完整 SHA 且不做浅克隆。
 # --------------------------------------------------------------------------------------
-set(GENIE_KAIRO_TAG "e8976652019b66f6b18a3a8eba29e3b492b8726f"
+set(GENIE_KAIRO_TAG "53ee306c2082c38d8be5ead94d268ebd94bdc284"
     CACHE STRING "kairo git ref (完整 commit SHA)")
 
 if(NOT GENIE_ENABLE_KAIRO)
