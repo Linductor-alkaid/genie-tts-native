@@ -7,6 +7,15 @@
 
 ### Added
 
+- **模型会话并行加载（冷启动 3.77 → ~1.8 s）**：kairo 升至 53ee306
+  （默认线程池从逐核绑定改为 OS 自由调度 —— 解除"ORT 线程继承单核
+  亲和性"的阻塞；显式 `cpu_affinity` 行为不变）。调度层新增
+  `detail::parallel_for`（fork-join；调用线程自带一份活、异常重抛最小
+  下标、无 kairo 时串行）。引擎的 fp16 上转（按文件）与建会话（按模型）
+  各以 8 路并行（concurrency = intra_op_threads）；计时新增
+  `load/sessions`。实测会话段 ~2.9×（3.35 s → ~1.16 s），合成延迟不变；
+  决策与绑核问题的来龙去脉见 docs/architecture.md §2.14。
+
 - **`SessionConfig::parallel_prepack`**（opt-in，默认关）：建会话时把权重
   预打包摊到本会话的 intra-op 线程池（ORT `session.prepack.enable_parallel`
   —— 1.31 起才有，更早的版本忽略它）。实测冷启动 -8%（fp32 包三轮均值

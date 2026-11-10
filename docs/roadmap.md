@@ -161,8 +161,9 @@
 - 🚧 冷启动 —— ✅ 音色包信任模式（跳过 SHA-256，冷启动 -51%）；
   ✅ fp16 权重分发（包体积 -21%；加载期整文件上转 + ORT 内存替换，
   冷启动只比 fp32 多 ~0.7 s，`docs/performance.md`）；✅ 会话内并行预打包
-  （opt-in：-8% 冷启动换 +0.5 GB 常驻内存）；⏳ 跨会话并行加载 —— 受 kairo
-  默认池单核绑定阻塞（ORT 线程继承亲和性），见 architecture.md §2.14
+  （opt-in：-8% 冷启动换 +0.5 GB 常驻内存）；✅ 跨会话并行加载 —— kairo 升至 53ee306（默认池 OS 自由调度）后落地
+  （parallel_for fork-join，8 路；会话段 ~2.9×，冷启动 3.77 → ~1.8 s），
+  见 architecture.md §2.14
 - 🚧 内存占用 —— ✅ 加载期会话释放 + 还页（常驻 -1.2 GB，
   `docs/performance.md` §内存）；⏳ t2s 双解码器共享权重（ORT 探针实测
   省不出来，等 fp16/int8 推理）；⏳ KV cache 预分配
