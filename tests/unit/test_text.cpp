@@ -258,10 +258,9 @@ TEST(Frontend, ShortPureChineseKeepsSingleShotPath) {
     auto frontend = chinese_frontend();
     ASSERT_NE(frontend, nullptr);
 
-    const auto sequence = frontend
-                              ->convert(
-                                  "\xE4\xBD\xA0\xE5\xA5\xBD\xEF\xBC\x8C\xE4\xB8\x96\xE7\x95\x8C\xE3"
-                                  "\x80\x82");  // 你好，世界。
+    const auto sequence = frontend->convert(
+        "\xE4\xBD\xA0\xE5\xA5\xBD\xEF\xBC\x8C\xE4\xB8\x96\xE7\x95\x8C\xE3"
+        "\x80\x82");  // 你好，世界。
     EXPECT_FALSE(sequence.empty());
     EXPECT_TRUE(sequence.bert_chunks.empty());
 }
