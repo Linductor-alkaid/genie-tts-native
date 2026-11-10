@@ -157,6 +157,9 @@ def main() -> int:
     args = parser.parse_args()
     if args.out_path:
         model = build()
+        # 干净 checkout 里 tests/models/ 不存在（.gitignore 排除）—— CI 直接
+        # 往里写，父目录要自己建。
+        pathlib.Path(args.out_path).parent.mkdir(parents=True, exist_ok=True)
         onnx.save(model, args.out_path)
         print(f"wrote {args.out_path} ({len(model.graph.node)} nodes)")
     if args.external_fp16:

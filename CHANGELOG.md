@@ -86,6 +86,15 @@
 
 ### Fixed
 
+- **CI 的集成测试一直是空跑**：合成测试模型（`tests/models/synthetic/`）
+  被 .gitignore 排除、CI 又从不生成，`genie_integration_tests` 的 7 个用例
+  （按名字绑定、引擎构造、加载计时、fp16 上转加载路径）与
+  `OnnxGraph.ReadsSyntheticModelSignature` 在 CI 里全部 GTEST_SKIP ——
+  ctest 把跳过算通过，job 绿而空。现在 ORT job 先用
+  `tools/make_synthetic_model.py` 生成资产（onnx / numpy 钉版本），并单独
+  断言集成用例没有任何 SKIPPED；生成器补上输出目录的自动创建（干净
+  checkout 里该目录不存在）。
+
 - **CI runner 镜像升级后单元测试编译失败**：`tests/unit/test_english.cpp`
   使用 `std::find` 但依赖其它头文件间接带入 `<algorithm>`，ubuntu-latest
   镜像升级后的 GCC 不再传递包含 —— 显式补上。纯移植性修复，无行为变化。
