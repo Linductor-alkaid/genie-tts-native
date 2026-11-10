@@ -53,12 +53,35 @@ struct Reading {
     bool valid = false;
 };
 
+/// 一个汉字及其在规范化文本里的字节区间（BERT 分块按它对齐文本切片）。
+struct HanChar {
+    std::string text;
+    std::size_t begin = 0;
+    std::size_t end = 0;
+};
+
+/// 一条 word2ph 条目对应的源字符字节区间。
+struct CharSpan {
+    std::size_t begin = 0;
+    std::size_t end = 0;
+};
+
+[[nodiscard]] std::vector<std::string> char_texts(const std::vector<HanChar>& chars) {
+    std::vector<std::string> texts;
+    texts.reserve(chars.size());
+    for (const auto& ch : chars) {
+        texts.push_back(ch.text);
+    }
+    return texts;
+}
+
 /// 一个汉字段的变调处理结果直接写进音素序列。
 ///
 /// 上游 g2p 对每个标点分段做 jieba 分词；标点本身不参与变调，
 /// 所以这里按"连续汉字段"分组 —— 段内走完整流程，语义等价。
-void process_han_run(const std::vector<std::string>& chars, const Polyphone* polyphone,
-                     const jieba::Tokenizer* jieba, PhonemeSequence& sequence) {
+void process_han_run(const std::vector<HanChar>& chars, const Polyphone* polyphone,
+                     const jieba::Tokenizer* jieba, PhonemeSequence& sequence,
+                     std::vector<CharSpan>& entry_spans) {
     // 1) 分词。有 jieba 时与上游同源（统计分词 + HMM OOV，见
     //    text/jieba.hpp）；缺失时退回词表贪心最长匹配（audit §9.6 的
     //    近似路径）。分词结果就是 pre_merge 的输入 —— 上游
@@ -67,7 +90,7 @@ void process_han_run(const std::vector<std::string>& chars, const Polyphone* pol
     if (jieba != nullptr) {
         std::string run;
         for (const auto& ch : chars) {
-            run += ch;
+            run += ch.text;
         }
         for (const auto& word : jieba->cut(run)) {
             sandhi::Unit unit;
@@ -80,10 +103,10 @@ void process_han_run(const std::vector<std::string>& chars, const Polyphone* pol
             units.push_back(std::move(unit));
         }
         if (units.empty()) {
-            units = sandhi::segment(chars);
+            units = sandhi::segment(char_texts(chars));
         }
     } else {
-        units = sandhi::segment(chars);
+        units = sandhi::segment(char_texts(chars));
     }
 
     // 2) 每字原始读音。有 Polyphone（g2pM）时整段推理取上下文读音 ——
@@ -93,7 +116,7 @@ void process_han_run(const std::vector<std::string>& chars, const Polyphone* pol
     if (polyphone != nullptr) {
         std::string run;
         for (const auto& ch : chars) {
-            run += ch;
+            run += ch.text;
         }
         auto pinyins = polyphone->pinyins_of(run);
         if (pinyins.size() == chars.size()) {
@@ -105,7 +128,7 @@ void process_han_run(const std::vector<std::string>& chars, const Polyphone* pol
             }
             if (jieba == nullptr) {
                 // 无 jieba：拿不到词边界，退回整段最长匹配修正（audit §9.7）。
-                polyphone->correct_pronunciation(chars, pinyins);
+                polyphone->correct_pronunciation(char_texts(chars), pinyins);
             }
             for (std::size_t i = 0; i < pinyins.size(); ++i) {
                 readings[i].pinyin = std::move(pinyins[i]);
@@ -117,7 +140,7 @@ void process_han_run(const std::vector<std::string>& chars, const Polyphone* pol
             continue;
         }
         // 回退：单字拼音表的最常用读音。
-        if (const auto pinyin = pinyin::lookup(chars[i]); pinyin) {
+        if (const auto pinyin = pinyin::lookup(chars[i].text); pinyin) {
             readings[i].pinyin = *pinyin;
         }
     }
@@ -196,6 +219,7 @@ void process_han_run(const std::vector<std::string>& chars, const Polyphone* pol
     for (const auto& unit : units) {
         for (std::size_t k = 0; k < unit.chars.size(); ++k) {
             const auto& reading = readings[index++];
+            const auto& han_char = chars[index - 1];
             if (!reading.valid) {
                 // 读音不可得（拼音表缺字 / g2pM 不认识）：跳过 ——
                 // 上游同样跳过给不出拼音的字。
@@ -219,6 +243,7 @@ void process_han_run(const std::vector<std::string>& chars, const Polyphone* pol
             }
             if (count > 0) {
                 sequence.word2ph.push_back(count);
+                entry_spans.push_back({han_char.begin, han_char.end});
             }
         }
     }
@@ -229,11 +254,12 @@ void process_han_run(const std::vector<std::string>& chars, const Polyphone* pol
 /// 汉字段走完整流水线（分词 → 变调 → 儿化 → 音素），标点走符号表。
 /// 单块与混读路径共用这里。
 void process_normalized(const std::string& normalized, const Polyphone* polyphone,
-                        const jieba::Tokenizer* jieba, PhonemeSequence& sequence) {
-    std::vector<std::string> han_run;
+                        const jieba::Tokenizer* jieba, PhonemeSequence& sequence,
+                        std::vector<CharSpan>& entry_spans) {
+    std::vector<HanChar> han_run;
     const auto flush_run = [&]() {
         if (!han_run.empty()) {
-            process_han_run(han_run, polyphone, jieba, sequence);
+            process_han_run(han_run, polyphone, jieba, sequence, entry_spans);
             han_run.clear();
         }
     };
@@ -252,7 +278,7 @@ void process_normalized(const std::string& normalized, const Polyphone* polyphon
         const std::string_view piece(normalized.data() + ch.offset, ch.length);
 
         if (utf8::is_han(ch.codepoint)) {
-            han_run.emplace_back(piece);
+            han_run.push_back({std::string(piece), ch.offset, ch.offset + ch.length});
             continue;
         }
 
@@ -263,9 +289,75 @@ void process_normalized(const std::string& normalized, const Polyphone* polyphon
             sequence.symbols.emplace_back(piece);
             sequence.ids.push_back(id);
             sequence.word2ph.push_back(1);
+            entry_spans.push_back({ch.offset, ch.offset + ch.length});
         }
     }
     flush_run();
+}
+
+// ---------------------------------------------------------------------------
+// BERT 分块（长文本）—— RoBERTa 的位置嵌入只有 512 行，超长输入会
+// 在推理期直接报错（实测：531 个 token 撞出 "512 by 531" 广播错误）。
+// 上游整段编码、没有这层保护 —— 这是本引擎**有意的偏差**（audit §24）：
+// 按标点把超长的中文段切成 ≤ 500 字的分块，复用混读路径的逐块编码
+// （块间没有跨块注意力，逐块拼接与整段计算的同位差异与上游混读一致）。
+
+/// 单块的目标上限（条目数 = 汉字 / 标点数；token 数 = 条目 + CLS/SEP）。
+constexpr std::size_t kMaxChunkEntries = 500;
+/// 超过这个累计量后，遇到标点就收块（块尾落在句读上，"按语义分段"）。
+constexpr std::size_t kSoftChunkSplit = 380;
+
+/// 把 process_normalized 产出的条目区间切成 BERT 分块。
+///
+/// 条目总数 ≤ kMaxChunkEntries 时不切（保持既有单块行为 —— 混读黄金
+/// 语料与 "PureChineseHasNoBertChunks" 依赖它）；否则在标点处收块：
+/// 累计 ≥ kSoftChunkSplit 后遇到标点条目即收（块尾带标点），一路没有
+/// 标点的长汉字段在硬上限处按字硬切 —— 不为此引入分词 / 语义模型。
+///
+/// @param normalized  本次 process_normalized 的规范化文本（spans 引用它）
+/// @param spans       与本调用新增的 word2ph 条目一一对应的字符区间
+/// @param word_offset 本段文本在序列 word2ph 里的起始下标
+/// @param sequence    bert_chunks 追加到这里
+/// @return 是否切成了多块（false = 未分块，条目数在预算内）
+[[nodiscard]] bool fill_bert_chunks(const std::string& normalized,
+                                    const std::vector<CharSpan>& spans,
+                                    const std::size_t word_offset, PhonemeSequence& sequence) {
+    if (spans.size() <= kMaxChunkEntries) {
+        return false;
+    }
+
+    // 规范化后的中文文本只保留 `!?…,.-` 六种标点（normalize_chinese 的
+    // 契约），标点条目是单字节字符 —— 按字节判断即可。
+    const auto is_punct_entry = [&normalized](const CharSpan& span) {
+        return span.end - span.begin == 1 &&
+               (normalized[span.begin] == ',' || normalized[span.begin] == '.' ||
+                normalized[span.begin] == '!' || normalized[span.begin] == '?' ||
+                normalized[span.begin] == '-');
+    };
+
+    const auto push_chunk = [&](const std::size_t first, const std::size_t last) {
+        sequence.bert_chunks.push_back(
+            BertChunk{normalized.substr(spans[first].begin, spans[last].end - spans[first].begin),
+                      word_offset + first, last - first + 1});
+    };
+
+    std::size_t chunk_begin = 0;  // spans 下标
+    std::size_t since_last_split = 0;
+    for (std::size_t i = 0; i < spans.size(); ++i) {
+        ++since_last_split;
+        // 软切：块够长且当前是单字节标点 → 块尾落在句读上。
+        // （'…' 是 3 字节，天然不命中 is_punct_entry，不做收尾点。）
+        const bool soft = since_last_split >= kSoftChunkSplit && is_punct_entry(spans[i]);
+        if (soft || since_last_split == kMaxChunkEntries) {
+            push_chunk(chunk_begin, i);
+            chunk_begin = i + 1;
+            since_last_split = 0;
+        }
+    }
+    if (chunk_begin < spans.size()) {
+        push_chunk(chunk_begin, spans.size() - 1);
+    }
+    return true;
 }
 
 /// 中文前端。
@@ -319,18 +411,28 @@ public:
                 }
                 const std::string normalized = normalize(chunk.content, Language::Chinese);
                 const std::size_t word_offset = sequence.word2ph.size();
-                process_normalized(normalized, polyphone_, jieba_, sequence);
+                std::vector<CharSpan> spans;
+                process_normalized(normalized, polyphone_, jieba_, sequence, spans);
                 if (sequence.word2ph.size() > word_offset) {
                     // 产出为空的块不进 BERT 分块：没有音素也就没有特征行
-                    //（上游对空 phone 列表展开同样是 0 行）。
-                    sequence.bert_chunks.push_back(
-                        BertChunk{normalized, word_offset, sequence.word2ph.size() - word_offset});
+                    //（上游对空 phone 列表展开同样是 0 行）。超预算的中文块
+                    // 按标点切子块；预算内的保持整块（黄金语料锁定这个形态）。
+                    if (!fill_bert_chunks(normalized, spans, word_offset, sequence)) {
+                        sequence.bert_chunks.push_back(BertChunk{
+                            normalized, word_offset, sequence.word2ph.size() - word_offset});
+                    }
                 }
             }
             return sequence;
         }
 
-        process_normalized(normalize(text, Language::Chinese), polyphone_, jieba_, sequence);
+        const std::string normalized = normalize(text, Language::Chinese);
+        std::vector<CharSpan> entry_spans;
+        process_normalized(normalized, polyphone_, jieba_, sequence, entry_spans);
+        // 预算内的纯中文保持单块路径（bert_chunks 为空 → 整段一次
+        // RoBERTa，与上游 'chinese' 模式一致）；超长时按标点切分块，
+        // 引擎的逐块编码路径接管（compute_text_bert 的 chunked 分支）。
+        (void)fill_bert_chunks(normalized, entry_spans, 0, sequence);
         return sequence;
     }
 
