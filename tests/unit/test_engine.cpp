@@ -639,6 +639,113 @@ TEST(Engine, HubertSslFlowsIntoEncoder) {
     EXPECT_GT(result.audio.frame_count(), 0U);
 }
 
+/// 析构时置位的会话包装：观察引擎何时释放某个会话。
+class TrackedSession final : public ModelSession {
+public:
+    TrackedSession(std::unique_ptr<ModelSession> inner, std::shared_ptr<bool> destroyed)
+        : inner_(std::move(inner)), destroyed_(std::move(destroyed)) {}
+    ~TrackedSession() override { *destroyed_ = true; }
+
+    TrackedSession(const TrackedSession&) = delete;
+    TrackedSession& operator=(const TrackedSession&) = delete;
+
+    [[nodiscard]] const std::vector<TensorSpec>& inputs() const override {
+        return inner_->inputs();
+    }
+    [[nodiscard]] const std::vector<TensorSpec>& outputs() const override {
+        return inner_->outputs();
+    }
+    [[nodiscard]] std::vector<Tensor> run(const TensorFeed& feed) override {
+        return inner_->run(feed);
+    }
+    [[nodiscard]] const std::string& model_path() const override { return inner_->model_path(); }
+
+private:
+    std::unique_ptr<ModelSession> inner_;
+    std::shared_ptr<bool> destroyed_;
+};
+
+TEST(Engine, ReleasesLoadOnlySessionsAfterConstruction) {
+    // HuBERT / 说话人验证 / prompt_encoder 只在加载期算参考特征与全局嵌入，
+    // 结果缓存后会话即释放（常驻约 0.6 GB，docs/performance.md §内存）；
+    // 合成期用的会话必须保留，且释放后合成照常。
+    TempVoicePackage package(/*v2proplus=*/true);
+    {
+        std::ofstream hubert_model(package.root() + "/models/hubert.onnx");
+        hubert_model << "placeholder";
+    }
+    {
+        std::ofstream manifest(package.root() + "/manifest.json");
+        manifest << R"({
+  "name": "fake",
+  "format_version": 1,
+  "model_version": "v2proplus",
+  "language": "chinese",
+  "sample_rate": 32000,
+  "capabilities": {"v2proplus": true},
+  "models": [
+    {"role": "t2s_encoder", "file": "models/t2s_encoder.onnx"},
+    {"role": "t2s_first_stage_decoder", "file": "models/t2s_first_stage_decoder.onnx"},
+    {"role": "t2s_stage_decoder", "file": "models/t2s_stage_decoder.onnx"},
+    {"role": "vits", "file": "models/vits.onnx"},
+    {"role": "prompt_encoder", "file": "models/prompt_encoder.onnx"},
+    {"role": "speaker_verification", "file": "models/speaker_verification.onnx"},
+    {"role": "chinese_hubert", "file": "models/hubert.onnx"}
+  ]
+})";
+    }
+
+    const auto hubert_gone = std::make_shared<bool>(false);
+    const auto sv_gone = std::make_shared<bool>(false);
+    const auto prompt_gone = std::make_shared<bool>(false);
+    const auto vocoder_gone = std::make_shared<bool>(false);
+    const auto tracked = [](std::unique_ptr<ModelSession> inner, std::shared_ptr<bool> flag) {
+        return std::make_unique<TrackedSession>(std::move(inner), std::move(flag));
+    };
+    const auto factory = [&](const std::string& path,
+                             const SessionConfig&) -> std::unique_ptr<ModelSession> {
+        if (path.find("t2s_encoder") != std::string::npos) {
+            return FakeSession::encoder();
+        }
+        if (path.find("first_stage") != std::string::npos) {
+            return FakeSession::first_stage();
+        }
+        if (path.find("stage_decoder") != std::string::npos) {
+            return FakeSession::stage(3);
+        }
+        if (path.find("prompt_encoder") != std::string::npos) {
+            return tracked(FakeSession::prompt_encoder(), prompt_gone);
+        }
+        if (path.find("speaker_verification") != std::string::npos) {
+            return tracked(FakeSession::speaker_verification(), sv_gone);
+        }
+        if (path.find("hubert") != std::string::npos) {
+            return tracked(FakeSession::chinese_hubert(), hubert_gone);
+        }
+        if (path.find("vits") != std::string::npos) {
+            return tracked(FakeSession::vocoder_v2proplus(64), vocoder_gone);
+        }
+        return nullptr;
+    };
+
+    Engine engine(package.root(), factory);
+
+    EXPECT_TRUE(*hubert_gone);
+    EXPECT_TRUE(*sv_gone);
+    EXPECT_TRUE(*prompt_gone);
+    EXPECT_FALSE(*vocoder_gone);
+
+    bool timed = false;
+    for (const auto& stage : engine.load_timing().stages()) {
+        timed = timed || stage.name == "load/release_load_only_models";
+    }
+    EXPECT_TRUE(timed);
+
+    // 参考特征与全局嵌入已缓存：释放之后合成照常。
+    const auto result = engine.synthesize("\xE4\xBD\xA0\xE5\xA5\xBD");
+    EXPECT_GT(result.audio.frame_count(), 0U);
+}
+
 TEST(Engine, ReportsManifest) {
     TempVoicePackage package;
     Engine engine(package.root(), fake_factory());

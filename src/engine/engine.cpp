@@ -13,6 +13,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
+
 #include "engine/g2pm.hpp"
 #include "engine/hubert.hpp"
 #include "engine/model_loader.hpp"
@@ -93,6 +97,18 @@ constexpr std::int32_t kMaxT2SIterations = 500;
     return Tensor::from_int64({1, static_cast<std::int64_t>(phonemes.size())}, phonemes);
 }
 
+/// 把堆上的空闲内存还给系统。
+///
+/// glibc 的 malloc 会把释放的内存留在进程的 arena 里备用：ORT 会话里几 MB
+/// 一块的权重张量释放后，常驻内存（RSS）并不会回落。malloc_trim 把这些
+/// 空闲页交还内核。只在加载期调一次，其它平台不需要（Windows 的大块分配
+/// 释放即归还）。
+void return_free_memory_to_os() noexcept {
+#if defined(__GLIBC__)
+    (void)malloc_trim(0);
+#endif
+}
+
 /// 截掉第一个 EOS 之后的 token。
 ///
 /// 上游：
@@ -128,10 +144,11 @@ struct Engine::Impl {
     std::unique_ptr<ModelSession> first_stage;
     std::unique_ptr<ModelSession> stage;
     std::unique_ptr<ModelSession> vocoder;
+    // 下面三个只在加载期用（算完参考特征 / 全局嵌入即释放，构造结束后为空）。
     std::unique_ptr<ModelSession> prompt_encoder;    // V2ProPlus
     std::unique_ptr<ModelSession> speaker_verifier;  // V2ProPlus
-    std::unique_ptr<ModelSession> roberta;           // 中文韵律（可选）
     std::unique_ptr<ModelSession> hubert;            // 参考音频 ssl_content（可选）
+    std::unique_ptr<ModelSession> roberta;           // 中文韵律（可选，合成期使用）
 
     /// RoBERTa 的分词器，跟随 roberta 会话一起加载。
     std::unique_ptr<text::RobertaTokenizer> roberta_tokenizer;
@@ -428,6 +445,22 @@ Engine::Engine(std::string root, SessionFactory factory, const EngineConfig& con
     if (impl->prompt_encoder != nullptr) {
         detail::ScopedStageTimer timer(impl->load_timing, "load/global_embeddings");
         impl->compute_global_embeddings();
+    }
+
+    // 6) 只在加载期用到的会话：用完即释放。
+    //
+    // HuBERT 只算参考音频的 ssl 特征（4)），说话人验证与 prompt_encoder 只算
+    // V2ProPlus 的全局嵌入（5)）—— 结果已缓存进 reference / global_emb，合成
+    // 路径不再碰这三个会话。它们常驻约 0.6 GB（docs/performance.md §内存）。
+    // 上游 Genie-TTS 一直持有它们（支持运行时换参考音频）；本引擎的参考音频
+    // 在构造期绑定、没有换参考的 API —— 将来要加，需要重新加载这三个模型
+    // （docs/upstream-audit.md §23）。
+    {
+        detail::ScopedStageTimer timer(impl->load_timing, "load/release_load_only_models");
+        impl->hubert.reset();
+        impl->speaker_verifier.reset();
+        impl->prompt_encoder.reset();
+        return_free_memory_to_os();
     }
 
     // 端到端总时长。它与各阶段之和的差 = manifest 校验、前端装配这些

@@ -201,6 +201,47 @@ RSS 时间线（100 ms 采样）显示多出的 ~0.5 GB 在加载后不回落 �
 宽裕、冷启动敏感的部署可以打开。复现：`genie-bench --parallel-prepack 1`，
 原始记录 `benchmarks/2026-11-10-prepack/`。
 
+### 内存占用（2026-11-10）
+
+fp32 包（信任模式，ORT 1.31，threads=8）。逐会话常驻增量（探针实测）：
+RoBERTa 1148 MB、HuBERT 328 MB、t2s_first_stage 298 MB、t2s_stage 297 MB、
+vits 224 MB、SV 182 MB、prompt_encoder 84 MB、t2s_encoder 14 MB —— 合计
+~2.6 GB，全部是进程私有内存（RssAnon）；arena / mem_pattern / glibc
+malloc arena 上限对它没有影响（差异在测量噪声内）。
+
+**加载期会话释放（已落地）**：HuBERT / 说话人验证 / prompt_encoder 只在
+加载期算参考特征与全局嵌入，结果缓存后即释放会话并 `malloc_trim` 还页：
+
+| 变体 | 加载后常驻 | 峰值 | 退出前 |
+|---|---|---|---|
+| 不释放（旧） | 3351 MB | 3903 MB | 3903 MB |
+| 只释放不还页 | 2931 MB | 3461 MB | 3461 MB |
+| **释放 + malloc_trim（当前默认）** | **2075 MB** | **3291 MB** | 3200 MB |
+
+常驻 **-1.2 GB**（其中释放会话本身 -0.6 GB，glibc 还页再 -0.4 GB）；
+释放一步实测 37 ms（计时 `load/release_load_only_models`）；合成延迟与
+不释放打平（三轮 ms/token 在噪声内）。回归测试
+`Engine.ReleasesLoadOnlySessionsAfterConstruction`。
+
+**t2s 双解码器共享权重（调研结论：不采用）**：两图的 291 个初始化器
+同名同内容（同一份 `t2s_shared_fp32.bin`），理论可省 ~0.3 GB。ORT 的
+`AddInitializer` + `PrepackedWeightsContainer` 探针实测：**省不出来** ——
+
+- `AddInitializer` 注入共享缓冲：第二个会话只省 23 MB（305 → 274），
+  图优化把权重重排进自己的存储，共享缓冲只在注入时省了一份"反序列化"，
+  重排产物仍各存一份；
+- `PrepackedWeightsContainer` 共享预打包缓冲：第二会话不减反增
+  （+569 MB vs 分开加载 +297 MB）；
+- 关掉预打包也不行（848 vs 555 MB），关图优化更不行（推理 33 ms/token，
+  慢 2.6 倍）。
+
+266 MB 的权重喂给 Transpose 算子 —— 它们的重排（prepack / 优化后的
+常量折叠副本）正是重复存储的来源。替代路径是 **fp16 分发 + 运行时
+fp16 推理**（权重不重排 fp32 副本）或 int8 量化（M0.2 之后）。
+
+原始记录：`benchmarks/2026-11-10-memory/`（bench 的 JSON 新增
+`rss_after_load_kb` / `rss_end_kb` —— 常驻量比峰值更能反映长期占用）。
+
 ## 已知问题（影响基准覆盖面）
 
 - ~~混读长文本会失败~~：已在 #34 修复（英文 BERT 块以全零特征占位）。
