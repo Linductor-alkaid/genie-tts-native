@@ -30,17 +30,11 @@ const char* onnxruntime_version_string() noexcept {
     return "";
 }
 
-std::unique_ptr<ModelSession> create_session_from_memory(const void* model_data,
-                                                         std::size_t model_data_size,
-                                                         std::string model_name,
-                                                         const SessionConfig& config) {
-    (void)model_data;
-    (void)model_data_size;
-    (void)model_name;
-    (void)config;
-    throw_error(ErrorCode::BackendUnavailable,
-                "this build was compiled without ONNX Runtime — reconfigure with "
-                "-DGENIE_ENABLE_ORT=ON and provide an ONNX Runtime package");
+std::unique_ptr<ModelSession> create_session(
+    const std::string& model_path, const SessionConfig& config,
+    const std::vector<ExternalWeightBuffer>& external_weights) {
+    (void)external_weights;
+    return create_session(model_path, config);  // 同样抛 BackendUnavailable
 }
 
 }  // namespace genie

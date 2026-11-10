@@ -25,12 +25,16 @@
 #include "genie/onnx_graph.hpp"
 
 #include <algorithm>
-#include <cstdlib>
-#include <cstring>
+#include <bit>
+#include <charconv>
 #include <fstream>
-#include <map>
+#include <istream>
+#include <iterator>
+#include <limits>
+#include <memory>
 #include <sstream>
 #include <string_view>
+#include <system_error>
 
 #include "genie/errors.hpp"
 
@@ -107,9 +111,6 @@ public:
         offset_ += count;
         return true;
     }
-
-    /// 当前读取位置（字节偏移）—— 转码器靠它截取"原样透传"的字段区间。
-    [[nodiscard]] std::size_t pos() const noexcept { return offset_; }
 
 private:
     const std::byte* data_;
@@ -504,464 +505,494 @@ OnnxGraphSpec read_onnx_graph(const std::string& path) {
     return read_onnx_graph_from_memory(data);
 }
 
-// ------------------------------------------------------------------ 权重内联转码器
+// ------------------------------------------------------------------ 外部权重：流式扫描与 fp16 上转
 //
-// 本节是"包里存 fp16 权重、加载期上转 FP32"（借鉴上游 Genie-TTS 的分发
-// 格式）的库侧地基。策略是 wire-format 级转码：逐字段遍历，只对
-// external-data 初始化器做改写（external_data/data_location → raw_data），
-// 其余字段（node 属性等）按原始字节透传 —— 不依赖 schema 的其余部分，
-// 序列化结果 ORT 必然可读（任意合法 wire format 均可）。
+// 本节服务"包里存 fp16 权重、加载期上转 FP32"（借鉴上游 Genie-TTS 的分发
+// 格式，决策见 docs/architecture.md §2.13）。
 //
 // **HF fp16 格式**：图把外部张量声明为 FLOAT（data_type=1），offset/length
-// 以 **fp32 字节**为单位（审计实测：span 总长恰等于 fp32 bin 的大小）；
-// 对应的 *_fp16.bin 是同一批张量转成 fp16 后**连续打包**，文件大小恰为
-// 一半，tensor 内容在文件里的位置 = fp32 offset / 2。转码器对每个外部
-// 文件自动判定精度：文件装得下 fp32 区间 → 逐字节原样内联；否则若
-// "一半区间"装得下且 4 字节对齐 → 按 fp16 打包上转内联；两者都不行
-// 则报错 —— 不存在歧义回退。
+// 以 **fp32 字节**为单位；对应的 *_fp16.bin 是同一批张量转成 fp16 后
+// **连续打包**，文件大小恰为一半，张量位于 offset/2。由此**整文件逐元素
+// 上转**（第 i 个 half → 第 i 个 float）得到的缓冲恰好就是 fp32 bin 的
+// 布局，每个张量自动落回图声明的 offset —— 不需要逐张量改写图。此前的
+// wire-format 内联转码器因此退役：它把整张图连同权重重新序列化，ORT
+// 再把这份大 protobuf 解析一遍，一个 300 MB 的模型要整体搬运五六遍
+// （实测对比见 docs/performance.md）。
+//
+// 扫描是**流式**的：只顺着嵌套结构读结构字段，raw_data 等大字段一律
+// 跳过 —— 1.2 GB 的自包含模型也只读几 KB。
 //
 // 本节用到的额外字段编号（onnx.proto）：
-//   TensorProto.dims            = 1  (varint, repeated / packed)
-//   TensorProto.data_type       = 2  (varint)
-//   TensorProto.raw_data        = 9  (LEN)
-//   TensorProto.name            = 8  (LEN string)
-//   GraphProto.sparse_initializer = 15 (LEN —— 出现即拒绝，本项目无此需求)
+//   GraphProto.node                  = 1  (LEN, NodeProto)
+//   GraphProto.sparse_initializer    = 15 (LEN, SparseTensorProto)
+//   NodeProto.attribute              = 5  (LEN, AttributeProto)
+//   AttributeProto.t / g             = 5 / 6   (LEN, TensorProto / GraphProto)
+//   AttributeProto.tensors / graphs  = 10 / 11 (LEN, repeated)
+//   AttributeProto.sparse_tensor(s)  = 22 / 23 (LEN, SparseTensorProto)
+//   SparseTensorProto.values/indices = 1 / 2   (LEN, TensorProto)
+//   TensorProto.data_type            = 2  (varint)
+//   TensorProto.name                 = 8  (LEN string)
+//   TensorProto.raw_data             = 9  (LEN —— 跳过，不读)
+//   TensorProto.data_location        = 14 (varint；EXTERNAL = 1)
 
 namespace {
 
-/// protobuf 写原语。
-class Writer {
+static_assert(std::endian::native == std::endian::little,
+              "weight files are little-endian; the fp16 upcast reads them as host uint16");
+
+/// 流式 protobuf 读取器：在 istream 上顺着嵌套结构往下走。
+///
+/// 每层消息由调用方给出的"结束偏移"界定（不像内存版 Reader 那样持有
+/// 整段字节）。跳过时小段直接读掉（命中流缓冲），大段才 seek ——
+/// filebuf 的 seek 会丢弃缓冲，把成片的小跳过都换成 seek 反而更慢。
+class StreamReader {
 public:
-    void varint(std::uint64_t value) {
-        while (value >= 0x80U) {
-            out_.push_back(static_cast<std::byte>(static_cast<std::uint8_t>(value) | 0x80U));
-            value >>= 7U;
+    StreamReader(std::istream& in, const std::uint64_t size) : in_(in), size_(size) {}
+
+    [[nodiscard]] std::uint64_t pos() const noexcept { return pos_; }
+    [[nodiscard]] std::uint64_t size() const noexcept { return size_; }
+
+    [[nodiscard]] bool read_varint(const std::uint64_t end, std::uint64_t& out) {
+        std::uint64_t result = 0;
+        int shift = 0;
+        while (pos_ < end) {
+            const auto c = in_.get();
+            if (c == std::istream::traits_type::eof()) {
+                return false;
+            }
+            ++pos_;
+            const auto byte = static_cast<std::uint8_t>(c);
+            result |= static_cast<std::uint64_t>(byte & 0x7FU) << shift;
+            if ((byte & 0x80U) == 0) {
+                out = result;
+                return true;
+            }
+            shift += 7;
+            if (shift > 63) {
+                return false;
+            }
         }
-        out_.push_back(static_cast<std::byte>(static_cast<std::uint8_t>(value)));
+        return false;
     }
 
-    void tag(const std::uint32_t field, const std::uint32_t wire) {
-        varint((static_cast<std::uint64_t>(field) << 3U) | wire);
+    /// 读 length 前缀，换算成该字段内容的结束偏移；越过 end 视为损坏。
+    [[nodiscard]] bool read_length(const std::uint64_t end, std::uint64_t& field_end) {
+        std::uint64_t length = 0;
+        if (!read_varint(end, length) || length > end - pos_) {
+            return false;
+        }
+        field_end = pos_ + length;
+        return true;
     }
 
-    void len_field(const std::uint32_t field, const std::byte* data, const std::size_t size) {
-        tag(field, 2);
-        varint(size);
-        out_.insert(out_.end(), data, data + size);
+    /// 读一段**小**字段的全部字节（名字、external_data 条目）。
+    ///
+    /// 上限防的是损坏文件：一个被写坏的长度不该把我们骗去分配 GB 级内存。
+    [[nodiscard]] bool read_small(const std::uint64_t field_end, std::string& out) {
+        const std::uint64_t length = field_end - pos_;
+        if (length > kMaxSmallField) {
+            return false;
+        }
+        out.resize(static_cast<std::size_t>(length));
+        if (length > 0 && !in_.read(out.data(), static_cast<std::streamsize>(length))) {
+            return false;
+        }
+        pos_ = field_end;
+        return true;
     }
 
-    void raw(const std::byte* data, const std::size_t size) {
-        out_.insert(out_.end(), data, data + size);
+    /// 前进到 target（不早于当前位置、不越过文件尾）。
+    [[nodiscard]] bool skip_to(const std::uint64_t target) {
+        if (target < pos_ || target > size_) {
+            return false;
+        }
+        const std::uint64_t gap = target - pos_;
+        if (gap <= kSeekThreshold) {
+            in_.ignore(static_cast<std::streamsize>(gap));
+        } else {
+            in_.seekg(static_cast<std::streamoff>(target), std::ios::beg);
+        }
+        if (!in_) {
+            return false;
+        }
+        pos_ = target;
+        return true;
     }
 
-    [[nodiscard]] std::vector<std::byte> take() { return std::move(out_); }
+    /// 跳过当前字段的值。
+    [[nodiscard]] bool skip_field(const std::uint64_t end, const std::uint32_t wire) {
+        switch (wire) {
+            case 0: {
+                std::uint64_t ignored = 0;
+                return read_varint(end, ignored);
+            }
+            case 1:
+                return end - pos_ >= 8 && skip_to(pos_ + 8);
+            case 2: {
+                std::uint64_t field_end = 0;
+                return read_length(end, field_end) && skip_to(field_end);
+            }
+            case 5:
+                return end - pos_ >= 4 && skip_to(pos_ + 4);
+            default:
+                return false;
+        }
+    }
 
 private:
-    std::vector<std::byte> out_;
+    static constexpr std::uint64_t kSeekThreshold = 64U * 1024U;
+    static constexpr std::uint64_t kMaxSmallField = 1U << 20U;
+
+    std::istream& in_;
+    std::uint64_t size_;
+    std::uint64_t pos_ = 0;
 };
 
-/// IEEE half → IEEE single。denormal / Inf / NaN 全部分支处理；
-/// 权重文件是 little-endian，宿主（x86 / ARM64）同为 little-endian，
-/// 按 uint16 直接 memcpy 读取。
-float half_to_float(const std::uint16_t half) {
-    const std::uint32_t sign = static_cast<std::uint32_t>(half & 0x8000U) << 16U;
-    const std::uint32_t exponent = (half >> 10U) & 0x1FU;
-    const std::uint32_t mantissa = half & 0x3FFU;
-    std::uint32_t bits = 0;
-    if (exponent == 0) {
-        if (mantissa == 0) {
-            bits = sign;  // ±0
-        } else {
-            // 次正规数：规格化进单精度正规范围。半精度次正规 = man × 2^-24，
-            // man 的最高位（bit k）左移 (10-k) 次到隐藏位 —— 指数相应从
-            // 103 + k 起算（2^(103-127) = 2^-24）。
-            std::uint32_t m = mantissa;
-            std::uint32_t e = 113U;
-            while ((m & 0x400U) == 0) {
-                m <<= 1U;
-                --e;
-            }
-            m &= 0x3FFU;  // 隐藏位已进位，从尾数里去掉
-            bits = sign | (e << 23U) | (m << 13U);
-        }
-    } else if (exponent == 0x1FU) {
-        bits = sign | 0x7F800000U | (mantissa << 13U);  // Inf / NaN（载荷保留）
-    } else {
-        bits = sign | ((exponent + 112U) << 23U) | (mantissa << 13U);  // 112 = 127 - 15
-    }
-    float value = 0.0F;
-    std::memcpy(&value, &bits, sizeof(value));
-    return value;
-}
-
-std::vector<std::byte> upcast_fp16(const std::byte* data, const std::size_t size) {
-    std::vector<std::byte> out(size * 2U);
-    auto* out_floats = reinterpret_cast<float*>(out.data());
-    for (std::size_t i = 0; i < size / 2U; ++i) {
-        std::uint16_t half = 0;
-        std::memcpy(&half, data + i * 2U, sizeof(half));
-        out_floats[i] = half_to_float(half);
-    }
-    return out;
-}
-
-/// external_data 条目（StringStringEntryProto）集合。
-using ExternalEntries = std::vector<std::pair<std::string, std::string>>;
-
-[[nodiscard]] const std::string* find_entry(const ExternalEntries& entries,
-                                            const std::string& key) {
-    for (const auto& [k, v] : entries) {
-        if (k == key) {
-            return &v;
-        }
-    }
-    return nullptr;
-}
-
-/// 一个外部权重文件的解析结果：字节 + 精度判定。
-struct ResolvedExternalFile {
-    const std::vector<std::byte>* bytes = nullptr;
-    bool fp16_packed = false;  ///< true = HF 的 fp16 连续打包格式
-};
-
-/// 转码单个 TensorProto：external 初始化器内联为 raw_data，其余原样重放。
-std::vector<std::byte> transcode_initializer(
-    const std::byte* data, const std::size_t size,
-    const std::map<std::string, ResolvedExternalFile>& resolved) {
-    Reader reader(data, size);
-    std::vector<std::pair<std::size_t, std::size_t>> kept_spans;
-    bool is_external = false;
-    bool has_raw_data = false;
-    std::uint64_t data_type = 1;  // FLOAT 是 onnx 默认值
+/// 一个外部张量引用（扫描的中间结果）。
+struct ExternalRef {
     std::string name;
     std::string location;
-    std::string offset_text;
+    std::uint64_t offset = 0;
+    std::uint64_t length = 0;
+    std::uint64_t data_type = 1;  // FLOAT 是 onnx 的默认值
     bool has_length = false;
-    std::string length_text;
+    bool nested = false;  ///< 子图 / 节点属性 / 稀疏张量里的引用
+};
 
-    while (!reader.done()) {
-        const std::size_t start = reader.pos();
-        std::uint64_t key = 0;
-        if (!reader.read_varint(key)) {
-            throw_error(ErrorCode::ModelLoadError, "malformed initializer (bad wire format)");
-        }
-        const auto field = static_cast<std::uint32_t>(key >> 3U);
-        const auto wire = static_cast<std::uint32_t>(key & 0x7U);
-        if (field == 13 && wire == 2) {  // external_data 条目
-            const std::byte* entry_bytes = nullptr;
-            std::size_t entry_size = 0;
-            if (!reader.read_bytes(entry_bytes, entry_size)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed external_data entry");
-            }
-            Reader entry_reader(entry_bytes, entry_size);
-            std::string entry_key;
-            std::string entry_value;
-            while (!entry_reader.done()) {
-                std::uint64_t entry_tag = 0;
-                if (!entry_reader.read_varint(entry_tag)) {
-                    break;
-                }
-                const auto e_field = static_cast<std::uint32_t>(entry_tag >> 3U);
-                const auto e_wire = static_cast<std::uint32_t>(entry_tag & 0x7U);
-                if (e_wire != 2 || (e_field != 1 && e_field != 2)) {
-                    if (!entry_reader.skip(e_wire)) {
-                        break;
-                    }
-                    continue;
-                }
-                const std::byte* value_bytes = nullptr;
-                std::size_t value_size = 0;
-                if (!entry_reader.read_bytes(value_bytes, value_size)) {
-                    break;
-                }
-                (e_field == 1 ? entry_key : entry_value) =
-                    std::string(as_string(value_bytes, value_size));
-            }
-            if (entry_key == "location") {
-                location = entry_value;
-            } else if (entry_key == "offset") {
-                offset_text = entry_value;
-            } else if (entry_key == "length") {
-                length_text = entry_value;
-                has_length = true;
-            }
-            // field 13 **不保留** —— ONNX 规范禁止 raw_data 与
-            // data_location=EXTERNAL 并存，ORT 见到 EXTERNAL 会忽略
-            // raw_data 走外部文件路径，内联就失效了。
-        } else if (field == 14 && wire == 0) {  // data_location；EXTERNAL = 1
-            std::uint64_t flag = 0;
-            if (!reader.read_varint(flag)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed data_location");
-            }
-            if (flag == 1) {
-                is_external = true;
-            }
-            // field 14 同上：内联后必须清掉。
-        } else if (field == 2 && wire == 0) {  // data_type
-            if (!reader.read_varint(data_type)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed data_type");
-            }
-            kept_spans.emplace_back(start, reader.pos());
-        } else if (field == 8 && wire == 2) {  // name（只取来报错用）
-            const std::byte* name_bytes = nullptr;
-            std::size_t name_size = 0;
-            if (!reader.read_bytes(name_bytes, name_size)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed initializer name");
-            }
-            name = std::string(as_string(name_bytes, name_size));
-            kept_spans.emplace_back(start, reader.pos());
-        } else if (field == 9 && wire == 2) {  // raw_data
-            has_raw_data = true;
-            if (!reader.skip(wire)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed raw_data");
-            }
-            kept_spans.emplace_back(start, reader.pos());
-        } else {
-            if (!reader.skip(wire)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed initializer field");
-            }
-            kept_spans.emplace_back(start, reader.pos());
-        }
-    }
-
-    // 非 external、或已内联（带 raw_data）的初始化器：整段原样返回。
-    if (!is_external || location.empty() || has_raw_data) {
-        return std::vector<std::byte>(data, data + size);
-    }
-    if (!has_length) {
-        throw_error(ErrorCode::ModelLoadError, "external initializer '" + name + "' has no length");
-    }
-
-    const auto file = resolved.find(location);
-    if (file == resolved.end() || file->second.bytes == nullptr) {
-        throw_error(ErrorCode::ModelLoadError, "external weight file not provided: '" + location +
-                                                   "' (initializer '" + name + "')");
-    }
-    const std::uint64_t offset = std::strtoull(offset_text.c_str(), nullptr, 10);
-    const std::uint64_t length = std::strtoull(length_text.c_str(), nullptr, 10);
-    const std::byte* region = file->second.bytes->data();
-    const std::size_t file_size = file->second.bytes->size();
-
-    Writer writer;
-    for (const auto& [begin, end] : kept_spans) {
-        writer.raw(data + begin, end - begin);
-    }
-    if (file->second.fp16_packed) {
-        // HF 的 fp16 打包：图声明 FLOAT、offset/length 为 fp32 字节单位，
-        // 文件里同一张量在 offset/2、占 length/2 字节。
-        if (data_type != 1) {
-            throw_error(ErrorCode::Unsupported,
-                        "fp16-packed weight file '" + location + "' backs non-float initializer '" +
-                            name + "' (data_type " + std::to_string(data_type) + ")");
-        }
-        if (offset % 4 != 0 || length % 4 != 0) {
-            throw_error(ErrorCode::ModelLoadError, "external initializer '" + name +
-                                                       "' offset/length are not 4-byte aligned (" +
-                                                       std::to_string(offset) + ", " +
-                                                       std::to_string(length) + ")");
-        }
-        const std::uint64_t half_offset = offset / 2U;
-        const std::uint64_t half_length = length / 2U;
-        if (half_offset > file_size || half_length > file_size - half_offset) {
-            throw_error(ErrorCode::ModelLoadError,
-                        "external initializer '" + name + "' fp16 range [" +
-                            std::to_string(half_offset) + ", " +
-                            std::to_string(half_offset + half_length) + ") is out of bounds for '" +
-                            location + "' (" + std::to_string(file_size) + " bytes)");
-        }
-        auto upcast = upcast_fp16(region + half_offset, static_cast<std::size_t>(half_length));
-        writer.len_field(9, upcast.data(), upcast.size());
-    } else {
-        // fp32 文件：字节原样内联（含 fp32 / 整数等一切声明类型）。
-        if (offset > file_size || length > file_size - offset) {
-            throw_error(ErrorCode::ModelLoadError,
-                        "external initializer '" + name + "' range [" + std::to_string(offset) +
-                            ", " + std::to_string(offset + length) + ") is out of bounds for '" +
-                            location + "' (" + std::to_string(file_size) + " bytes)");
-        }
-        writer.len_field(9, region + offset, static_cast<std::size_t>(length));
-    }
-    return writer.take();
+/// 解析十进制无符号整数（external_data 的 offset / length 以字符串存储）。
+[[nodiscard]] bool parse_decimal(const std::string& text, std::uint64_t& out) {
+    const char* first = text.data();
+    const char* last = first + text.size();
+    const auto [ptr, ec] = std::from_chars(first, last, out);
+    return !text.empty() && ec == std::errc{} && ptr == last;
 }
 
-/// 转码 GraphProto：先按外部文件解析精度（fp32 直读 / fp16 打包），
-/// 再逐个内联 initializer（field 5），其余字段透传。
-std::vector<std::byte> transcode_graph(const std::byte* data, const std::size_t size,
-                                       const ExternalWeightSource& source) {
-    // 预扫描：收集每个外部文件的 fp32 区间上界（max_end）。
-    Reader scan(data, size);
-    std::map<std::string, std::uint64_t> max_end;
-    while (!scan.done()) {
-        std::uint64_t key = 0;
-        if (!scan.read_varint(key)) {
-            throw_error(ErrorCode::ModelLoadError, "malformed graph (bad wire format)");
-        }
-        const auto field = static_cast<std::uint32_t>(key >> 3U);
-        const auto wire = static_cast<std::uint32_t>(key & 0x7U);
-        if (field != 5 || wire != 2) {
-            if (!scan.skip(wire)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed graph field");
-            }
-            continue;
-        }
-        const std::byte* tensor_bytes = nullptr;
-        std::size_t tensor_size = 0;
-        if (!scan.read_bytes(tensor_bytes, tensor_size)) {
-            throw_error(ErrorCode::ModelLoadError, "malformed initializer");
-        }
-        Reader tensor(tensor_bytes, tensor_size);
-        std::string location;
-        std::string offset_text;
-        std::string length_text;
-        bool is_external = false;
-        while (!tensor.done()) {
-            std::uint64_t tkey = 0;
-            if (!tensor.read_varint(tkey)) {
-                break;
-            }
-            const auto t_field = static_cast<std::uint32_t>(tkey >> 3U);
-            const auto t_wire = static_cast<std::uint32_t>(tkey & 0x7U);
-            if (t_field == 13 && t_wire == 2) {
-                const std::byte* entry_bytes = nullptr;
-                std::size_t entry_size = 0;
-                if (!tensor.read_bytes(entry_bytes, entry_size)) {
-                    break;
-                }
-                Reader entry(entry_bytes, entry_size);
-                std::string e_key;
-                std::string e_value;
-                while (!entry.done()) {
-                    std::uint64_t e_tag = 0;
-                    if (!entry.read_varint(e_tag)) {
-                        break;
-                    }
-                    const auto e_field = static_cast<std::uint32_t>(e_tag >> 3U);
-                    const auto e_wire = static_cast<std::uint32_t>(e_tag & 0x7U);
-                    if (e_wire != 2 || (e_field != 1 && e_field != 2)) {
-                        if (!entry.skip(e_wire)) {
-                            break;
-                        }
-                        continue;
-                    }
-                    const std::byte* v = nullptr;
-                    std::size_t v_size = 0;
-                    if (!entry.read_bytes(v, v_size)) {
-                        break;
-                    }
-                    (e_field == 1 ? e_key : e_value) = std::string(as_string(v, v_size));
-                }
-                if (e_key == "location") {
-                    location = e_value;
-                } else if (e_key == "offset") {
-                    offset_text = e_value;
-                } else if (e_key == "length") {
-                    length_text = e_value;
-                }
-            } else if (t_field == 14 && t_wire == 0) {
-                std::uint64_t flag = 0;
-                if (!tensor.read_varint(flag)) {
-                    break;
-                }
-                if (flag == 1) {
-                    is_external = true;
-                }
-            } else if (!tensor.skip(t_wire)) {
-                break;
-            }
-        }
-        if (is_external && !location.empty() && !length_text.empty()) {
-            const std::uint64_t offset = std::strtoull(offset_text.c_str(), nullptr, 10);
-            const std::uint64_t length = std::strtoull(length_text.c_str(), nullptr, 10);
-            max_end[location] = std::max(max_end[location], offset + length);
-        }
-    }
-
-    // 解析每个外部文件：fp32 装得下 → 原样；否则一半装得下 → fp16 打包；
-    // 都不行 → 报错（不做歧义回退）。
-    std::map<std::string, ResolvedExternalFile> resolved;
-    for (const auto& [location, end] : max_end) {
-        const auto* bytes = source(location);
-        if (bytes == nullptr) {
-            throw_error(ErrorCode::ModelLoadError,
-                        "external weight file not provided: '" + location + "'");
-        }
-        ResolvedExternalFile file;
-        file.bytes = bytes;
-        if (bytes->size() < end) {
-            if (end > bytes->size() * 2U) {
-                throw_error(
-                    ErrorCode::ModelLoadError,
-                    "external weight file '" + location + "' (" + std::to_string(bytes->size()) +
-                        " bytes) is too small for the graph (expects up to " + std::to_string(end) +
-                        " bytes) under either fp32 or fp16 interpretation");
-            }
-            file.fp16_packed = true;
-        }
-        resolved.emplace(location, file);
-    }
-
-    Reader reader(data, size);
-    Writer writer;
+/// 解析一条 external_data 条目（StringStringEntryProto{key=1, value=2}）写进 ref。
+[[nodiscard]] bool apply_external_entry(const std::string& entry, ExternalRef& ref) {
+    Reader reader(reinterpret_cast<const std::byte*>(entry.data()), entry.size());
+    std::string key;
+    std::string value;
     while (!reader.done()) {
-        const std::size_t start = reader.pos();
-        std::uint64_t key = 0;
-        if (!reader.read_varint(key)) {
-            throw_error(ErrorCode::ModelLoadError, "malformed graph (bad wire format)");
+        std::uint64_t tag = 0;
+        if (!reader.read_varint(tag)) {
+            return false;
         }
-        const auto field = static_cast<std::uint32_t>(key >> 3U);
-        const auto wire = static_cast<std::uint32_t>(key & 0x7U);
-        if (field == 5 && wire == 2) {  // initializer
-            const std::byte* tensor_bytes = nullptr;
-            std::size_t tensor_size = 0;
-            if (!reader.read_bytes(tensor_bytes, tensor_size)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed initializer");
+        const auto field = static_cast<std::uint32_t>(tag >> 3U);
+        const auto wire = static_cast<std::uint32_t>(tag & 0x7U);
+        if ((field == 1 || field == 2) && wire == 2) {
+            const std::byte* bytes = nullptr;
+            std::size_t size = 0;
+            if (!reader.read_bytes(bytes, size)) {
+                return false;
             }
-            auto inlined = transcode_initializer(tensor_bytes, tensor_size, resolved);
-            writer.len_field(5, inlined.data(), inlined.size());
-        } else {
-            if (field == 15) {
-                throw_error(ErrorCode::Unsupported,
-                            "sparse_initializer is not supported by the weight upcast path");
-            }
-            if (!reader.skip(wire)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed graph field");
-            }
-            writer.raw(data + start, reader.pos() - start);
+            (field == 1 ? key : value) = std::string(as_string(bytes, size));
+        } else if (!reader.skip(wire)) {
+            return false;
         }
     }
-    return writer.take();
+    if (key == "location") {
+        ref.location = std::move(value);
+    } else if (key == "offset") {
+        return parse_decimal(value, ref.offset);
+    } else if (key == "length") {
+        ref.has_length = true;
+        return parse_decimal(value, ref.length);
+    }
+    return true;  // checksum 等其余键与布局无关
+}
+
+/// 递归扫描器：ModelProto → GraphProto（含子图）→ TensorProto。
+class ExternalRefScanner {
+public:
+    explicit ExternalRefScanner(StreamReader& reader) : reader_(reader) {}
+
+    [[nodiscard]] bool scan_model() {
+        return for_each_len_field(
+            reader_.size(), [this](const std::uint32_t field, const std::uint64_t field_end) {
+                return field != 7 || scan_graph(field_end, /*nested=*/false, 0);
+            });
+    }
+
+    std::vector<ExternalRef> refs;
+
+private:
+    /// 子图嵌套层数上限：合法模型是个位数，防的是构造出来的病态输入。
+    static constexpr int kMaxDepth = 64;
+
+    /// 对消息里每个 LEN 字段调用 visit(field, field_end)，其余字段跳过；
+    /// visit 没消费完的部分（或整个不关心的字段）由这里跳到字段末尾。
+    template <typename Visit>
+    [[nodiscard]] bool for_each_len_field(const std::uint64_t end, Visit&& visit) {
+        while (reader_.pos() < end) {
+            std::uint64_t key = 0;
+            if (!reader_.read_varint(end, key)) {
+                return false;
+            }
+            const auto field = static_cast<std::uint32_t>(key >> 3U);
+            const auto wire = static_cast<std::uint32_t>(key & 0x7U);
+            if (wire != 2) {
+                if (!reader_.skip_field(end, wire)) {
+                    return false;
+                }
+                continue;
+            }
+            std::uint64_t field_end = 0;
+            if (!reader_.read_length(end, field_end) || !visit(field, field_end) ||
+                !reader_.skip_to(field_end)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool scan_graph(const std::uint64_t end, const bool nested, const int depth) {
+        if (depth > kMaxDepth) {
+            return false;
+        }
+        return for_each_len_field(
+            end, [this, nested, depth](const std::uint32_t field, const std::uint64_t field_end) {
+                switch (field) {
+                    case 5:  // initializer
+                        return scan_tensor(field_end, nested);
+                    case 1:  // node
+                        return scan_node(field_end, depth);
+                    case 15:  // sparse_initializer
+                        return scan_sparse(field_end);
+                    default:
+                        return true;
+                }
+            });
+    }
+
+    [[nodiscard]] bool scan_node(const std::uint64_t end, const int depth) {
+        return for_each_len_field(
+            end, [this, depth](const std::uint32_t field, const std::uint64_t field_end) {
+                return field != 5 || scan_attribute(field_end, depth);
+            });
+    }
+
+    [[nodiscard]] bool scan_attribute(const std::uint64_t end, const int depth) {
+        return for_each_len_field(
+            end, [this, depth](const std::uint32_t field, const std::uint64_t field_end) {
+                switch (field) {
+                    case 5:   // t
+                    case 10:  // tensors
+                        return scan_tensor(field_end, /*nested=*/true);
+                    case 6:   // g
+                    case 11:  // graphs
+                        return scan_graph(field_end, /*nested=*/true, depth + 1);
+                    case 22:  // sparse_tensor
+                    case 23:  // sparse_tensors
+                        return scan_sparse(field_end);
+                    default:
+                        return true;
+                }
+            });
+    }
+
+    [[nodiscard]] bool scan_sparse(const std::uint64_t end) {
+        return for_each_len_field(
+            end, [this](const std::uint32_t field, const std::uint64_t field_end) {
+                // values / indices
+                return (field != 1 && field != 2) || scan_tensor(field_end, /*nested=*/true);
+            });
+    }
+
+    [[nodiscard]] bool scan_tensor(const std::uint64_t end, const bool nested) {
+        ExternalRef ref;
+        ref.nested = nested;
+        bool external = false;
+        while (reader_.pos() < end) {
+            std::uint64_t key = 0;
+            if (!reader_.read_varint(end, key)) {
+                return false;
+            }
+            const auto field = static_cast<std::uint32_t>(key >> 3U);
+            const auto wire = static_cast<std::uint32_t>(key & 0x7U);
+            if (field == 2 && wire == 0) {
+                if (!reader_.read_varint(end, ref.data_type)) {
+                    return false;
+                }
+            } else if (field == 14 && wire == 0) {
+                std::uint64_t location = 0;
+                if (!reader_.read_varint(end, location)) {
+                    return false;
+                }
+                external = location == 1;
+            } else if ((field == 8 || field == 13) && wire == 2) {
+                std::uint64_t field_end = 0;
+                std::string bytes;
+                if (!reader_.read_length(end, field_end) || !reader_.read_small(field_end, bytes)) {
+                    return false;
+                }
+                if (field == 8) {
+                    ref.name = std::move(bytes);
+                } else if (!apply_external_entry(bytes, ref)) {
+                    return false;
+                }
+            } else if (!reader_.skip_field(end, wire)) {
+                return false;
+            }
+        }
+        if (external && !ref.location.empty()) {
+            refs.push_back(std::move(ref));
+        }
+        return true;
+    }
+
+    StreamReader& reader_;
+};
+
+/// 把一个引用并进它所在文件的汇总。
+void accumulate(const ExternalRef& ref, ExternalWeightFile& file) {
+    ++file.tensor_count;
+    if (ref.has_length) {
+        const std::uint64_t end =
+            ref.length > std::numeric_limits<std::uint64_t>::max() - ref.offset
+                ? std::numeric_limits<std::uint64_t>::max()
+                : ref.offset + ref.length;
+        file.required_bytes = std::max(file.required_bytes, end);
+    }
+    if (!file.fp16_blocker.empty()) {
+        return;
+    }
+    const std::string tensor = "tensor '" + ref.name + "'";
+    if (ref.nested) {
+        file.fp16_blocker = tensor +
+                            " lives in a subgraph / node attribute / sparse tensor "
+                            "(in-memory replacement only covers main-graph initializers)";
+    } else if (!ref.has_length) {
+        file.fp16_blocker = tensor + " has no external_data length";
+    } else if (ref.data_type != 1) {
+        file.fp16_blocker =
+            tensor + " is not FLOAT (data_type " + std::to_string(ref.data_type) + ")";
+    } else if (ref.offset % 4 != 0 || ref.length % 4 != 0) {
+        file.fp16_blocker = tensor + " offset/length are not 4-byte aligned (" +
+                            std::to_string(ref.offset) + ", " + std::to_string(ref.length) + ")";
+    }
+}
+
+/// IEEE half → IEEE single 的位模式，对全部 65536 个输入逐位精确。
+///
+/// 无分支写法（让编译器向量化）：正规数只需把指数偏置从 15 挪到 127；
+/// Inf/NaN 再挪一次使指数全 1（尾数 = NaN 载荷原样保留）；零与次正规先
+/// 按"指数 = 1"的正规数解释，再减去 2^-14 —— 被减数落在 [2^-14, 2^-13)，
+/// 减法精确（Sterbenz），结果 m×2^-24 是单精度正规数，不受 FTZ/DAZ 影响。
+[[nodiscard]] std::uint32_t half_to_float_bits(const std::uint16_t half) {
+    constexpr std::uint32_t kExponentMask = 0x0F800000U;  // half 的 5 位指数，左移 13 位后
+    constexpr std::uint32_t kRebias = (127U - 15U) << 23U;
+    const std::uint32_t sign = static_cast<std::uint32_t>(half & 0x8000U) << 16U;
+    const std::uint32_t magnitude = static_cast<std::uint32_t>(half & 0x7FFFU) << 13U;
+    const std::uint32_t exponent = magnitude & kExponentMask;
+    const std::uint32_t normal = magnitude + kRebias;
+    const std::uint32_t special = normal + kRebias;
+    const float renormalized = std::bit_cast<float>(normal + (1U << 23U)) - 0x1p-14F;
+    std::uint32_t bits = exponent == kExponentMask ? special : normal;
+    bits = exponent == 0 ? std::bit_cast<std::uint32_t>(renormalized) : bits;
+    return bits | sign;
+}
+
+/// 打开文件并取字节数（seek 到尾 —— 与 read_onnx_graph 同款）。
+std::uint64_t open_with_size(std::ifstream& file, const std::string& path, const char* what) {
+    file.open(path, std::ios::binary);
+    if (!file) {
+        throw_error(ErrorCode::IoError, std::string("cannot open ") + what + ": " + path);
+    }
+    file.seekg(0, std::ios::end);
+    const auto end = file.tellg();
+    file.seekg(0, std::ios::beg);
+    if (end < 0 || !file) {
+        throw_error(ErrorCode::IoError,
+                    std::string("cannot determine size of ") + what + ": " + path);
+    }
+    return static_cast<std::uint64_t>(end);
 }
 
 }  // namespace
 
-std::vector<std::byte> inline_external_fp16_weights(const std::vector<std::byte>& model,
-                                                    const ExternalWeightSource& source) {
-    Reader reader(model.data(), model.size());
-    Writer writer;
-    while (!reader.done()) {
-        const std::size_t start = reader.pos();
-        std::uint64_t key = 0;
-        if (!reader.read_varint(key)) {
-            throw_error(ErrorCode::ModelLoadError, "malformed model (bad wire format)");
-        }
-        const auto field = static_cast<std::uint32_t>(key >> 3U);
-        const auto wire = static_cast<std::uint32_t>(key & 0x7U);
-        if (field == 7 && wire == 2) {  // graph
-            const std::byte* graph_bytes = nullptr;
-            std::size_t graph_size = 0;
-            if (!reader.read_bytes(graph_bytes, graph_size)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed graph field");
-            }
-            auto transcoded = transcode_graph(graph_bytes, graph_size, source);
-            writer.len_field(7, transcoded.data(), transcoded.size());
-        } else {
-            if (!reader.skip(wire)) {
-                throw_error(ErrorCode::ModelLoadError, "malformed model field");
-            }
-            writer.raw(model.data() + start, reader.pos() - start);
-        }
+std::vector<ExternalWeightFile> scan_external_weights(const std::string& model_path) {
+    std::ifstream file;
+    const std::uint64_t size = open_with_size(file, model_path, "ONNX model");
+
+    StreamReader reader(file, size);
+    ExternalRefScanner scanner(reader);
+    if (!scanner.scan_model()) {
+        throw_error(ErrorCode::ModelLoadError,
+                    "malformed ONNX model (external weight scan failed): " + model_path);
     }
-    return writer.take();
+
+    std::vector<ExternalWeightFile> files;
+    for (const auto& ref : scanner.refs) {
+        auto it = std::find_if(files.begin(), files.end(), [&ref](const ExternalWeightFile& f) {
+            return f.location == ref.location;
+        });
+        if (it == files.end()) {
+            ExternalWeightFile entry;
+            entry.location = ref.location;
+            files.push_back(std::move(entry));
+            it = std::prev(files.end());
+        }
+        accumulate(ref, *it);
+    }
+    return files;
+}
+
+ExternalWeightLayout classify_external_weights(const ExternalWeightFile& file,
+                                               const std::uint64_t file_size) {
+    if (file.required_bytes <= file_size) {
+        return ExternalWeightLayout::Fp32;
+    }
+    // required ≤ 2 × size，不溢出的写法。
+    if (file.required_bytes / 2U + file.required_bytes % 2U <= file_size) {
+        if (!file.fp16_blocker.empty()) {
+            throw_error(ErrorCode::ModelLoadError,
+                        "external weight file '" + file.location + "' (" +
+                            std::to_string(file_size) + " bytes, graph expects " +
+                            std::to_string(file.required_bytes) +
+                            ") looks fp16-packed but cannot be upcast: " + file.fp16_blocker);
+        }
+        if (file_size % 2U != 0) {
+            throw_error(ErrorCode::ModelLoadError, "fp16-packed weight file '" + file.location +
+                                                       "' has an odd size (" +
+                                                       std::to_string(file_size) + " bytes)");
+        }
+        return ExternalWeightLayout::Fp16Packed;
+    }
+    throw_error(ErrorCode::ModelLoadError,
+                "external weight file '" + file.location + "' (" + std::to_string(file_size) +
+                    " bytes) is too small for the graph (expects up to " +
+                    std::to_string(file.required_bytes) +
+                    " bytes) under either fp32 or fp16 interpretation");
+}
+
+Fp32WeightBuffer read_fp16_weights_as_fp32(const std::string& path) {
+    std::ifstream file;
+    const std::uint64_t size = open_with_size(file, path, "weight file");
+    if (size % 2U != 0) {
+        throw_error(ErrorCode::ModelLoadError, "fp16 weight file has an odd size (" +
+                                                   std::to_string(size) + " bytes): " + path);
+    }
+
+    Fp32WeightBuffer buffer;
+    buffer.count = static_cast<std::size_t>(size / 2U);
+    buffer.data = std::make_unique_for_overwrite<float[]>(buffer.count);
+
+    // 一次读 1 Mi 个 half（2 MB）：块足够大摊薄系统调用，又小到不必在意峰值。
+    constexpr std::size_t kChunk = std::size_t{1} << 20U;
+    std::vector<std::uint16_t> chunk(std::min(kChunk, buffer.count));
+    for (std::size_t done = 0; done < buffer.count;) {
+        const std::size_t n = std::min(chunk.size(), buffer.count - done);
+        if (!file.read(reinterpret_cast<char*>(chunk.data()),
+                       static_cast<std::streamsize>(n * sizeof(std::uint16_t)))) {
+            throw_error(ErrorCode::IoError, "failed to read weight file: " + path);
+        }
+        float* out = buffer.data.get() + done;
+        for (std::size_t i = 0; i < n; ++i) {
+            out[i] = std::bit_cast<float>(half_to_float_bits(chunk[i]));
+        }
+        done += n;
+    }
+    return buffer;
 }
 
 }  // namespace genie

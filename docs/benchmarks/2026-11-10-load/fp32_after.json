@@ -1,0 +1,13 @@
+{
+  "model": "/home/ybt/genie-assets/voice-package-multilang",
+  "version": "0.3.0",
+  "environment": {"ort": "1.31.0", "os": "Linux 6.8.0-124-generic x86_64", "cpu": "13th Gen Intel(R) Core(TM) i9-13900KF"},
+  "threads": 8, "spinning": 0, "graph_opt": 3, "arena": 1, "mem_pattern": 1, "runs": 1, "warmup": 0,
+  "peak_rss_kb": 3564656,
+  "errors": 0,
+  "verify_voice_package": false,
+  "load": {"total_ms": 3722.04, "stages": [{"name": "load/voice_package", "ms": 0.215, "count": 1}, {"name": "load/t2s_encoder", "ms": 23.831, "count": 1}, {"name": "load/t2s_first_stage_decoder", "ms": 425.076, "count": 1}, {"name": "load/t2s_stage_decoder", "ms": 410.971, "count": 1}, {"name": "load/vits", "ms": 869.076, "count": 1}, {"name": "load/prompt_encoder", "ms": 48.739, "count": 1}, {"name": "load/speaker_verification", "ms": 289.009, "count": 1}, {"name": "load/roberta", "ms": 934.947, "count": 1}, {"name": "load/chinese_hubert", "ms": 173.765, "count": 1}, {"name": "load/jieba", "ms": 62.455, "count": 1}, {"name": "load/english_frontend", "ms": 23.683, "count": 1}, {"name": "load/g2pm", "ms": 10.04, "count": 1}, {"name": "load/roberta_tokenizer", "ms": 0.384, "count": 1}, {"name": "load/reference", "ms": 97.408, "count": 1}, {"name": "load/reference_ssl", "ms": 114.3, "count": 1}, {"name": "load/reference_bert", "ms": 40.95, "count": 1}, {"name": "load/global_embeddings", "ms": 197.164, "count": 1}]},
+  "texts": [
+    {"text": "你好，今天天气很好。", "rtf": {"mean": 0.518, "min": 0.518, "median": 0.518, "max": 0.518}, "audio_seconds": {"mean": 2.36}, "total_wall_ms": {"mean": 1221.5, "min": 1221.5, "max": 1221.5}, "cpu_cores": {"mean": 4.73}, "iterations": {"mean": 60.0, "min": 60, "max": 60}, "stages": [{"name": "language_detect", "ms": {"mean": 0.001, "min": 0.001, "max": 0.001, "median": 0.001}}, {"name": "frontend", "ms": {"mean": 0.195, "min": 0.195, "max": 0.195, "median": 0.195}}, {"name": "text_bert", "ms": {"mean": 28.907, "min": 28.907, "max": 28.907, "median": 28.907}}, {"name": "t2s/encoder", "ms": {"mean": 1.893, "min": 1.893, "max": 1.893, "median": 1.893}}, {"name": "t2s/first_stage", "ms": {"mean": 63.862, "min": 63.862, "max": 63.862, "median": 63.862}}, {"name": "t2s/stage_decoder", "ms": {"mean": 804.397, "min": 804.397, "max": 804.397, "median": 804.397}}, {"name": "t2s", "ms": {"mean": 871.43, "min": 871.43, "max": 871.43, "median": 871.43}}, {"name": "vocoder", "ms": {"mean": 320.865, "min": 320.865, "max": 320.865, "median": 320.865}}], "samples": [{"wall_ms": 1221.5, "rtf": 0.5176, "cpu_cores": 4.73, "iterations": 60, "stages": {"language_detect": 0.001, "frontend": 0.195, "text_bert": 28.907, "t2s/encoder": 1.893, "t2s/first_stage": 63.862, "t2s/stage_decoder": 804.397, "t2s": 871.43, "vocoder": 320.865}}]}
+  ]
+}

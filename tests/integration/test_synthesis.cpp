@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,7 @@
 #include "genie/onnx_graph.hpp"
 #include "genie/session.hpp"
 #include "genie/tensor.hpp"
+#include "genie/timing.hpp"
 #include "support/model_paths.hpp"
 
 using namespace genie;
@@ -301,14 +303,58 @@ TEST_F(OrtBackendTest, EngineRecordsLoadTiming) {
     }
 }
 
-// fp16 打包外部权重 + 内存上转路径的端到端回归（assets 见
-// tools/make_synthetic_model.py --external-fp16）。w 全 1.0 ⇒ out_f == beta，
-// 转码错一个字节就会在这条测试上失败。资产缺失时跳过（与 echo.onnx 同策略）。
-TEST_F(OrtBackendTest, EngineLoadsFp16PackageViaMemoryUpcast) {
-    // 只测构造：fp16 路径 = 读图 + 解析外部 fp16 bin + 上转内联 + 从内存
-    // 建会话 —— 任一环节出错都会在 ORT 解析时炸。推理级验证由
-    // tests/unit/test_onnx_graph.cpp 的字节级断言覆盖（echo 模型的输入名
-    // 与真实 t2s/vits 契约不同，不能走 synthesize）。
+// fp16 打包外部权重 + 加载期上转的端到端回归（资产见
+// tools/make_synthetic_model.py --external-fp16）：w = [1024] 全 1.0，以 HF
+// 的 fp16 打包布局存放（图声明 fp32 区间 4096 字节，文件只有 2048 字节）。
+// 资产缺失时跳过（与 echo.onnx 同策略；CI 的 ORT job 会先生成）。
+
+TEST_F(OrtBackendTest, SessionReadsInMemoryUpcastWeights) {
+    const auto graph = test::synthetic_model("echo_fp16.onnx");
+    const auto data = test::synthetic_model("echo_fp16_data.bin");
+    if (!std::filesystem::exists(graph) || !std::filesystem::exists(data)) {
+        GTEST_SKIP() << "echo_fp16 assets not available at " << graph.string();
+    }
+
+    // 不注入：后端按图声明的 fp32 区间去读磁盘上的 fp16 文件 —— 越界，
+    // 建会话失败。这正是加载期必须上转、再以内存缓冲替换的原因。
+    EXPECT_THROW((void)create_session(graph.string(), config_), Error);
+
+    std::unique_ptr<ModelSession> session;
+    {
+        auto upcast = read_fp16_weights_as_fp32(data.string());
+        session = create_session(
+            graph.string(), config_,
+            {ExternalWeightBuffer{"echo_fp16_data.bin", upcast.data.get(), upcast.size_bytes()}});
+        // 作用域结束即释放缓冲：后端必须在建会话时已拷贝 —— 若它保留指针，
+        // 下面的推理会读到已释放的内存（ASan 下直接报错）。
+    }
+
+    constexpr int kLength = 2;
+    constexpr int kBert = 1024;
+    std::vector<float> beta(static_cast<std::size_t>(kLength) * kBert);
+    for (std::size_t i = 0; i < beta.size(); ++i) {
+        beta[i] = static_cast<float>(i % 97) * 0.25F;
+    }
+    const auto outputs = session->run({
+        {"alpha", Tensor::from_int64({1, kLength}, std::vector<std::int64_t>(kLength, 3))},
+        {"beta", Tensor::from_float32({kLength, kBert}, beta)},
+        {"gamma", Tensor::from_float32({1, 768, 8}, std::vector<float>(768U * 8U, 0.0F))},
+    });
+
+    // out_f = beta * w，w 全 1.0 ⇒ out_f == beta（上转错一个字节就对不上）。
+    ASSERT_EQ(outputs.size(), 3U);
+    ASSERT_EQ(outputs[1].floats().size(), beta.size());
+    for (std::size_t i = 0; i < beta.size(); ++i) {
+        ASSERT_EQ(outputs[1].floats()[i], beta[i]) << "element " << i;
+    }
+}
+
+TEST_F(OrtBackendTest, EngineLoadsFp16PackageWithInMemoryWeights) {
+    // 引擎层：manifest 声明 weight_format = "fp16" → 扫描 → 判定为打包格式 →
+    // 上转 → 以内存缓冲建会话。四个角色共用同一个 fp16 文件，必须**只上转
+    // 一次**（真实包里 t2s 的两个解码器共用 t2s_shared 同理）。推理级验证见
+    // SessionReadsInMemoryUpcastWeights（echo 模型的输入名与 t2s/vits 契约
+    // 不同，不能走 synthesize）。
     const auto graph = test::synthetic_model("echo_fp16.onnx");
     if (!std::filesystem::exists(graph)) {
         GTEST_SKIP() << "echo_fp16.onnx not available at " << graph.string();
@@ -317,11 +363,30 @@ TEST_F(OrtBackendTest, EngineLoadsFp16PackageViaMemoryUpcast) {
     genie::Engine engine(package.root(), genie::SessionConfig{});
     EXPECT_EQ(engine.manifest().weight_format, genie::WeightFormat::Fp16);
     EXPECT_EQ(engine.sample_rate(), 32000);
-    bool has_stage = false;
-    for (const auto& stage : engine.load_timing().stages()) {
-        if (stage.name == "load/t2s_stage_decoder") {
-            has_stage = true;
+
+    const auto find = [&engine](const char* name) -> const StageTiming* {
+        for (const auto& stage : engine.load_timing().stages()) {
+            if (stage.name == name) {
+                return &stage;
+            }
         }
+        return nullptr;
+    };
+    ASSERT_NE(find("load/t2s_stage_decoder"), nullptr);
+    const auto* scan = find("load/fp16_scan");
+    ASSERT_NE(scan, nullptr);
+    EXPECT_EQ(scan->count, 4U);
+    const auto* upcast = find("load/fp16_upcast");
+    ASSERT_NE(upcast, nullptr);
+    EXPECT_EQ(upcast->count, 1U);
+}
+
+TEST_F(OrtBackendTest, Fp32PackageSkipsTheUpcastPath) {
+    // fp32 包（缺省 weight_format）不扫描、不上转 —— 计时里不应出现这两项。
+    const TempPackage package;
+    Engine engine(package.root(), SessionConfig{});
+    for (const auto& stage : engine.load_timing().stages()) {
+        EXPECT_NE(stage.name, "load/fp16_scan");
+        EXPECT_NE(stage.name, "load/fp16_upcast");
     }
-    EXPECT_TRUE(has_stage);
 }

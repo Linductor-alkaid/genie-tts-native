@@ -18,7 +18,9 @@
 #include <onnxruntime_cxx_api.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
+#include <filesystem>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -63,35 +65,24 @@ Ort::Env& shared_env() {
 /// 基于 ORT 的会话实现。
 class OrtModelSession final : public ModelSession {
 public:
-    OrtModelSession(const std::string& model_path, const SessionConfig& config)
-        : OrtModelSession(config, model_path) {
+    /// @param external_weights 改由内存提供的外部权重文件（fp16 上转路径；
+    ///        普通加载为空）。缓冲只需在本构造期间有效 —— ORT 默认在建
+    ///        会话时拷贝（AddExternalInitializersFromFilesInMemory 的文档语义，
+    ///        契约由集成测试锁定：会话建完即释放缓冲，再推理校验结果）。
+    OrtModelSession(const std::string& model_path, const SessionConfig& config,
+                    const std::vector<ExternalWeightBuffer>& external_weights = {}) {
         try {
-            session_ = std::make_unique<Ort::Session>(shared_env(), model_path.c_str(),
-                                                      make_options(config));
+            auto options = make_options(config);
+            if (!external_weights.empty()) {
+                add_external_weights(options, external_weights);
+            }
+            session_ = std::make_unique<Ort::Session>(shared_env(), model_path.c_str(), options);
         } catch (const Ort::Exception& e) {
             throw_error(ErrorCode::ModelLoadError,
                         "failed to load ONNX model '" + model_path + "': " + e.what());
         }
 
         model_path_ = model_path;
-        collect_specs();
-    }
-
-    /// 内存构造（fp16 上转路径）：model_data 必须是 external 初始化器
-    /// 已内联的完整 ONNX 模型。ORT 在 CreateSessionFromArray 时把模型
-    /// 解析进自己的存储 —— 契约由真实模型的端到端测试锁定。
-    OrtModelSession(const void* model_data, const std::size_t model_data_size,
-                    std::string model_name, const SessionConfig& config)
-        : OrtModelSession(config, model_name) {
-        try {
-            session_ = std::make_unique<Ort::Session>(shared_env(), model_data, model_data_size,
-                                                      make_options(config));
-        } catch (const Ort::Exception& e) {
-            throw_error(ErrorCode::ModelLoadError,
-                        "failed to load ONNX model from memory (" + model_name + "): " + e.what());
-        }
-
-        model_path_ = std::move(model_name);
         collect_specs();
     }
 
@@ -134,10 +125,26 @@ public:
     }
 
 private:
-    /// 委托目标：只初始化 std::string 等成员，真正的 ORT 会话由公开
-    /// 构造函数体在 make_options 之后创建（两个重载共享成员初始化，
-    /// 避免把 options 组装复制两份）。
-    OrtModelSession(const SessionConfig&, const std::string&) {}
+    /// 把内存里的外部权重文件挂到会话选项上（ORT ≥ 1.18）。
+    ///
+    /// C API 要的是 char*（非 const）：默认的拷贝模式下 ORT 只读不写，
+    /// cast 掉的 const 只来自本项目"缓冲只读"的接口约定。文件名在
+    /// Windows 上是宽字符（ORTCHAR_T），经 filesystem::path 转换。
+    static void add_external_weights(Ort::SessionOptions& options,
+                                     const std::vector<ExternalWeightBuffer>& weights) {
+        std::vector<std::basic_string<ORTCHAR_T>> names;
+        std::vector<char*> buffers;
+        std::vector<std::size_t> lengths;
+        names.reserve(weights.size());
+        buffers.reserve(weights.size());
+        lengths.reserve(weights.size());
+        for (const auto& weight : weights) {
+            names.emplace_back(std::filesystem::path(weight.location).native());
+            buffers.push_back(const_cast<char*>(static_cast<const char*>(weight.data)));
+            lengths.push_back(weight.size);
+        }
+        options.AddExternalInitializersFromFilesInMemory(names, buffers, lengths);
+    }
 
     [[nodiscard]] static Ort::SessionOptions make_options(const SessionConfig& config) {
         Ort::SessionOptions options;
@@ -286,12 +293,10 @@ std::unique_ptr<ModelSession> create_session(const std::string& model_path,
     return std::make_unique<OrtModelSession>(model_path, config);
 }
 
-std::unique_ptr<ModelSession> create_session_from_memory(const void* model_data,
-                                                         std::size_t model_data_size,
-                                                         std::string model_name,
-                                                         const SessionConfig& config) {
-    return std::make_unique<OrtModelSession>(model_data, model_data_size, std::move(model_name),
-                                             config);
+std::unique_ptr<ModelSession> create_session(
+    const std::string& model_path, const SessionConfig& config,
+    const std::vector<ExternalWeightBuffer>& external_weights) {
+    return std::make_unique<OrtModelSession>(model_path, config, external_weights);
 }
 
 bool has_onnxruntime_backend() noexcept {

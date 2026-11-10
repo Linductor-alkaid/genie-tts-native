@@ -8,8 +8,6 @@
 #include <cstring>
 #include <exception>
 #include <filesystem>
-#include <fstream>
-#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -17,6 +15,7 @@
 
 #include "engine/g2pm.hpp"
 #include "engine/hubert.hpp"
+#include "engine/model_loader.hpp"
 #include "engine/roberta.hpp"
 #include "engine/stage_timer.hpp"
 #include "genie/errors.hpp"
@@ -270,87 +269,45 @@ Engine::Engine(std::string root, SessionFactory factory, const EngineConfig& con
     impl->manifest = impl->package.manifest();
     impl->sample_rate = impl->manifest.sample_rate > 0 ? impl->manifest.sample_rate : 32000;
 
-    // 2) 模型会话。每个会话的初始化是冷启动的大头，按角色单独计时。
+    // 2) 模型会话。会话初始化是冷启动的大头（fp32 包里占 ~85%），按角色
+    //    单独计时；怎么加载（fp16 包的扫描 / 上转、建会话）由
+    //    detail::load_model_sessions 编排。fp16 权重经内存上转后运行时仍是
+    //    FP32 —— 精度影响只来自存储格式，与 HF 上游发布的 fp16 bin 一致。
     //
-    // fp16 包（manifest.weight_format = "fp16"）的加载路径见 load 内注释。
-    // fp16 权重经内存上转后运行时仍是 FP32 —— 精度影响只来自存储格式，
-    // 与 HF 上游发布的 fp16 bin 一致。
-    const bool upcast_fp16 = impl->manifest.weight_format == WeightFormat::Fp16;
-    std::map<std::string, std::vector<std::byte>> fp16_files;
-    std::vector<std::byte> model_bytes;
-
-    const auto read_all_bytes = [](const std::string& file_path) {
-        std::ifstream file(file_path, std::ios::binary);
-        if (!file) {
-            throw_error(ErrorCode::IoError, "cannot open model file: " + file_path);
+    // 说话人验证模型是 V2ProPlus 的**硬依赖**：上游的 update_global_emb()
+    // 只有在 SV 模型加载成功时才会算 global_emb；算不出来就没法喂 vits 的
+    // ge / ge_advanced。这里在**加载前**就报清楚，而不是等到推理时炸。
+    if (impl->v2proplus() && !impl->package.has(ModelRole::SpeakerVerification)) {
+        throw_error(ErrorCode::NotFound,
+                    "V2ProPlus 音色包缺少说话人验证模型（speaker_verification）—— "
+                    "没有它算不出 ge / ge_advanced，V2ProPlus 分支不可用");
+    }
+    {
+        std::vector<detail::ModelLoadRequest> requests;
+        const auto request = [&impl, &requests](const ModelRole role, std::string stage,
+                                                std::unique_ptr<ModelSession>& target) {
+            requests.push_back({impl->package.model_path(role), std::move(stage), &target});
+        };
+        request(ModelRole::T2sEncoder, "load/t2s_encoder", impl->encoder);
+        request(ModelRole::T2sFirstStageDecoder, "load/t2s_first_stage_decoder", impl->first_stage);
+        request(ModelRole::T2sStageDecoder, "load/t2s_stage_decoder", impl->stage);
+        request(ModelRole::Vits, "load/vits", impl->vocoder);
+        if (impl->v2proplus()) {
+            request(ModelRole::PromptEncoder, "load/prompt_encoder", impl->prompt_encoder);
+            request(ModelRole::SpeakerVerification, "load/speaker_verification",
+                    impl->speaker_verifier);
         }
-        std::vector<std::byte> bytes;
-        char buffer[1 << 16];
-        while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) {
-            const auto count = static_cast<std::size_t>(file.gcount());
-            bytes.insert(bytes.end(), reinterpret_cast<std::byte*>(buffer),
-                         reinterpret_cast<std::byte*>(buffer) + count);
-            if (!file) {
-                break;
-            }
+        // RoBERTa（中文韵律）与 HuBERT（参考音频内容特征）是可选角色：
+        // 缺失时对应特征保持全零降级（与上游一致，见 4)）。
+        if (impl->package.has(ModelRole::Roberta)) {
+            request(ModelRole::Roberta, "load/roberta", impl->roberta);
         }
-        return bytes;
-    };
-
-    const auto load = [&impl, &factory, &config, &upcast_fp16, &fp16_files, &model_bytes,
-                       &read_all_bytes](const ModelRole role, std::string stage) {
-        detail::ScopedStageTimer timer(impl->load_timing, std::move(stage));
-        const auto path = impl->package.model_path(role);
-        std::unique_ptr<ModelSession> session;
-        if (upcast_fp16) {
-            // fp16 包：读图 + 外部 fp16 bin → 内存里上转 FP32 并内联 →
-            // 从内存建会话（包体积减半，运行时仍是 FP32；借鉴上游
-            // Genie-TTS 的分发格式）。内联缓冲在会话创建后即可释放
-            // （ORT 解析时拷贝，契约由端到端测试锁定）。
-            model_bytes = read_all_bytes(path);
-            const auto spec = read_onnx_graph_from_memory(model_bytes);
-            fp16_files.clear();
-            for (const auto& file : spec.external_data_files) {
-                const auto bin_path = (std::filesystem::path(path).parent_path() / file).string();
-                fp16_files.emplace(file, read_all_bytes(bin_path));
-            }
-            const ExternalWeightSource source =
-                [&fp16_files](const std::string& location) -> const std::vector<std::byte>* {
-                const auto it = fp16_files.find(location);
-                return it == fp16_files.end() ? nullptr : &it->second;
-            };
-            auto inlined = inline_external_fp16_weights(model_bytes, source);
-            session =
-                create_session_from_memory(inlined.data(), inlined.size(), path, config.session);
-        } else {
-            // SessionFactory 注入缝只覆盖 fp32 路径 —— 假会话无法消费
-            // fp16 的字节流，fp16 路径走真实 ORT。
-            session = factory(path, config.session);
+        if (impl->package.has(ModelRole::ChineseHubert)) {
+            request(ModelRole::ChineseHubert, "load/chinese_hubert", impl->hubert);
         }
-        if (!session) {
-            throw_error(ErrorCode::ModelLoadError,
-                        "session factory returned no session for: " + path);
-        }
-        return session;
-    };
-
-    impl->encoder = load(ModelRole::T2sEncoder, "load/t2s_encoder");
-    impl->first_stage = load(ModelRole::T2sFirstStageDecoder, "load/t2s_first_stage_decoder");
-    impl->stage = load(ModelRole::T2sStageDecoder, "load/t2s_stage_decoder");
-    impl->vocoder = load(ModelRole::Vits, "load/vits");
-
-    if (impl->v2proplus()) {
-        impl->prompt_encoder = load(ModelRole::PromptEncoder, "load/prompt_encoder");
-        // 说话人验证模型是 V2ProPlus 的**硬依赖**：
-        // 上游的 update_global_emb() 只有在 SV 模型加载成功时才会算
-        // global_emb；算不出来就没法喂 vits 的 ge / ge_advanced。
-        // 这里在**加载期**就报清楚，而不是等到推理时炸。
-        if (!impl->package.has(ModelRole::SpeakerVerification)) {
-            throw_error(ErrorCode::NotFound,
-                        "V2ProPlus 音色包缺少说话人验证模型（speaker_verification）—— "
-                        "没有它算不出 ge / ge_advanced，V2ProPlus 分支不可用");
-        }
-        impl->speaker_verifier = load(ModelRole::SpeakerVerification, "load/speaker_verification");
+        detail::load_model_sessions(requests, factory, config.session,
+                                    impl->manifest.weight_format == WeightFormat::Fp16,
+                                    impl->load_timing);
     }
 
     // 3) 文本前端。g2pM（多音字消歧）先于前端装配 —— 前端持有它做
@@ -410,19 +367,14 @@ Engine::Engine(std::string root, SessionFactory factory, const EngineConfig& con
     }
     impl->decoder = T2SDecoder(T2SOptions{kMaxT2SIterations, kEosThreshold});
 
-    // 3.5) RoBERTa（中文韵律）：模型与分词器一起加载，二者缺一不可 ——
-    // 分词器词表与模型必须配套，加载期就报清楚。
-    if (impl->package.has(ModelRole::Roberta)) {
-        detail::ScopedStageTimer timer(impl->load_timing, "load/roberta");
-        const auto model_path = impl->package.model_path(ModelRole::Roberta);
-        impl->roberta = load(ModelRole::Roberta, "load/roberta_session");
-        const auto vocab_path = std::filesystem::path(model_path).parent_path() / "vocab.txt";
+    // 3.5) RoBERTa 的分词器：词表必须与模型配套，二者缺一不可（会话已在
+    //      2) 里加载）—— 加载期就报清楚。
+    if (impl->roberta) {
+        detail::ScopedStageTimer timer(impl->load_timing, "load/roberta_tokenizer");
+        const auto vocab_path =
+            std::filesystem::path(impl->package.model_path(ModelRole::Roberta)).parent_path() /
+            "vocab.txt";
         impl->roberta_tokenizer = text::RobertaTokenizer::load(vocab_path.string());
-    }
-
-    // 3.6) HuBERT（参考音频内容特征）：缺失时 ssl_content 保持全零降级。
-    if (impl->package.has(ModelRole::ChineseHubert)) {
-        impl->hubert = load(ModelRole::ChineseHubert, "load/chinese_hubert");
     }
 
     // 4) 参考音频条件。

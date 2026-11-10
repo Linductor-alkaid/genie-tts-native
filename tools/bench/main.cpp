@@ -472,7 +472,7 @@ std::string json_number(double value, const char* format) {
 }
 
 std::string to_json(const std::vector<TextAggregate>& aggregates, const Options& options,
-                    const double rss_kb) {
+                    const double rss_kb, const genie::TimingReport& load) {
     // 固定长度的统计行（名字 + 四个统计值 + 缩进）能超过 120 字节 ——
     // 缓冲必须留足。
     static constexpr int kJsonBufSize = 512;
@@ -507,6 +507,11 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
         out += number;
     }
     out += "  \"errors\": " + std::to_string(error_count) + ",\n";
+    // 冷启动：是否跳过包校验必须进记录（它是冷启动里最大的一块可开关
+    // 开销）；加载的分阶段耗时随之落盘 —— 只打在终端上的表没法事后比对。
+    out += std::string("  \"verify_voice_package\": ") + (options.no_verify ? "false" : "true") +
+           ",\n";
+    out += "  \"load\": " + load.to_json() + ",\n";
     out += "  \"texts\": [\n";
     for (std::size_t i = 0; i < aggregates.size(); ++i) {
         const auto& aggregate = aggregates[i];
@@ -720,7 +725,7 @@ int main(int argc, char** argv) {
             std::cerr << "cannot write " << options.json_path << "\n";
             return kExitError;
         }
-        json << to_json(aggregates, options, rss);
+        json << to_json(aggregates, options, rss, engine.load_timing());
         std::cout << "aggregate written to " << options.json_path << "\n";
     }
 

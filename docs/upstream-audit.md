@@ -1406,3 +1406,36 @@ state、build_stage_feed 按值拷入 feed、to_ort_value 分配 + memcpy、
 - 采样随机性不受影响：采样在图内，宿主侧拷贝方式不进入随机路径。
 - 风险与回退见 `docs/architecture.md` §2.11：若 ORT 某算子将来要就地
   改写输入缓冲，零拷贝契约失效，回退点在 `to_ort_value`。
+
+## 22. fp16 权重的加载期上转（2026-11-10，M5）
+
+### 22.1 上游对照
+
+上游发布 `*_fp16.bin`：转换流程（`Converter/v2/T2SConverter.py` 的
+`step1_create_fp16_bin_with_key_mapping` → `step2_relink_onnx_for_fp32`）
+把图里的 external location 改指 `*_fp32.bin`、offset/length 以 fp32 字节
+为单位，而发布的文件是同一批张量转 fp16 后连续打包（大小恰为一半）；
+运行时由 ModelManager 读 fp16、在内存里上转 FP32 再交给 ORT。本项目的
+对齐目标：**交给推理后端的权重逐位等于"fp16 → fp32 精确上转"的结果**
+—— 与上游相同的数值，不是额外降精度。
+
+### 22.2 本项目的实现（第二版）
+
+- 加载期流式扫描各模型的外部张量（只读结构字段），按"图声明区间 vs
+  文件大小"判定 fp16 打包格式；
+- 整文件逐元素上转：打包布局下张量位于 offset/2，上转结果恰是 fp32 bin
+  的布局，**不改写图**；
+- ONNX Runtime `AddExternalInitializersFromFilesInMemory` 以内存缓冲替换
+  该文件后按路径建会话。
+- 首版（#41/#42）的 protobuf 内联转码器已移除：交给 ORT 的数值相同，
+  但开销大得多（自包含模型也被整份重写），见 `docs/architecture.md` §2.13。
+
+### 22.3 影响评估
+
+- 权重数值：每个 half 都能被 float 精确表示，上转是精确转换；实现对
+  全部 65536 个输入逐位等于逐分支参考实现（穷举单测）。两版实现交给
+  ORT 的权重逐位一致，合成行为不变。
+- 图结构不变：模型契约测试（`tests/component/test_model_contract.cpp`）
+  不受影响。
+- 只覆盖**主图**初始化器（ORT API 语义）；子图 / 节点属性 / 稀疏张量里
+  的外部引用指向 fp16 文件时加载即报错（本项目六模型实测无此情况）。
