@@ -31,15 +31,21 @@ genie-tts <command> [options]
 | `--language <lang>` | `auto` / `chinese` / `english` / `japanese` / `korean` / `hybrid-chinese-english` |
 | `--seed <n>` | 预留（见下方说明） |
 | `--threads <n>` | 每个模型会话的 ORT intra-op 线程数（默认 8） |
+| `--no-verify` | 跳过音色包的 SHA-256 完整性校验（冷启动 −51.5%，但**模型完整性不再校验**） |
+| `--timing` | 把加载与合成的分阶段耗时打到 stderr |
 
 > **`--seed` 目前不能让结果可复现**：采样（TopK / 温度）在 ONNX 图内，
 > ONNX Runtime 没有公开图内采样器的种子接口，seed 只是被透传到
 > `SynthesisOptions`（与 C ABI 同一套字段）。要可复现需要改导出图或
 > 等 ORT 提供钩子，见 `docs/upstream-audit.md`。
 >
-> **多核机器建议留意 `--threads`**：Engine 会创建多个模型会话，每个会话
-> 默认开满全部核心，合计线程数可能过百。CLI 默认每会话 8 线程；
-> 追求低延迟且核心充足时可调大。
+> **多核机器建议留意 `--threads`**：Engine 会创建多个模型会话，线程数是
+> **每个会话**各开这么多，合计可能过百。默认每会话 8 线程 —— 实测
+> 12/16 线程在长句上劣化 11–12%（工作摊到 P/E 两类核上），收益为负，
+> 所以默认不调高。线程数之外的另一个旋钮是 ORT 的自旋开关
+> （`SessionConfig::allow_spinning`），**默认已关** —— 一次合成只有一个
+> 会话在干活，闲置会话的自旋线程纯属内耗（关掉后进程核占用从 9–19
+> 降到 4–5，延迟持平或更优）。
 
 ### 文本 → 音素
 
@@ -103,6 +109,36 @@ wrote out.wav (48000 frames, 32000 Hz, 1.500 s)
   phonemes: 12
   semantic tokens: 34
 ```
+
+加 `--timing` 会把加载与合成的分阶段耗时打到 stderr，用来定位慢在哪一段：
+
+```console
+$ genie-tts synth --model voice-package/ --text "你好" --output out.wav --timing
+[load]
+stage                                      ms        %    count
+  load/voice_package                  3837.00    50.9%        1
+  load/sessions                       1160.00    15.4%        1
+  load/roberta                         936.00    12.4%        1
+  load/vits                            857.00    11.4%        1
+  load/t2s_first_stage_decoder         423.00     5.6%        1
+  load/t2s_stage_decoder               397.00     5.3%        1
+  ...
+[synthesis]
+stage                                      ms        %    count
+language_detect                          0.02     0.0%        1
+frontend                                 2.31     0.2%        1
+text_bert                               29.00     2.0%        1
+t2s                                   1016.00    71.3%        1
+  t2s/encoder                           41.00     2.9%        1
+  t2s/first_stage                       77.00     5.4%        1
+  t2s/stage_decoder                    898.00    63.0%       49
+vocoder                                378.00    26.5%        1
+```
+
+子阶段（名字带 `/`）缩进两格，`count` 是该阶段的执行次数
+（`t2s/stage_decoder` 的 count 就是解码步数 —— 采样在图内不可复现，
+跨版本比较要按 ms/token 归一）。同样的数据也可以由 `genie-bench` 批量采集
+（带环境自证、RTF、峰值 RSS），见 [`docs/performance.md`](performance.md)。
 
 ---
 
@@ -269,6 +305,7 @@ sha256sum models/t2s_encoder.onnx
 | `GENIE_ENABLE_KAIRO` | 自动探测 | kairo 调度后端（关掉会退化为标准库实现） |
 | `GENIE_BUILD_TESTS` | ON | 测试 |
 | `GENIE_BUILD_CLI` | ON | 命令行 |
+| `GENIE_BUILD_BENCH` | ON | `genie-bench` 基准工具 |
 | `GENIE_SANITIZE_ADDRESS` | OFF | AddressSanitizer |
 | `GENIE_SANITIZE_UNDEFINED` | OFF | UndefinedBehaviorSanitizer |
 | `GENIE_SANITIZE_THREAD` | OFF | ThreadSanitizer |
