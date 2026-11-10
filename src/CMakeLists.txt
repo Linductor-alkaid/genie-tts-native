@@ -139,6 +139,7 @@ endif()
 # 而 genie_sched 依赖 genie_core —— 反过来就成环了。
 add_library(genie_sched STATIC
     scheduler/scheduler.cpp
+    scheduler/parallel.cpp
     engine/t2s.cpp
     engine/engine.cpp
     engine/model_loader.cpp

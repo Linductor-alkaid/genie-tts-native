@@ -10,6 +10,7 @@
 #ifndef GENIE_ENGINE_MODEL_LOADER_HPP
 #define GENIE_ENGINE_MODEL_LOADER_HPP
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -40,11 +41,20 @@ struct ModelLoadRequest {
 ///   替换这些文件。不需要上转的模型（自包含、fp32 外部文件）照常走
 ///   factory。上转缓冲在全部会话建完后释放（后端建会话时已拷贝）。
 ///
-/// @throws genie::Error 任一模型加载失败（调用方持有的、已建成的会话
-///         随调用方的异常路径释放）
+/// 上转（按文件）与建会话（按模型）各自最多 concurrency 路并行
+/// （detail::parallel_for；1 = 串行）。各项按下标领活，调用方应把耗时
+/// 大的请求排在前面 —— 并行阶段的墙钟时间由最慢的那个决定。并行时
+/// factory 会被多个线程并发调用（kairo 默认池不绑核，ORT 会话的
+/// intra-op 线程不受影响 —— architecture.md §2.14）。
+///
+/// 计时："load/sessions" 是建会话阶段的墙钟时间；各模型自己的条目
+/// （requests[i].stage）在并行时相互重叠，之和会超过它。
+///
+/// @throws genie::Error 任一模型加载失败（下标最小的那个错误；调用方
+///         持有的、已建成的会话随调用方的异常路径释放）
 void load_model_sessions(const std::vector<ModelLoadRequest>& requests,
                          const SessionFactory& factory, const SessionConfig& config,
-                         bool upcast_fp16_weights, TimingReport& timing);
+                         bool upcast_fp16_weights, std::size_t concurrency, TimingReport& timing);
 
 }  // namespace genie::detail
 

@@ -78,6 +78,11 @@ constexpr std::int64_t kEosThreshold = 1024;
 /// 上游 T2S 解码循环的上限。
 constexpr std::int32_t kMaxT2SIterations = 500;
 
+/// 加载期并行会话数的默认值（intra_op_threads 未配置时）。与 ORT 会话的
+/// 默认预算对齐：8 路并行建会话的瞬时负载与一次合成同量级（kairo 默认
+/// 池不绑核，ORT 线程由 OS 自由调度 —— architecture.md §2.14）。
+constexpr std::size_t kDefaultLoadConcurrency = 8;
+
 /// 语义 token 序列的形状：[1, 1, L]。
 ///
 /// 上游用 `np.expand_dims(y[:, -idx:], axis=0)` 得到这个形状，
@@ -322,9 +327,15 @@ Engine::Engine(std::string root, SessionFactory factory, const EngineConfig& con
         if (impl->package.has(ModelRole::ChineseHubert)) {
             request(ModelRole::ChineseHubert, "load/chinese_hubert", impl->hubert);
         }
+        // 并发路数与会话线程数同源（SessionConfig::intra_op_threads，默认 8）：
+        // 峰值 ≈ 路数 × 线程，不引入新的满载形态。0 视为未配置，取默认。
+        const std::size_t load_concurrency =
+            config.session.intra_op_threads > 0
+                ? static_cast<std::size_t>(config.session.intra_op_threads)
+                : kDefaultLoadConcurrency;
         detail::load_model_sessions(requests, factory, config.session,
                                     impl->manifest.weight_format == WeightFormat::Fp16,
-                                    impl->load_timing);
+                                    load_concurrency, impl->load_timing);
     }
 
     // 3) 文本前端。g2pM（多音字消歧）先于前端装配 —— 前端持有它做
