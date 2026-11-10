@@ -211,6 +211,33 @@ double peak_rss_kb() {
 #endif
 }
 
+/// 进程当前 RSS（KB）—— 峰值之外的另一半：加载完成后的常驻量才是
+/// 长期占用，峰值只说明瞬时需求。
+double current_rss_kb() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS counters{};
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters))) {
+        return static_cast<double>(counters.WorkingSetSize) / 1024.0;
+    }
+    return -1.0;
+#else
+    std::ifstream status("/proc/self/status");
+    if (!status) {
+        return -1.0;
+    }
+    std::string line;
+    while (std::getline(status, line)) {
+        if (line.rfind("VmRSS:", 0) == 0) {
+            long kb = 0;
+            if (std::sscanf(line.c_str(), "VmRSS: %ld", &kb) == 1) {
+                return static_cast<double>(kb);
+            }
+        }
+    }
+    return -1.0;
+#endif
+}
+
 /// 进程累计 CPU 时间（user + sys，秒）。
 double process_cpu_seconds() {
 #ifdef _WIN32
@@ -476,8 +503,15 @@ std::string json_number(double value, const char* format) {
     return buf;
 }
 
+/// 内存快照（KB；读不到为负，JSON 里写 null）。
+struct MemorySnapshot {
+    double peak_kb = -1.0;
+    double after_load_kb = -1.0;
+    double end_kb = -1.0;
+};
+
 std::string to_json(const std::vector<TextAggregate>& aggregates, const Options& options,
-                    const double rss_kb, const genie::TimingReport& load) {
+                    const MemorySnapshot& memory, const genie::TimingReport& load) {
     // 固定长度的统计行（名字 + 四个统计值 + 缩进）能超过 120 字节 ——
     // 缓冲必须留足。
     static constexpr int kJsonBufSize = 512;
@@ -505,12 +539,17 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
                   options.threads, options.spinning, options.graph_opt, options.arena,
                   options.mem_pattern, options.parallel_prepack, options.runs, options.warmup);
     out += number;
-    if (rss_kb < 0.0) {
-        out += "  \"peak_rss_kb\": null,\n";
-    } else {
-        std::snprintf(number, sizeof(number), "  \"peak_rss_kb\": %.0f,\n", rss_kb);
-        out += number;
-    }
+    const auto kb_field = [&out, &number](const char* name, const double kb) {
+        if (kb < 0.0) {
+            out += std::string("  \"") + name + "\": null,\n";
+        } else {
+            std::snprintf(number, sizeof(number), "  \"%s\": %.0f,\n", name, kb);
+            out += number;
+        }
+    };
+    kb_field("peak_rss_kb", memory.peak_kb);
+    kb_field("rss_after_load_kb", memory.after_load_kb);
+    kb_field("rss_end_kb", memory.end_kb);
     out += "  \"errors\": " + std::to_string(error_count) + ",\n";
     // 冷启动：是否跳过包校验必须进记录（它是冷启动里最大的一块可开关
     // 开销）；加载的分阶段耗时随之落盘 —— 只打在终端上的表没法事后比对。
@@ -664,6 +703,11 @@ int main(int argc, char** argv) {
 
     const auto& load_report = engine.load_timing();
     std::cout << "\n[load]\n" << load_report.to_string();
+    MemorySnapshot memory;
+    memory.after_load_kb = current_rss_kb();
+    if (memory.after_load_kb >= 0.0) {
+        std::printf("RSS after load: %.0f MB\n", memory.after_load_kb / 1024.0);
+    }
 
     std::vector<TextAggregate> aggregates;
     for (std::size_t i = 0; i < options.texts.size(); ++i) {
@@ -719,11 +763,13 @@ int main(int argc, char** argv) {
                   << " text(s) failed to synthesize\n";
     }
 
-    const double rss = peak_rss_kb();
-    if (rss < 0.0) {
+    memory.peak_kb = peak_rss_kb();
+    memory.end_kb = current_rss_kb();
+    if (memory.peak_kb < 0.0) {
         std::cout << "\npeak RSS: n/a\n";
     } else {
-        std::printf("\npeak RSS: %.0f MB (%.0f kB)\n", rss / 1024.0, rss);
+        std::printf("\npeak RSS: %.0f MB (%.0f kB), at exit: %.0f MB\n", memory.peak_kb / 1024.0,
+                    memory.peak_kb, memory.end_kb / 1024.0);
     }
 
     if (!options.json_path.empty()) {
@@ -732,7 +778,7 @@ int main(int argc, char** argv) {
             std::cerr << "cannot write " << options.json_path << "\n";
             return kExitError;
         }
-        json << to_json(aggregates, options, rss, engine.load_timing());
+        json << to_json(aggregates, options, memory, engine.load_timing());
         std::cout << "aggregate written to " << options.json_path << "\n";
     }
 

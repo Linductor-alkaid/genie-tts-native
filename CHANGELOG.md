@@ -51,9 +51,19 @@
 
 ### Changed
 
+- **加载期会话用完即释（常驻 -1.2 GB）**：HuBERT / 说话人验证 /
+  prompt_encoder 只在加载期算参考特征与全局嵌入，结果缓存后引擎在构造
+  结束前释放这三个会话，并把空闲页还给系统（glibc `malloc_trim`）。
+  fp32 包加载后常驻 3351 → 2075 MB，合成延迟不变。上游支持运行时换
+  参考音频所以必须常驻；本引擎参考音频在构造期绑定（差异与影响见
+  docs/upstream-audit.md §23）。t2s 双解码器权重共享调研过：ORT 的
+  `AddInitializer` / `PrepackedWeightsContainer` 实测省不出来（图优化
+  重排的副本才是重复存储的来源），结论记录在 docs/performance.md §内存。
 - **`genie-bench` 的 JSON 记录冷启动**：新增 `verify_voice_package`（是否
   跳过包校验 —— 冷启动里最大的一块可开关开销）与 `load`（引擎构造的
-  分阶段耗时）。此前加载表只打在终端上，无法事后比对。
+  分阶段耗时）。此前加载表只打在终端上，无法事后比对。另新增
+  `rss_after_load_kb` / `rss_end_kb`（当前 RSS，加载后与退出前）——
+  峰值之外，常驻量才是长期占用。
 
 - **ORT 会话默认值调优**（M5.3，本机扫描数据驱动）：
 
