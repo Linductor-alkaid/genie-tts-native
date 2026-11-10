@@ -7,49 +7,45 @@
 
 ### Added
 
-- **ONNX 外部权重内联转码器**（fp16 分发的库侧地基，M5 借鉴上游方向）：
-
-  - `genie::inline_external_fp16_weights(model, source)`：wire-format 级
-    转码，把 external-data 初始化器内联为 raw_data。每个外部文件的精度
-    按"图声明区间 vs 文件大小"自动判定：装得下 → 逐字节原样内联
-    （fp32 bin / 自包含 fp16 张量）；只有一半装得下 → 按 HF 上游的
-    fp16 打包格式解释（图声明 FLOAT、offset/length 为 fp32 字节单位，
-    文件在 offset/2 处存 length/2 字节 fp16 —— 本项目六模型的实测
-    布局，`t2s_shared` 的 291+291 个外部张量全部 4 字节对齐且 span 总长
-    恰等于 fp32 bin 大小），拷贝时上转 FP32；两种解释都装不下 →
-    ModelLoadError，不做歧义回退。
-  - external_data / data_location 字段按 ONNX 规范清除（禁止与
-    raw_data 并存，否则 ORT 会忽略 raw_data 走外部文件路径，
-    内联即失效）。
-  - 手写 wire-format 与现有只读解析器同风格，零 protobuf 依赖；
-    IEEE half → single 含次正规 / Inf / NaN 全分支。
-  - 错误路径：external 条目缺 length、两种解释下都越界、provider 缺
-    文件、fp16 打包张量非 4 字节对齐或声明为非 FLOAT，均报
-    ModelLoadError / Unsupported。
-  - 9 个单测覆盖 fp16 上转 / fp32 原样 / 非浮点原样 / 无外部数据透传 /
-    无关字段保留 / 错误路径（tests/unit/test_onnx_graph.cpp）。
-    上游参照：Genie-TTS ModelManager 的 fp16 权重内存注入；格式判定
-    依据的实测记录见 tools/deploy/convert_fp16_weights.py 的模块注释。
-
-
 - **fp16 权重分发支持**（M5，借鉴上游 Genie-TTS 的分发格式）：
 
   - 音色包 manifest 新增 `"weight_format": "fp16"`（缺省 fp32）：外部
-    权重用 HF 上游的 fp16 打包布局，引擎加载期在内存里上转 FP32 再
-    建会话（新增公开 API `create_session_from_memory`）。包体积
-    2.4 → 1.9 GB（-21%）；加载比 fp32 慢 ~5.8 s（上转开销，单线程）——
-    fp16 是分发体积方案，冷启动敏感场景仍用 fp32（+信任模式，见
-    trust-mode 切片）。
-  - `tools/make_synthetic_model.py --external-fp16` 生成 fp16 打包的
-    回归资产；集成测试覆盖「fp16 包 → 内存上转 → 建会话」全链路
-    （资产缺失时与 echo.onnx 同策略跳过）。
+    权重用 HF 上游的 fp16 打包布局（图声明 FLOAT、offset/length 为 fp32
+    字节单位，文件在 offset/2 处存 fp16、大小恰为一半）。引擎加载期流式
+    扫描各模型的外部张量、按"图声明区间 vs 文件大小"判定存储格式，
+    fp16 打包文件**整文件上转**为 FP32（结果恰是 fp32 bin 的布局，不改写
+    图；多个模型共用的文件只转一次），经 ONNX Runtime
+    `AddExternalInitializersFromFilesInMemory` 以内存缓冲替换后建会话。
+    运行时仍是 FP32。
+  - 实测（信任模式）：包体积 2.4 → 1.9 GB（-21%）；冷启动 4.49 s，比
+    fp32（3.72 s）只多 ~0.7 s（上转 0.39 s，扫描 8 个模型 6 ms）。
+  - 新增公开 API：`scan_external_weights` / `classify_external_weights` /
+    `read_fp16_weights_as_fp32`（onnx_graph.hpp）；
+    `create_session(path, config, external_weights)` + `ExternalWeightBuffer`
+    （session.hpp）。
+  - 约束：只替换主图初始化器 —— 子图 / 节点属性 / 稀疏张量里指向 fp16
+    文件的外部引用加载即报错（防止后端按 fp32 偏移去读 fp16 文件）；
+    两种解释都装不下、非 FLOAT、未对齐、缺 length 同样报 ModelLoadError，
+    不做歧义回退。
   - `tools/deploy/make_voice_package.py --weights fp16`：保留 HF 的
-    `*_fp16.bin`（目标名不变 —— external location 写死在图里），
-    manifest 自动登记 weight_format。自包含模型（RoBERTa）不受影响。
-  - 决策与取舍：docs/architecture.md §2.13；库侧转码器
-    `inline_external_fp16_weights` 随 fp16 地基切片合入。
+    `*_fp16.bin`（目标名不变 —— external location 写死在图里），manifest
+    自动登记 weight_format。自包含模型（RoBERTa）不受影响。
+  - 测试：`tools/make_synthetic_model.py --external-fp16` 生成回归资产；
+    集成测试覆盖"不注入则加载失败 / 注入后立即释放缓冲再推理、逐元素
+    校验 / 引擎层四个角色共用一个文件只上转一次"；上转对全部 65536 个
+    half 值逐位精确（穷举单测）。
+  - 设计演进：首版（#41/#42）在 wire-format 层把外部权重内联进 protobuf
+    再从内存建会话（`inline_external_fp16_weights` /
+    `create_session_from_memory`，未发布即移除）—— 自包含模型也被整份
+    重写、权重被搬运五六遍，冷启动 9.47 s。决策与取舍见
+    docs/architecture.md §2.13，数据见 docs/performance.md 与
+    docs/benchmarks/2026-11-10-load/。
 
 ### Changed
+
+- **`genie-bench` 的 JSON 记录冷启动**：新增 `verify_voice_package`（是否
+  跳过包校验 —— 冷启动里最大的一块可开关开销）与 `load`（引擎构造的
+  分阶段耗时）。此前加载表只打在终端上，无法事后比对。
 
 - **ORT 会话默认值调优**（M5.3，本机扫描数据驱动）：
 

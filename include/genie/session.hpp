@@ -10,6 +10,7 @@
 #ifndef GENIE_SESSION_HPP
 #define GENIE_SESSION_HPP
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -60,23 +61,32 @@ public:
 [[nodiscard]] std::unique_ptr<ModelSession> create_session(const std::string& model_path,
                                                            const SessionConfig& config);
 
-/// 从内存中的模型字节创建会话（fp16 上转路径用）。
+/// 外部权重文件的内存副本：替代磁盘上的同名文件。
+struct ExternalWeightBuffer {
+    /// 与图里 external_data 的 location 完全一致（相对模型目录的文件名）。
+    std::string location;
+    /// 文件内容，按图声明的 offset/length 寻址。只需在建会话期间有效。
+    const void* data = nullptr;
+    /// 字节数。
+    std::size_t size = 0;
+};
+
+/// 加载模型并创建会话，部分外部权重文件改由内存提供。
 ///
-/// 模型字节必须是**完整的 ONNX 模型**：external 初始化器已内联
-/// （见 genie::inline_external_fp16_weights）。带外部数据的模型从内存
-/// 加载时，外部文件无法按相对路径解析。
+/// 图文件照常从磁盘读取；external_data 的 location 命中 external_weights
+/// 某项时，对应初始化器从该缓冲取数（后端建会话时拷贝，调用返回后缓冲
+/// 即可释放），未命中的照常按模型目录读文件。
 ///
-/// ORT 在 CreateSessionFromArray 时把模型解析进自己的存储，调用返回后
-/// 缓冲即可释放 —— 该契约由真实模型的端到端测试锁定（合成发生在加载
-/// 作用域结束之后，若 ORT 保留指针会立刻以 use-after-free 暴露）。
+/// 用途：fp16 打包权重在加载期上转为 FP32 后直接交给后端 —— 不改写图
+/// （见 docs/architecture.md §2.13）。只替换**主图**初始化器（ONNX Runtime
+/// AddExternalInitializersFromFilesInMemory 的语义），子图里的外部张量
+/// 不受影响 —— 调用方应先用 scan_external_weights 确认没有这种引用。
 ///
-/// @param model_name 会话的显示名（model_path() 返回它，用于报错与计时）
-/// @throws genie::Error ModelLoadError —— ONNX 解析失败
-/// @throws genie::Error BackendUnavailable —— 构建时未启用 ONNX Runtime
-[[nodiscard]] std::unique_ptr<ModelSession> create_session_from_memory(const void* model_data,
-                                                                       std::size_t model_data_size,
-                                                                       std::string model_name,
-                                                                       const SessionConfig& config);
+/// @throws genie::Error  ModelLoadError —— 文件不存在或 ONNX 解析失败
+/// @throws genie::Error  BackendUnavailable —— 构建时未启用 ONNX Runtime
+[[nodiscard]] std::unique_ptr<ModelSession> create_session(
+    const std::string& model_path, const SessionConfig& config,
+    const std::vector<ExternalWeightBuffer>& external_weights);
 
 /// 当前构建是否具备真实推理能力。
 [[nodiscard]] bool has_onnxruntime_backend() noexcept;

@@ -141,6 +141,7 @@ add_library(genie_sched STATIC
     scheduler/scheduler.cpp
     engine/t2s.cpp
     engine/engine.cpp
+    engine/model_loader.cpp
     engine/roberta.cpp
     engine/g2pm.cpp
     engine/hubert.cpp
