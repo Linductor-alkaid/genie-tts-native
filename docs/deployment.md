@@ -237,6 +237,19 @@ $G synth --model $PKG --text "你好，我是 feibi。" --output hello.wav
 听见 `hello.wav` 就部署完成了。换文本直接改 `--text`；
 `--language auto`（默认）会自动检测，纯中文无需指定。
 
+**冷启动优化**：默认会校验音色包里每个模型文件的 SHA-256（2.4 GB 的包要
+扫一遍，冷启动里占一半时间）。部署完、确认包没被改动之后，可以加
+`--no-verify` 跳过校验 —— 实测冷启动 −51.5%。**代价是模型完整性不再
+被校验**，所以只适合包已固定、内容可信的场景（自己组包、本地部署）；
+对外分发或从网络拉包时不要关。
+
+```bash
+$G synth --model $PKG --text "你好，我是 feibi。" --output hello.wav --no-verify
+```
+
+想看冷启动到底慢在哪，加 `--timing`（分阶段耗时表，见
+[`docs/usage.md`](usage.md)）。
+
 **C++ SDK / C ABI**：同一个音色包目录直接喂给
 `genie::Engine engine(pkg_path)` 或 `genie_engine_create(pkg_path, …)`，
 用法见 [`docs/usage.md`](usage.md)。

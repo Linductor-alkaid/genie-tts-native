@@ -5,7 +5,79 @@
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-11-10
+
+本版本是**性能优化专版**：M0.3 建立了首份性能基线，M5 在其上完成三轮优化 ——
+解码热路径的宿主拷贝消除、ORT 会话参数调优、加载期的内存与并行度改造。
+同机实测（i9-13900KF / ORT 1.31.0 / v2ProPlus 音色包）：
+
+| 指标 | 优化前 | 优化后 |
+|---|---|---|
+| 冷启动（信任模式，fp32 包） | 3766 ms | **1738–1846 ms**（建会话并行，同轮对比） |
+| 冷启动（信任模式，fp16 包） | 4387 ms | **2039 ms** |
+| 常驻 RSS（fp32 包） | 3351 MB | **2075 MB** |
+| RTF（短 / 中 / 长） | 0.718 / 0.628 / 0.778 | **0.468 / 0.476 / 0.564** |
+| stage_decoder ms/token | 18.3 / 18.6 / 26.1 | **12.5 / 14.3 / 18.0** |
+| 进程平均核占用 | 17.1 / 11.6 / 9.1 | **4.8 / 4.6 / 4.2** |
+
+另外，**默认（校验开启）口径**的冷启动 7536 ms 里有一半是音色包 SHA-256
+校验 —— 信任模式（`--no-verify`）去掉它后是 3589 ms（−51.5%）。
+
+数字只在同硬件 + 同 ORT 版本上可比；跨轮次的绝对值有几百毫秒的漂移
+（本机就出现过同配置 3766 / 3952 ms 两轮读数），测量环境由 bench 的 JSON
+自证，原始记录在 `docs/benchmarks/`。
+
 ### Added
+
+- **全链路分阶段计时**（M0.3 性能基线的采集端）：
+
+  - `SynthesisResult` 新增 `timing` 字段：一次合成的各阶段耗时
+    （language_detect / frontend / text_bert / t2s 及其三个子阶段
+    t2s_encoder、t2s_first_stage、t2s_stage_decoder×N / vocoder），
+    含端到端总时长。
+  - `Engine::load_timing()` 返回构造期的加载耗时
+    （音色包校验、每个 ONNX 会话、参考特征、全局嵌入）—— 冷启动基线。
+  - `T2SDecoder::decode()` / `decode_loop()` 增加可选的
+    `TimingReport*` 出参（默认 nullptr，不影响既有调用）。
+  - CLI `synth` 命令新增 `--timing` 旗标：把加载与合成两张阶段表打到
+    stderr。
+
+  计时**常开**、没有开关：每阶段只做两次 `steady_clock` 采样
+  （纳秒级），相对秒级的合成开销可以忽略。报告随结果返回而不是
+  打日志 —— 呈现方式由调用方决定（CLI 打表格、基准工具算统计、
+  SDK 使用者直接编程消费）。
+
+- **`genie-bench` 基准工具 + 首份性能基线报告**（M0.3 收口，roadmap M7
+  的"bench 待补"兑现）：
+
+  - `tools/bench/`：warmup 消抖 + N 次重复 + 每阶段 mean/min/median/max
+    统计，输出 RTF（墙钟/音频时长）、峰值 RSS、进程平均核占用，
+    `--json` 落盘机器可读结果。默认短 / 中 / 长三档纯中文样例，
+    `--text` 可覆盖。独立于 CLI 开关（`GENIE_BUILD_BENCH`）。
+  - `docs/performance.md`：本机实测基线（i9-13900KF / ORT 1.31.0 /
+    v2ProPlus 音色包）。关键结论：t2s 自回归循环占合成耗时 74%–86%
+    （约 21–23 ms/token）；冷启动 7.6 s 里音色包 SHA-256 校验占一半；
+    当前配置下 RTF 0.61–0.75（实时成立）。
+  - 同时记录了一个基准过程中暴露的缺陷：混读（拉丁字母相邻中文）
+    长文本触发 bert_chunks 与音素序列对不上的错误 —— 已由同版本的 #34
+    修复，混读基线待补。
+
+- **`genie-bench` 测量基建硬化**（M5 优化前后对比的前提）：
+
+  - JSON 输出自包含采集环境：ORT 版本（新增公开 API
+    `genie::onnxruntime_version_string()`）、OS、CPU 型号 —— 基线数字
+    只在同硬件 + 同 ORT 版本上可比，测量记录必须能自证环境。
+  - 输出解码步数 `iterations` 与 `stage_decoder ms/token`（终端 + JSON）：
+    采样在 ONNX 图内、不可复现，每次运行的 token 数都不同，
+    跨版本对比必须按 ms/token 归一（`TimingReport` 的 count 此前
+    已采集但 bench 未消费）。
+  - JSON 增加每 run 原始样本 `samples`（墙钟 / RTF / 步数 / 核占用 /
+    逐阶段毫秒）、`total_wall_ms`、RTF median、顶层 `errors` 计数；
+    有文本失败时终端打 warning（退出码行为不变，由脚本查 `errors`）。
+  - 基线 JSON 入库：`docs/benchmarks/baseline-2026-11-06.json`
+    （此前基线数据在 /tmp，未受版本控制）。
+  - 修正 `docs/performance.md` 与本工具注释里仍声称"混读长文本会失败"
+    的过时表述 —— 已由 #34 修复；混读基线待补。
 
 - **模型会话并行加载（冷启动 3.77 → ~1.8 s）**：kairo 升至 53ee306
   （默认线程池从逐核绑定改为 OS 自由调度 —— 解除"ORT 线程继承单核
@@ -20,9 +92,10 @@
   预打包摊到本会话的 intra-op 线程池（ORT `session.prepack.enable_parallel`
   —— 1.31 起才有，更早的版本忽略它）。实测冷启动 -8%（fp32 包三轮均值
   3.77 → 3.46 s），但常驻内存 +0.5 GB，因此默认关。`genie-bench
-  --parallel-prepack <0|1>` 复现，JSON 记录该项。跨会话并行建会话未采用：
-  kairo 默认池的单核绑定会被 ORT 的 intra-op 线程继承（见
-  docs/architecture.md §2.14）。
+  --parallel-prepack <0|1>` 复现，JSON 记录该项。（本条先于"模型会话并行
+  加载"落地 —— 当时 kairo 默认池逐核绑定，跨会话并行建会话会被 ORT 的
+  intra-op 线程继承单核亲和性而否决；kairo 升至 53ee306 解除绑定后，
+  建会话并行已落地，见上一条与 docs/architecture.md §2.14。）
 
 - **fp16 权重分发支持**（M5，借鉴上游 Genie-TTS 的分发格式）：
 
@@ -139,57 +212,6 @@
   前端 —— 旧测试的裸前端把英文块整体丢弃，分块不变量恒真，拦不住这个
   缺陷（`genie-bench` 首跑即暴露）。
 
-### Added
-
-- **`genie-bench` 测量基建硬化**（M5 优化前后对比的前提）：
-
-  - JSON 输出自包含采集环境：ORT 版本（新增公开 API
-    `genie::onnxruntime_version_string()`）、OS、CPU 型号 —— 基线数字
-    只在同硬件 + 同 ORT 版本上可比，测量记录必须能自证环境。
-  - 输出解码步数 `iterations` 与 `stage_decoder ms/token`（终端 + JSON）：
-    采样在 ONNX 图内、不可复现，每次运行的 token 数都不同，
-    跨版本对比必须按 ms/token 归一（`TimingReport` 的 count 此前
-    已采集但 bench 未消费）。
-  - JSON 增加每 run 原始样本 `samples`（墙钟 / RTF / 步数 / 核占用 /
-    逐阶段毫秒）、`total_wall_ms`、RTF median、顶层 `errors` 计数；
-    有文本失败时终端打 warning（退出码行为不变，由脚本查 `errors`）。
-  - 基线 JSON 入库：`docs/benchmarks/baseline-2026-11-06.json`
-    （此前基线数据在 /tmp，未受版本控制）。
-  - 修正 `docs/performance.md` 与本工具注释里仍声称"混读长文本会失败"
-    的过时表述 —— 已由 #34 修复；混读基线待补。
-
-- **全链路分阶段计时**（M0.3 性能基线的采集端）：
-
-  - `SynthesisResult` 新增 `timing` 字段：一次合成的各阶段耗时
-    （language_detect / frontend / text_bert / t2s 及其三个子阶段
-    t2s_encoder、t2s_first_stage、t2s_stage_decoder×N / vocoder），
-    含端到端总时长。
-  - `Engine::load_timing()` 返回构造期的加载耗时
-    （音色包校验、每个 ONNX 会话、参考特征、全局嵌入）—— 冷启动基线。
-  - `T2SDecoder::decode()` / `decode_loop()` 增加可选的
-    `TimingReport*` 出参（默认 nullptr，不影响既有调用）。
-  - CLI `synth` 命令新增 `--timing` 旗标：把加载与合成两张阶段表打到
-    stderr。
-
-  计时**常开**、没有开关：每阶段只做两次 `steady_clock` 采样
-  （纳秒级），相对秒级的合成开销可以忽略。报告随结果返回而不是
-  打日志 —— 呈现方式由调用方决定（CLI 打表格、基准工具算统计、
-  SDK 使用者直接编程消费）。
-
-- **`genie-bench` 基准工具 + 首份性能基线报告**（M0.3 收口，roadmap M7
-  的"bench 待补"兑现）：
-
-  - `tools/bench/`：warmup 消抖 + N 次重复 + 每阶段 mean/min/median/max
-    统计，输出 RTF（墙钟/音频时长）、峰值 RSS、进程平均核占用，
-    `--json` 落盘机器可读结果。默认短 / 中 / 长三档纯中文样例，
-    `--text` 可覆盖。独立于 CLI 开关（`GENIE_BUILD_BENCH`）。
-  - `docs/performance.md`：本机实测基线（i9-13900KF / ORT 1.31.0 /
-    v2ProPlus 音色包）。关键结论：t2s 自回归循环占合成耗时 74%–86%
-    （约 21–23 ms/token）；冷启动 7.6 s 里音色包 SHA-256 校验占一半；
-    当前配置下 RTF 0.61–0.75（实时成立）。
-  - 同时记录了一个基准过程中暴露的缺陷：混读（拉丁字母相邻中文）
-    长文本触发 bert_chunks 与音素序列对不上的错误，待独立 issue 修复
-    后补充混读基线。
 
 ## [v0.3.1] - 2026-10-31
 
@@ -603,5 +625,9 @@
   ONNX Runtime 的全局随机种子。
 - 重采样使用自带的窗函数法带限 sinc 实现，非上游的 `soxr 'hq'`。
   量化差异见 `docs/architecture.md`。
-[Unreleased]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/Linductor-alkaid/genie-tts-native/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.3.1...v0.4.0
+[v0.3.1]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.3.0...v0.3.1
+[v0.3.0]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.2.0...v0.3.0
+[v0.2.0]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.1.0...v0.2.0
+[v0.1.0]: https://github.com/Linductor-alkaid/genie-tts-native/releases/tag/v0.1.0
