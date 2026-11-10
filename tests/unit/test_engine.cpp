@@ -558,6 +558,113 @@ TEST(Engine, JapaneseWithDictionarySynthesizes) {
     EXPECT_FALSE(result.audio.samples.empty());
 }
 
+/// 记录每次 run 的 input_ids 宽度的 RoBERTa 包装。
+class RecordingRoberta final : public ModelSession {
+public:
+    explicit RecordingRoberta(std::unique_ptr<ModelSession> inner) : inner_(std::move(inner)) {}
+
+    [[nodiscard]] const std::vector<TensorSpec>& inputs() const override {
+        return inner_->inputs();
+    }
+    [[nodiscard]] const std::vector<TensorSpec>& outputs() const override {
+        return inner_->outputs();
+    }
+    [[nodiscard]] const std::string& model_path() const override { return inner_->model_path(); }
+    [[nodiscard]] std::vector<Tensor> run(const TensorFeed& feed) override {
+        for (const auto& [name, tensor] : feed) {
+            if (name == "input_ids") {
+                widths_.push_back(static_cast<std::size_t>(tensor.dim(1)));
+            }
+        }
+        return inner_->run(feed);
+    }
+
+    [[nodiscard]] const std::vector<std::size_t>& widths() const noexcept { return widths_; }
+
+private:
+    std::unique_ptr<ModelSession> inner_;
+    std::vector<std::size_t> widths_;
+};
+
+TEST(Engine, LongChineseTextEncodesBertInChunks) {
+    // 缺陷回归（2026-11-10）：长中文文本整段编码撞 RoBERTa 的 512 位置上限
+    //（真模型报 "512 by 531" 广播错误）。前端现在按标点切 bert_chunks，
+    // 引擎逐块编码 —— 每次 run 的 input_ids 宽度都必须 ≤ 512。
+    TempVoicePackage package;
+    {
+        std::ofstream roberta_model(package.root() + "/models/roberta.onnx");
+        roberta_model << "placeholder";
+    }
+    {
+        // 词表覆盖测试文本用到的字（二零二五年秋天原生推理引擎完成了迁移）
+        // 与标点 —— 缺字会变成 [UNK]，宽度不变，不影响本测试的断言。
+        std::ofstream vocab(package.root() + "/models/vocab.txt");
+        vocab << "[PAD]\n[UNK]\n[CLS]\n[SEP]\n\xE4\xBA\x8C\n\xE9\x9B\xB6\n"
+                 "\xE4\xBA\x94\n\xE5\xB9\xB4\n\xE7\xA7\x8B\n\xE5\xA4\xA9\n"
+                 ",\n.\n\xE5\x8E\x9F\n\xE7\x94\x9F\n\xE6\x8E\xA8\n\xE7\x90\x86\n"
+                 "\xE5\xBC\x95\n\xE6\x93\x8E\n\xE5\xAE\x8C\n\xE6\x88\x90\n"
+                 "\xE4\xBA\x86\n\xE8\xBF\x81\n\xE7\xA7\xBB\n";
+    }
+    {
+        std::ofstream manifest(package.root() + "/manifest.json");
+        manifest << R"({
+  "name": "fake",
+  "format_version": 1,
+  "model_version": "v2",
+  "language": "chinese",
+  "sample_rate": 32000,
+  "models": [
+    {"role": "t2s_encoder", "file": "models/t2s_encoder.onnx"},
+    {"role": "t2s_first_stage_decoder", "file": "models/t2s_first_stage_decoder.onnx"},
+    {"role": "t2s_stage_decoder", "file": "models/t2s_stage_decoder.onnx"},
+    {"role": "vits", "file": "models/vits.onnx"},
+    {"role": "roberta", "file": "models/roberta.onnx"}
+  ]
+})";
+    }
+
+    auto recording = std::make_unique<RecordingRoberta>(FakeSession::roberta());
+    auto* roberta = recording.get();
+    const auto factory = [&recording](const std::string& path,
+                                      const SessionConfig&) -> std::unique_ptr<ModelSession> {
+        if (path.find("t2s_encoder") != std::string::npos) {
+            return FakeSession::encoder();
+        }
+        if (path.find("first_stage") != std::string::npos) {
+            return FakeSession::first_stage();
+        }
+        if (path.find("stage_decoder") != std::string::npos) {
+            return FakeSession::stage(3);
+        }
+        if (path.find("vits") != std::string::npos) {
+            return FakeSession::vocoder(64);
+        }
+        if (path.find("roberta") != std::string::npos) {
+            return std::move(recording);  // NOLINT —— 移动后 roberta 指针仍有效（引擎持有）
+        }
+        return nullptr;
+    };
+
+    Engine engine(package.root(), factory);
+    // 30 句 × 18 条 ≈ 540 个条目 > 512，必须分块。
+    std::string text;
+    for (int i = 0; i < 30; ++i) {
+        text +=
+            "\xE4\xBA\x8C\xE9\x9B\xB6\xE4\xBA\x8C\xE4\xBA\x94"
+            "\xE5\xB9\xB4\xE7\xA7\x8B\xE5\xA4\xA9"
+            ",\xE5\x8E\x9F\xE7\x94\x9F\xE6\x8E\xA8\xE7\x90\x86"
+            "\xE5\xBC\x95\xE6\x93\x8E\xE5\xAE\x8C\xE6\x88\x90"
+            "\xE4\xBA\x86\xE8\xBF\x81\xE7\xA7\xBB.";
+    }
+    const auto result = engine.synthesize(text);
+    EXPECT_GT(result.audio.frame_count(), 0U);
+
+    ASSERT_GT(roberta->widths().size(), 1U) << "长文本必须分多次编码";
+    for (const auto width : roberta->widths()) {
+        EXPECT_LE(width, 512U) << "单次编码的 token 数不得超过 RoBERTa 位置上限";
+    }
+}
+
 TEST(FakeSession, HubertWithEmptyWaveDoesNotDivideByZero) {
     // 空波形不能拿来当除数 ✓ —— 否则特征里全是 inf/NaN ✓，
     // 后面会以"数值不对"的形式失败 ✓，根因却完全看不出来 ✓。
