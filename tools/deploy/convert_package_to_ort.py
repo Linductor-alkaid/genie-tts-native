@@ -143,17 +143,16 @@ def main():
     if any_ok:
         manifest["model_format"] = "ort"
 
-    # 4) 清理：转换成功的角色的旧 .onnx 与其外部 bin 不再被引用 —— 但
-    #    **manifest 登记的文件**（.ort 与词典类 .bin）必须保留；部分转换时
-    #    剩下的 .onnx 还引用着自己的 bin，一并保护。
+    # 4) 清理：**先删**转换成功的角色的旧 .onnx，再清点引用 —— 顺序反了
+    #    的话 shell 还在、其外部 bin 全被"引用"保护（实测踩过：removed 0，
+    #    包体虚胖 1 GB）。**manifest 登记的文件**（.ort 与词典类 .bin）必须
+    #    保留；部分转换时剩下的 .onnx 还引用着自己的 bin，一并保护。
+    for role, (rel_file, ok) in converted.items():
+        if ok:
+            (dst / rel_file).unlink()
     referenced = referenced_external_files(dst)
     role_files = {(dst / entry["file"]).resolve() for entry in manifest["models"]}
     removed = 0
-    for role, (rel_file, ok) in converted.items():
-        if not ok:
-            continue
-        old_onnx = dst / rel_file
-        old_onnx.unlink()
     for bin_file in (dst / "models").glob("*.bin"):
         resolved = bin_file.resolve()
         if resolved not in referenced and resolved not in role_files:
