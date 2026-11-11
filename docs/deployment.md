@@ -308,6 +308,30 @@ python3 tools/deploy/quantize_package.py --static \
 - 量化 bin 内容相同的角色自动去重（t2s 双解码器共享权重，包体
   -288 MB；注意 QDQ 图的初始化器布局不同，去重只在动态档自动生效）。
 
+### 5.6 可选：ORT Format 包（离线图优化，压冷启动）
+
+在量化之后的最后一环：把每个角色的 .onnx 用 ORT **离线**图优化后
+序列化为自包含 `.ort`。图融合 / 常量折叠在离线完成，运行期只做执行
+准备 —— 引擎零改动（manifest 的 file 字段直通 `InferenceSession`，
+ORT 按后缀嗅探格式）：
+
+```bash
+# 转换链：fp32 → (int8 量化) → ort，.ort 不能再进量化工具
+python3 tools/deploy/convert_package_to_ort.py \
+    --src $PKG/voice-package-int8 \
+    --dst $PKG/voice-package-ort
+```
+
+- **实测**（`docs/performance.md` §ORT Format）：冷加载 2477 → 1906 ms
+  （-23%），QDQ 静态量化包受益最大（vits 会话 -598 ms）；RTF 与数值
+  逐位不变。代价：包体 +13%（.ort 自包含，t2s 双解码器的共享 bin
+  约定不复存在）、常驻 +40 MB。
+- **绑定警告**：.ort 与转换侧的 ORT 版本、图优化级别、硬件类绑定
+  （level-ALL 的 NCHWc 变换是硬件相关的，ORT 会显式打日志）——升级
+  ORT 或换硬件类部署必须重转；需要跨环境分发就用 .onnx 形态。
+- manifest 顶层 `model_format: "ort"` 是给部署侧的标记（引擎忽略未知
+  字段）；`weight_format` 语义不变。
+
 ---
 
 ## 6. 部署注意事项

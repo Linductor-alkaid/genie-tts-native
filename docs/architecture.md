@@ -462,6 +462,27 @@ vits 有净收益**（-47 MB 常驻），且代价是 QDQ 图加载期优化变�
 共享），纯包体收益（实测 -288 MB）；QDQ 图因激活 scale 内联位置不同，
 bin 不再逐字节相同，去重是机会性特性。
 
+### 2.17 ORT Format 包（M5 冷启动收尾）
+
+**决策**：提供 `convert_package_to_ort.py`（离线图优化 → 自包含 .ort），
+**引擎零改动** —— .onnx / .ort 在加载链路上的唯一差异是文件内容本身，
+manifest 的 file 字段无扩展名假设，ORT 按 `.ort` 后缀嗅探格式（不依赖
+`session.load_model_format` 配置键，规避 ORT 版本差）。fp16 上转扫描
+只作用于 fp16 标签的包，ORT Format 包不做 fp16 分发（工具拒绝），两条
+路径天然不相交。
+
+**备选与取舍**：备选是"运行期图优化缓存"（SessionOptions 的
+optimized_model_filepath 在首次运行时写缓存）——被否：缓存失效管理、
+多进程竞争与首跑惩罚都比离线转换复杂，且 ORT Format 本来就是官方
+形态。**代价**：(1) .ort 与转换侧 ORT 版本 / 优化级别 / 硬件类绑定
+（level-ALL 的 NCHWc 变换是硬件相关的），升级 ORT 必须重转 —— 接受，
+因为运行时本来就钉在部署机的一套 ORT 上；(2) .ort 自包含，t2s 双解码器
+的"共享 bin 双引用"约定不复存在，包体 +13% —— 接受，换冷启动 -23%
+（vits QDQ 会话 -598 ms）；离线优化附带剪掉推理不用的权重（vits
+-110 MB），部分对冲。**裁决**：两形态并存，本地磁盘 / 启动敏感的部署
+用 .ort，跨版本分发 / 磁盘受限用 .onnx（实测见 performance.md
+§ORT Format）。
+
 ---
 
 ## 3. 推理链路与上游的对齐点

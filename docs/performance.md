@@ -418,6 +418,35 @@ ConvTranspose 6.0%（均值 10.8 ms/次，无 int8 内核保持 fp32）—— �
 其余角色表见采集目录聚合输出（roberta 以 MatMul+SkipLayerNormalization
 为主，hubert 以 Conv 系为主），不逐一体积。
 
+### ORT Format（2026-11-11，M5 冷启动收尾）
+
+`tools/deploy/convert_package_to_ort.py`：离线图优化序列化为自包含
+.ort（引擎零改动，manifest file 直通 `InferenceSession`）。转换链
+fp32 → (int8) → ort；.ort 与转换侧 ORT 版本 / 优化级别 / 硬件类绑定，
+升级需重转（详见 docs/deployment.md §5.6）。
+
+**pkg-final → pkg-final-ort 同会话背靠背**（loadavg < 4，安静机器）：
+
+| 指标 | pkg-final（onnx） | pkg-final-ort | Δ |
+|---|---|---|---|
+| **冷加载（信任模式）** | 2 477 ms | **1 906 ms** | **-571 ms（-23%）** |
+| vits 会话（QDQ 图优化大头） | 1 934 ms | 1 336 ms | **-598 ms（-31%）** |
+| 常驻 RSS | 1.18 GB | 1.22 GB | +40 MB |
+| RTF（短/中/长） | 0.468 / 0.501 / 0.626 | 0.456 / 0.503 / 0.635 | 持平（执行期数值不变） |
+| 包体积 | 1 338 MB | 1 511 MB | +173 MB（+13%） |
+
+冷加载净收益主要来自 vits 的 QDQ 图（第二档欠的 0.9 s 摊掉三分之二）；
+roberta / hubert / 双解码器从 .ort 加载反而**变慢**（.ort 全量反序列化，
+放弃了 .onnx + 外部 bin 的 mmap 捷径）——它们自身图优化收益小，抵不过
+反序列化成本。附带收益：离线优化剪掉推理不用的权重，vits 缩了 110 MB。
+
+**裁决**：.ort 形态适合"本地磁盘、启动敏感"的部署（-0.57 s 冷加载换
++173 MB 包体）；磁盘受限或需要跨 ORT 版本分发的场景用 .onnx 形态
+（pkg-final）。两形态并存，执行期数值逐位一致（离线优化只改图结构，
+不改算子语义——门控抽查 rel 0.0）。
+
+原始记录 `benchmarks/2026-11-11-quant/`（bench-ort-final / bench-ort-final-ort）。
+
 ## 已知问题（影响基准覆盖面）
 
 - ~~混读长文本会失败~~：已在 #34 修复（英文 BERT 块以全零特征占位）。

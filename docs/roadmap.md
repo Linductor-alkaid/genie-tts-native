@@ -166,9 +166,10 @@
   CPU 亲和性、ORT Format）—— ✅ 线程 × 自旋（默认 8 线程、自旋关）、
   图优化级别 / arena / 内存模式（默认全开，扫描无稳健更优组合，
   `docs/performance.md`）；
-  ⏳ 剩余：CPU 亲和性（⛔ 等坏核排查，硬件问题不在 M5 范围）、
-  ORT Format（离线转换工具链进行中）；执行模式 Parallel 明确不采
-  （与串行解码形态不匹配）
+  ⏳ 剩余：CPU 亲和性（⛔ 等坏核排查，硬件问题不在 M5 范围）；
+  ✅ ORT Format（2026-11-11：`convert_package_to_ort.py`，冷加载
+  -23% / QDQ 会话 -598 ms，包体 +13%，`docs/performance.md` §ORT
+  Format）；执行模式 Parallel 明确不采（与串行解码形态不匹配）
 - 🚧 冷启动 —— ✅ 音色包信任模式（跳过 SHA-256，冷启动 -51%）；
   ✅ fp16 权重分发（包体积 -21%；加载期整文件上转 + ORT 内存替换，
   冷启动只比 fp32 多 ~0.7 s，`docs/performance.md`）；✅ 会话内并行预打包
@@ -195,7 +196,8 @@
   **vits** 听测通过入包（-47 MB 常驻，冷加载 +0.9 s，e2e token 一致率 1.0，
   2026-11-11 定版：aggressive + vits 静态 + bin 去重 ≈ 1.34 GB 包）；
   量化 bin 自动去重（t2s 双解码器共享权重，包体再 -288 MB，常驻不变）；
-  ⏳ ORT Format 离线转换（顺带摊薄 QDQ 冷加载，工具链进行中）；
+  ✅ ORT Format 摊薄 QDQ 冷加载（2026-11-11：pkg-final-ort 冷加载
+  2477→1906 ms，vits 会话 -598 ms，见 performance.md §ORT Format）；
   ⛔ roberta 层内混合精度（动态档已过听测定版、静态档被拒 —— 精度余量
   已够，再切没有收益面）；⛔ speaker_verification 禁量化（cos 0.264，
   音色崩坏，实测记录在案）
