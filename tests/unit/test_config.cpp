@@ -69,4 +69,7 @@ TEST(Config, SessionDefaultsAreTheMeasuredOnes) {
     EXPECT_EQ(config.graph_optimization_level, 3);
     EXPECT_TRUE(config.enable_cpu_mem_arena);
     EXPECT_TRUE(config.enable_mem_pattern);
+    // profiler 是测量场景的采集端：每次 Run 都追加记录，常驻开销与文件
+    // 体积都不小，绝不能默认开。
+    EXPECT_TRUE(config.profile_output_dir.empty());
 }

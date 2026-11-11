@@ -381,8 +381,42 @@ aggressive 策略包 —— t2s 双解码器的逐字节相同 int8 bin 自动�
 原始记录 `benchmarks/2026-11-11-quant/`（gate-static / gate-static-vits /
 gate-aggressive-control / floor-s8-1,2 / bench-static-* / staticvits.json）。
 
-**下一档（M5 阶梯继续）**：roberta 层内混合精度（attention 保持 fp32）、
-ORT Format 离线转换（顺带摊薄 QDQ 冷加载成本）。
+**下一档（M5 阶梯继续）**：ORT Format 离线转换（顺带摊薄 QDQ 冷加载
+成本）；roberta 层内混合精度已 ⛔（见 roadmap：动态档已定版，精度余量
+足够，再切没有收益面）。
+
+### 算子级耗时（2026-11-11，M5 性能分析收尾）
+
+ORT 内建 profiler 的采集端落地：`SessionConfig::profile_output_dir` +
+`genie-bench --profile <dir>`（`tools/bench/summarize_profile.py` 聚合成
+算子表）。每次 Run 都追加记录、trace 文件可观（stage_decoder 一次采集
+1.24 GB、被 ORT 内部 100 万事件上限截断 —— 分布仍代表性成立，步间是
+同质的），**开 profiler 的计时数字不作基线**。采集口径：pkg-final、
+默认 3 文本 × warmup 1 + runs 3。
+
+**stage_decoder（解码热路径，2 100 步样本）**：
+
+| 算子 | 总耗时 (ms) | 占比 | 说明 |
+|---|---|---|---|
+| MatMul | 5 644 | **49.6%** | attention/FFN 主计算，48 层 × 51 处/步 |
+| Transpose | 1 389 | 12.2% | attention 的 KV 转置 |
+| Concat | 1 040 | **9.1%** | **KV cache 每步 past+new 拼接**（图结构固有） |
+| Mul / Add / Div / Sqrt | 1 262 | 11.0% | 逐元素与 RMS 归一化 |
+| DynamicQuantizeMatMul | 366 | 3.2% | **动态 int8 的运行期激活量化**（量化档的图内代价） |
+| Reshape / Unsqueeze / Slice / Shape | 1 059 | 9.4% | 形状整理 |
+
+两个直接结论：**KV cache 的图内管理（Transpose + Concat ≈ 21%）是
+MatMul 之外最大的开销块** —— 它是上游图结构决定的，宿主侧优化动不了，
+流式（M6）若要继续压 ms/token 得从图改起（KV 切片替代整段 concat，
+需要动模型导出）；宿主侧**输出拷贝在 profiler 里不可见**（它不是图内
+kernel），IOBinding 原型（下一节）的收益上限只能靠对比实验测定。
+
+**vits（静态 QDQ）**：QLinearConv **67.2%**、DequantizeLinear 8.0%、
+ConvTranspose 6.0%（均值 10.8 ms/次，无 int8 内核保持 fp32）—— 静态
+档的执行期形态与第二档实测一致。
+
+其余角色表见采集目录聚合输出（roberta 以 MatMul+SkipLayerNormalization
+为主，hubert 以 Conv 系为主），不逐一体积。
 
 ## 已知问题（影响基准覆盖面）
 

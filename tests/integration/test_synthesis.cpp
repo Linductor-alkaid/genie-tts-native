@@ -131,6 +131,37 @@ TEST_F(OrtBackendTest, ParallelPrepackOptionKeepsResultsIdentical) {
     EXPECT_EQ(outputs[1].floats()[0], 0.75F);
 }
 
+TEST_F(OrtBackendTest, ProfilingWritesChromeTracePerSession) {
+    // ORT 的 trace 在会话析构时落盘（EnableProfiling 只登记前缀）；目录由
+    // 调用方保证存在 —— bench 的 --profile 会自建，这里同款。只断言"开了
+    // 开关就产出 trace 文件"，JSON 内容是 ORT 的契约，不在本仓库兜。
+    namespace fs = std::filesystem;
+    const auto profile_dir = fs::temp_directory_path() / "genie-profile-test";
+    fs::remove_all(profile_dir);
+    fs::create_directories(profile_dir);
+    config_.profile_output_dir = profile_dir.string();
+
+    {
+        auto session = create_session(model_path_.string(), config_);
+        // 跑一次：节点事件只有真实推理才有，析构时才一起写出。
+        const auto outputs = session->run({
+            {"alpha", Tensor::from_int64({1, 4}, std::vector<std::int64_t>(4, 5))},
+            {"beta", Tensor::from_float32({4, 1024}, std::vector<float>(4U * 1024U, 0.5F))},
+            {"gamma", Tensor::from_float32({1, 768, 8}, std::vector<float>(768U * 8U, 0.0F))},
+        });
+        ASSERT_EQ(outputs.size(), 3U);
+    }
+
+    std::size_t trace_files = 0;
+    for (const auto& entry : fs::directory_iterator(profile_dir)) {
+        if (entry.path().extension() == ".json") {
+            ++trace_files;
+        }
+    }
+    EXPECT_GE(trace_files, 1U);
+    fs::remove_all(profile_dir);
+}
+
 TEST_F(OrtBackendTest, MissingModelThrowsModelLoadError) {
     EXPECT_THROW(create_session("/definitely/not/here/model.onnx", config_), Error);
 }

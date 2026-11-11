@@ -85,6 +85,10 @@ Options:
   --warmup <n>      Warmup runs per text, excluded from stats (default 1)
   --runs <n>        Measured runs per text (default 5)
   --json <file>     Also write the aggregate as JSON to this path
+  --profile <dir>   Enable the ORT op profiler, writing per-session Chrome
+                    traces into <dir> (summarize with
+                    tools/bench/summarize_profile.py). Timings under
+                    profiling are NOT a baseline — analysis only.
   -h, --help        Show this help
 
 Notes:
@@ -98,6 +102,7 @@ struct Options {
     std::string model_dir;
     std::string language = "auto";
     std::string json_path;
+    std::string profile_dir;
     std::vector<std::string> texts;
     int threads = 8;
     int spinning = 0;
@@ -169,6 +174,10 @@ bool parse_options(int argc, char** argv, Options& options) {
             options.no_verify = true;
         } else if (arg == "--json") {
             if (!next(options.json_path)) {
+                return false;
+            }
+        } else if (arg == "--profile") {
+            if (!next(options.profile_dir)) {
                 return false;
             }
         } else {
@@ -555,6 +564,8 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
     // 开销）；加载的分阶段耗时随之落盘 —— 只打在终端上的表没法事后比对。
     out += std::string("  \"verify_voice_package\": ") + (options.no_verify ? "false" : "true") +
            ",\n";
+    // profiler 开关同样进记录：开着 profiler 的计时数字不可当基线。
+    out += "  \"profile_output_dir\": \"" + json_escape(options.profile_dir) + "\",\n";
     out += "  \"load\": " + load.to_json() + ",\n";
     out += "  \"texts\": [\n";
     for (std::size_t i = 0; i < aggregates.size(); ++i) {
@@ -691,6 +702,14 @@ int main(int argc, char** argv) {
     config.session.enable_cpu_mem_arena = options.arena != 0;
     config.session.enable_mem_pattern = options.mem_pattern != 0;
     config.session.parallel_prepack = options.parallel_prepack != 0;
+    if (!options.profile_dir.empty()) {
+        // 算子级 profiler（M5 性能分析采集端）：目录自建，trace 按会话
+        // （模型文件 stem）分文件落盘，tools/bench/summarize_profile.py 聚合。
+        std::filesystem::create_directories(options.profile_dir);
+        config.session.profile_output_dir = options.profile_dir;
+        std::cerr << "warning: ORT profiler enabled (--profile " << options.profile_dir
+                  << ") —— 计时数字含 profiler 开销，仅供算子分布分析，不作基线\n";
+    }
     if (options.no_verify) {
         // 基准关心的是"引擎冷启动"，校验是其中最大的一块可开关开销；
         // 跳过与否都必须写进测量记录，不能靠猜。

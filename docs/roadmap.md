@@ -150,9 +150,14 @@
 
 ### M5 CPU 端侧性能优化 — 🚧
 
-- ⏳ 子模型级性能分析（各阶段耗时占比、算子耗时、Cache Miss、SIMD 利用率）
+- ✅ 子模型级性能分析（各阶段耗时占比、算子耗时）
   —— ✅ 阶段占比与 ms/token 归一（genie-bench 输出 iterations，
-  `docs/performance.md`）；⏳ ORT 内建 profiler 的算子级耗时
+  `docs/performance.md`）；✅ ORT 内建 profiler 算子级耗时（2026-11-11：
+  `SessionConfig::profile_output_dir` + `genie-bench --profile` +
+  `summarize_profile.py`；stage_decoder 算子分布见 performance.md
+  §算子级耗时 —— KV 图内管理 Transpose+Concat ≈21% 是 MatMul 外最大块，
+  宿主侧拷贝在 profiler 不可见）；Cache Miss / SIMD 利用率未做（无
+  轻量采集口子，明确挂起）
 - 🚧 KV Cache 复用、预分配解码缓冲区、减少 Host 内存拷贝 ——
   ✅ 第一轮：解码循环 move 语义、输入零拷贝包装、输出单次拷贝
   （ms/token -23%~-31%，`docs/performance.md`）；
@@ -161,8 +166,9 @@
   CPU 亲和性、ORT Format）—— ✅ 线程 × 自旋（默认 8 线程、自旋关）、
   图优化级别 / arena / 内存模式（默认全开，扫描无稳健更优组合，
   `docs/performance.md`）；
-  ⏳ 剩余：CPU 亲和性（等坏核排查）、ORT Format（需离线转换工具链）；
-  执行模式 Parallel 明确不采（与串行解码形态不匹配）
+  ⏳ 剩余：CPU 亲和性（⛔ 等坏核排查，硬件问题不在 M5 范围）、
+  ORT Format（离线转换工具链进行中）；执行模式 Parallel 明确不采
+  （与串行解码形态不匹配）
 - 🚧 冷启动 —— ✅ 音色包信任模式（跳过 SHA-256，冷启动 -51%）；
   ✅ fp16 权重分发（包体积 -21%；加载期整文件上转 + ORT 内存替换，
   冷启动只比 fp32 多 ~0.7 s，`docs/performance.md`）；✅ 会话内并行预打包
@@ -189,9 +195,15 @@
   **vits** 听测通过入包（-47 MB 常驻，冷加载 +0.9 s，e2e token 一致率 1.0，
   2026-11-11 定版：aggressive + vits 静态 + bin 去重 ≈ 1.34 GB 包）；
   量化 bin 自动去重（t2s 双解码器共享权重，包体再 -288 MB，常驻不变）；
-  ⏳ roberta 层内混合精度、ORT Format 离线转换（顺带摊薄 QDQ 冷加载）；
-  ⛔ speaker_verification 禁量化（cos 0.264，音色崩坏，实测记录在案）
-- ⏳ CPU 微架构优化（AVX2/AVX-512、NEON、内存对齐、NUMA）
+  ⏳ ORT Format 离线转换（顺带摊薄 QDQ 冷加载，工具链进行中）；
+  ⛔ roberta 层内混合精度（动态档已过听测定版、静态档被拒 —— 精度余量
+  已够，再切没有收益面）；⛔ speaker_verification 禁量化（cos 0.264，
+  音色崩坏，实测记录在案）
+- 🚧 CPU 微架构优化 —— ✅ AVX2/AVX_VNNI 路径已由 ORT/MLAS 内核与量化档
+  收益兑现（u8s8）；⛔ NEON（ARM 侧归 M4 的 ARM64 交叉编译，本机 x86
+  无对象）、⛔ NUMA（单插槽台式机无对象）、⏳ AVX-512 系（依赖带
+  AVX512-FP16/VNNI 的下一代硬件，本机只有 AVX2+AVX_VNNI）；内存对齐由
+  ORT arena 管理，无自管缓冲
 
 > ⚠️ **采样器优化不在此列** —— 采样在 ONNX 图内，主机侧无可优化对象。
 > 详见 [upstream-audit.md §5](upstream-audit.md)。
