@@ -180,9 +180,15 @@
   （`WeightFormat::Int8` + 逐模型覆盖，`tools/deploy/quantize_package.py`）。
   实测：常驻 **2.18 → 1.25 GB（-43%）**、冷加载 -26%、短文本 RTF -35%
   （u8s8/AVX_VNNI），`docs/performance.md` §动态 INT8 量化。
-  ⏳ roberta/hubert int8 的 A/B 听测 —— ✅ **2026-11-11 听测通过**
-  （音色/清晰度/自然度无差异，容差按实测上界放宽并留档，tolerances.json）；
-  ⏳ 静态 INT8（捕获数据可当校准集）、层内混合、Conv 系评估；
+  roberta/hubert int8 的 A/B 听测 **2026-11-11 通过**（音色/清晰度/自然度
+  无差异，容差按实测上界放宽并留档，tolerances.json）；
+  ✅ **静态 INT8 第二档结案**（2026-11-11）：QDQ + Conv 量化，校准集直接吃
+  genie-gate 捕获（`--static --calibration-dir`）。裁决 —— **激活 int8 量化
+  全面退档**（解码器 KV rel 0.33 / roberta rel 0.378 / hubert rel 0.736，
+  均远超包络，`docs/performance.md` §静态 INT8）；Conv 静态化唯一幸存者
+  **vits**（-47 MB 常驻，冷加载 +0.9 s，e2e token 一致率 1.0，听测终审）；
+  量化 bin 自动去重（t2s 双解码器共享权重，包体再 -288 MB，常驻不变）；
+  ⏳ roberta 层内混合精度、ORT Format 离线转换（顺带摊薄 QDQ 冷加载）；
   ⛔ speaker_verification 禁量化（cos 0.264，音色崩坏，实测记录在案）
 - ⏳ CPU 微架构优化（AVX2/AVX-512、NEON、内存对齐、NUMA）
 

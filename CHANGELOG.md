@@ -17,6 +17,18 @@
   另修一个动态档实测回归：t2s 双解码器共享权重被量化拆成两份**逐字节
   相同**的 bin（306 MB → 576 MB），现在内容相同的 bin 自动去重、
   manifest 恢复 fp32 包"一份 bin 双引用"的约定。
+- **静态 INT8 全扫实测**（M5 量化阶梯第二档）：QDQ + Conv 量化，校准集
+  直接吃精度门控捕获（`--stage-steps 8` 补采 stage_decoder 全量步）。
+  裁决（逐模型门控，地板相对）：**激活 int8 量化全面退档** —— 解码器
+  KV cache rel 0.33 / cos 0.944（24 层逐层累积）、roberta rel 0.378
+  （超听测包络 0.20/0.985）、hubert rel 0.736（Conv 前端量化毁 ssl 特征）、
+  t2s_encoder prompts exact 0.748（fp32 地板 1.0：确定性选择被系统性
+  改写，收益仅 3.6 MB）；**Conv 静态化唯一幸存者 vits**（-47 MB 常驻，
+  QDQ 冷加载 +0.9 s，vocoder 合成不快反慢，e2e token 一致率 1.0 ——
+  语义路径不受影响，听测终审）。实测细节 `docs/performance.md`
+  §静态 INT8，决策记录 `docs/architecture.md` §2.16，容差校准
+  （解码器 KV 0.10/0.99 + `--exact-margin 0.02` 抽签余量）
+  `tools/gate/tolerances.json`。原始记录 `docs/benchmarks/2026-11-11-quant/`。
 - **动态 INT8 混合精度音色包 + 实测**（M5 量化阶梯第一档）：`WeightFormat::Int8` +
   manifest 逐模型 `weight_format` 覆盖（混合精度的裁决单位）；加载路径与
   fp32 相同（ORT 直读外部数据，无上转），`ModelLoadRequest` 的上转标志从

@@ -28,7 +28,14 @@
     },
     "t2s_stage_decoder": {
       "min_exact": 1.0,
-      "_comment": "y 是采样 token：裁决按噪声地板相对（--floor-report），不是绝对 1.0"
+      "max_rel_l2": 0.10,
+      "min_cosine": 0.99,
+      "_comment": "y 是采样 token：裁决按噪声地板相对（--floor-report，建议 --exact-margin 0.02 吃掉跨进程采样抽签），不是绝对 1.0；KV cache 等连续张量按 2026-11-11 校准的解码器容差（见 t2s_first_stage_decoder）"
+    },
+    "t2s_first_stage_decoder": {
+      "max_rel_l2": 0.10,
+      "min_cosine": 0.99,
+      "_comment": "2026-11-11 校准（静态 INT8 实验期补齐）：动态 int8 解码器 KV cache 实测 rel≤0.055（同日旧捕获口径 ≤0.059），含同款解码器的混合包已过 A/B 听测 → 按实测上界放一档余量（与 roberta/hubert 同程序）。静态档实测 KV rel≤0.33 / cos 0.944（激活量化逐层累积），远超此容差被拒，见 gate-static 记录"
     }
   }
 }
