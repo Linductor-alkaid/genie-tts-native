@@ -72,7 +72,7 @@ public:
     OrtModelSession(const std::string& model_path, const SessionConfig& config,
                     const std::vector<ExternalWeightBuffer>& external_weights = {}) {
         try {
-            auto options = make_options(config);
+            auto options = make_options(config, model_path);
             if (!external_weights.empty()) {
                 add_external_weights(options, external_weights);
             }
@@ -146,7 +146,8 @@ private:
         options.AddExternalInitializersFromFilesInMemory(names, buffers, lengths);
     }
 
-    [[nodiscard]] static Ort::SessionOptions make_options(const SessionConfig& config) {
+    [[nodiscard]] static Ort::SessionOptions make_options(const SessionConfig& config,
+                                                          const std::string& model_path) {
         Ort::SessionOptions options;
         options.SetIntraOpNumThreads(config.intra_op_threads);
         options.SetInterOpNumThreads(config.inter_op_threads);
@@ -167,6 +168,16 @@ private:
         // 不认识它、直接忽略（等价于关闭），所以无条件写入是安全的。
         if (config.parallel_prepack) {
             options.AddConfigEntry("session.prepack.enable_parallel", "1");
+        }
+        // 算子级 profiler（M5 性能分析采集端）：trace 在会话析构时写出，
+        // 前缀给到"目录/模型文件 stem"，ORT 自己追加时间戳与 pid —— 同进程
+        // 多会话（按角色）互不覆盖。目录由调用方保证存在。EnableProfiling
+        // 接 ORTCHAR_T 路径（Windows 宽字符），filesystem::path 原生形态直达。
+        if (!config.profile_output_dir.empty()) {
+            const std::filesystem::path profile_prefix =
+                std::filesystem::path(config.profile_output_dir) /
+                std::filesystem::path(model_path).stem();
+            options.EnableProfiling(profile_prefix.native().c_str());
         }
 
         switch (config.graph_optimization_level) {

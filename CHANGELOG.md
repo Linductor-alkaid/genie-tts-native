@@ -7,6 +7,14 @@
 
 ### Added
 
+- **ORT 算子级 profiler 采集端**（M5 子模型级性能分析收尾）：
+  `SessionConfig::profile_output_dir`（空 = 关）→ `genie-bench --profile
+  <目录>`（目录自建，trace 按会话/角色分文件）+
+  `tools/bench/summarize_profile.py` 聚合算子耗时表。首份实测
+  （pkg-final，`docs/performance.md` §算子级耗时）：stage_decoder 的
+  MatMul 占 49.6%，**KV 图内管理（Transpose + Concat）≈ 21%** 是 MatMul
+  外最大块（图结构固有，宿主侧动不了）；动态 int8 的运行期激活量化
+  （DynamicQuantizeMatMul）占 3.2%；宿主侧输出拷贝在 profiler 不可见。
 - **量化工具静态 INT8 档**（M5 量化阶梯第二档的工具侧）：`quantize_package.py
   --static` 走 `quantize_static` + QDQ（图内插 QuantizeLinear/DequantizeLinear，
   **Conv 从此可量化** —— 动态档对 Conv 系收益为零的根因），校准集直接吃

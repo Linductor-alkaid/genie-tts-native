@@ -101,6 +101,13 @@ struct SessionConfig {
     /// 时间线显示加载后不回落）—— 用内存换启动时间，默认**关**；内存宽裕、
     /// 冷启动敏感的部署可以打开。
     bool parallel_prepack = false;
+    /// ORT 内建 profiler 的 trace 输出目录（M5 子模型级性能分析的采集端）。
+    /// 空 = 关闭（默认）。非空时每个会话在该目录下落一份 Chrome trace JSON
+    /// （文件名以模型文件 stem 开头，ORT 追加时间戳与 pid 后缀 —— 一个进程
+    /// 的多个会话互不覆盖），用 tools/bench/summarize_profile.py 聚合成
+    /// 算子级耗时表。profiler 每次 Run 都追加记录，只该在测量场景开启；
+    /// 目录由调用方保证存在（genie-bench --profile 会自建）。
+    std::string profile_output_dir;
 };
 
 }  // namespace genie
