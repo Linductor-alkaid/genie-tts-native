@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **精度门控基建**（M0.2 容差框架 / M5 量化前置）：`genie-gate capture` 用包装
+  会话工厂把真实流水线里每个模型的输入输出逐张量落盘（引擎零改动）；
+  `tools/gate/precision_gate.py` 把变体模型放在捕获输入上重放并按
+  `tools/gate/tolerances.json` 的分级容差裁决（token 逐位一致按噪声地板
+  相对、连续张量 rel-L2 + 余弦、音频 advisory）。`genie-gate e2e` 输出
+  基线/变体语义 token 一致率与听测 WAV。见 `docs/regression.md` 精度门控一节。
+
 ## [v0.4.0] - 2026-11-10
 
 本版本是**性能优化专版**：M0.3 建立了首份性能基线，M5 在其上完成三轮优化 ——
