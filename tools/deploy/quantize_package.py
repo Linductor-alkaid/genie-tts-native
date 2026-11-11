@@ -174,10 +174,14 @@ def main():
 
     # 4) 删除不再被任何 .onnx 引用的旧外部 bin（量化把大权重挪进了新的
     #    int8 bin；旧 fp32 bin 只剩零星未量化张量引用，重整后引用清零）。
+    #    **manifest 登记的角色文件不在此列** —— g2pm.bin / jieba.bin 这些
+    #    前端容器不是 ONNX 外部权重，图引用清点看不见它们。
     referenced = referenced_external_files(dst)
+    role_files = {(dst / entry["file"]).resolve() for entry in manifest["models"]}
     removed = 0
     for bin_file in (dst / "models").glob("*.bin"):
-        if bin_file not in referenced:
+        resolved = bin_file.resolve()
+        if resolved not in referenced and resolved not in role_files:
             bin_file.unlink()
             removed += 1
     print(f"removed {removed} stale weight bin(s)")

@@ -259,6 +259,62 @@ fp16 推理**（权重不重排 fp32 副本）或 int8 量化（M0.2 之后）�
 原始记录：`benchmarks/2026-11-10-memory/`（bench 的 JSON 新增
 `rss_after_load_kb` / `rss_end_kb` —— 常驻量比峰值更能反映长期占用）。
 
+### 动态 INT8 量化（2026-11-11，M5 量化第一档）
+
+按 M5 阶梯落地**动态 INT8**（`quantize_dynamic`，per-channel，
+MatMulConstBOnly）。工具 `tools/deploy/quantize_package.py`；精度裁决
+`tools/gate/`（捕获 → 变体重放 → 分级容差，见 regression.md）。
+权重在 HuggingFace 不可达，所有基线为 **C++ fp32 自基线**。
+
+**逐模型门控（fp32 基线 × 2 份地板对照，4 条文本）**：
+
+| 角色 | 权重体积 fp32→int8 | 门控 | 最差指标（int8 vs fp32） | 备注 |
+|---|---|---|---|---|
+| roberta | **1197→368 MB（-69%）** | ❌ 超容差 | rel-L2 0.138，cos 0.991（容差 0.02 / 0.995） | 常驻收益的唯一大头 |
+| chinese_hubert | 377→122 MB（-68%） | ❌ 超容差 | rel-L2 0.162，cos 0.988 | 加载期释放会话，**不省常驻**，只省包体与加载 |
+| speaker_verification | 185→185 MB（0） | ❌ **崩坏** | rel-L2 1.21，**cos 0.264** | Conv 为主几乎没量化也照样崩 —— **禁量化**，音色直接换人 |
+| t2s stage / first | 307→289 MB（-6%） | ✅ | y 采样一致率 == 地板；连续输出 rel ≤0.059 | conformer 以 Conv 为主，MatMul 只占 6% |
+| t2s_encoder | 11.5→11.5 MB（0） | ✅ | 全零差 | 图内无常量 B MatMul，量化器没动它 |
+| vits | 249→251 MB（+1%） | advisory | rel 0.91 / cos 0.58 == fp32 重放地板 | 图内 z 噪声，逐样本比较本就无意义；Conv 为主没收益 |
+| prompt_encoder | 88→26 MB（-71%） | ✅ | ge rel-L2 0.018，cos 0.9998 | 加载期释放会话，只省包体与加载 |
+
+**采样确定性与 e2e 的边界（重要实测结论）**：
+
+- 同进程、同配置：**逐 run 序号完全可复现** —— fp32 双引擎自比的
+  语义 token、音频 WAV 逐字节一致（地板 mel 距离 0.0）。
+- 跨进程：fp32 **自己都不可复现**（同一文本两次进程 token 数 58 vs 339）——
+  采样种子随进程变。因此 **e2e token 一致率不能当质量指标**：
+  int8 条件化会让采样路径从首个 token 就走上另一条同样有效的韵律路径。
+  听觉终审只能是 WAV A/B 听测（`/home/ybt/genie-assets/quant-ab/`，
+  fp32 × {aggressive / roberta / hubert} 各 4 条文本）。
+- 跨构建（C++ ORT 1.31 vs Python ORT 1.22 重放）：近平局采样 token 有
+  **稳定的构建间偏差**（地板一致率 ≈0.9914，两次独立重放翻的是同一个
+  token）—— token 类门控因此按地板相对裁决。
+
+**混合精度包实测（`pkg-aggressive` = roberta + t2s 三件套 + prompt_encoder
+int8，SV / vits / hubert 保持 fp32；包 2550→1672 MB，-34%）**：
+
+| 指标 | fp32 包 | int8 混合包 | Δ |
+|---|---|---|---|
+| 冷加载（信任模式） | 2298 ms | **1692 ms** | -26% |
+| **加载后常驻** | **2.176 GB** | **1.252 GB** | **-43%（-0.93 GB）** |
+| 峰值 RSS | 4.20 GB | 2.31 GB | -45% |
+| RTF（短/中/长） | 0.882 / 0.799 / 0.740 | **0.572 / 0.586 / 0.723** | 短文本 **-35%** |
+| ms/token（长文本） | 29.5 | 28.8 | -2% |
+
+常驻收益几乎全部来自 **roberta int8（约 -0.9 GB）**；短文本 RTF 的
+-35% 是 MLAS u8s8（AVX_VNNI）对 RoBERTa 前向的加速。
+
+**待决（听测定夺）**：roberta / hubert 的 int8 特征误差（rel ~14%，
+方向余弦 0.99）超出当前严格容差。若 A/B 听测无差异，则把
+`tools/gate/tolerances.json` 中这两个角色放宽并记录依据；若有差异，
+混合包退到 t2s 三件套 + prompt_encoder（常驻收益趋零，包体 -8%）。
+原始记录 `benchmarks/2026-11-11-quant/`。
+
+**下一档（M5 阶梯继续）**：静态 INT8（捕获数据可当校准集）、
+roberta 层内混合精度（attention 保持 fp32）、Conv 系（vits / t2s）的
+int8 评估 —— Conv 不量化是 t2s/vits 收益趋零的根因。
+
 ## 已知问题（影响基准覆盖面）
 
 - ~~混读长文本会失败~~：已在 #34 修复（英文 BERT 块以全零特征占位）。

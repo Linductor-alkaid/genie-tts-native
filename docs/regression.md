@@ -98,9 +98,17 @@ git diff tests/regression/golden/model_io_trace.json
 
 `genie-gate e2e --baseline <pkg> --variant <pkg>`：同 run 序号配对的语义
 token 前缀一致率 + 双份 WAV 听测。确定性事实（2026-11-11 实测）：
-同进程里两个同配置引擎**逐 run 序号完全一致**（fp32 自比 WAV 逐字节相同），
-跨进程会漂移——所以变体 e2e 永远跟基线自比（噪声地板）成对解读，
-见 `precision_gate.py e2e`。
+
+- 同进程、同配置：**逐 run 序号完全可复现**（fp32 自比 WAV 逐字节相同，
+  mel 距离 0.0）。
+- 跨进程：fp32 **自己都不可复现**（同一文本两次进程 token 数 58 vs 339）——
+  采样种子随进程变。
+- 因此 **e2e token 一致率不能当质量指标**：int8 条件化让采样路径从首个
+  token 走上另一条同样有效的韵律路径，这不是退化信号。听觉终审是
+  WAV A/B 听测；数值裁决在张量级门控。
+
+变体 e2e 与基线自比（`precision_gate.py e2e`）成对解读，用于确认
+"变体是否落在引擎自身的运行间方差内"。
 
 ### 与 Python 上游黄金语料的边界
 
