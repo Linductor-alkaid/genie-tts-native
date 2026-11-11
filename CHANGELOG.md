@@ -7,6 +7,14 @@
 
 ### Added
 
+- **ORT Format 音色包转换工具**（M5 冷启动收尾）：`convert_package_to_ort.py`
+  把每个角色的 .onnx 经 ORT 离线图优化序列化为自包含 .ort —— 引擎零
+  改动（manifest file 直通 `InferenceSession`，后缀嗅探）。实测
+  （`docs/performance.md` §ORT Format）：冷加载 **2477 → 1906 ms（-23%）**，
+  QDQ 静态量化包受益最大（vits 会话 -598 ms），RTF 与数值逐位不变；
+  代价包体 +13%（.ort 自包含，共享 bin 约定不复存在）。绑定警告：
+  .ort 与转换侧 ORT 版本/优化级别/硬件类绑定，升级需重转。
+  用法见 `docs/deployment.md` §5.6，决策记录 `docs/architecture.md` §2.17。
 - **ORT 算子级 profiler 采集端**（M5 子模型级性能分析收尾）：
   `SessionConfig::profile_output_dir`（空 = 关）→ `genie-bench --profile
   <目录>`（目录自建，trace 按会话/角色分文件）+
