@@ -107,3 +107,29 @@ TEST(Tensor, RawEmptyIsLegalNullptrIsNot) {
     EXPECT_TRUE(empty.bytes().empty());
     EXPECT_THROW(Tensor::from_raw(ElementType::Float32, {2}, nullptr), Error);
 }
+
+// from_buffer 是后端把"执行器直接写入的自有输出缓冲"变成 Tensor 的零拷贝
+// 接管路径（IOBinding 输出缓冲池用它）：vector 指针换手，无 memcpy。
+TEST(Tensor, BufferAdoptionOwnsStorageWithoutCopy) {
+    std::vector<std::byte> storage(3U * sizeof(float));
+    const auto* raw_view = reinterpret_cast<const float*>(storage.data());
+    const float first = raw_view[0];  // 接管前读一眼；接管后原缓冲失效
+    const auto tensor = Tensor::from_buffer(std::move(storage), ElementType::Float32, {1, 3});
+    EXPECT_EQ(tensor.type(), ElementType::Float32);
+    EXPECT_EQ(tensor.shape_string(), "1x3");
+    ASSERT_EQ(tensor.floats().size(), 3U);
+    EXPECT_FLOAT_EQ(tensor.floats()[0], first);
+    // 接管是移动：原 vector 的容量归零（标准未定内容，但长度必为 0 ——
+    // 被移动后的 vector 处于有效未指定态，这里只断言 tensor 侧所有权完整）。
+    EXPECT_EQ(tensor.byte_size(), 3U * sizeof(float));
+}
+
+TEST(Tensor, BufferAdoptionRejectsSizeMismatch) {
+    std::vector<std::byte> storage(2U * sizeof(float));
+    EXPECT_THROW(Tensor::from_buffer(std::move(storage), ElementType::Float32, {3}), Error);
+    // 标量（rank-0）：恰好 1 个元素。
+    std::vector<std::byte> one(sizeof(float));
+    EXPECT_NO_THROW(Tensor::from_buffer(std::move(one), ElementType::Float32, {}));
+    std::vector<std::byte> one_int64(sizeof(std::int64_t));
+    EXPECT_THROW(Tensor::from_buffer(std::move(one_int64), ElementType::Float32, {}), Error);
+}

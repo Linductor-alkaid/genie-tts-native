@@ -72,4 +72,8 @@ TEST(Config, SessionDefaultsAreTheMeasuredOnes) {
     // profiler 是测量场景的采集端：每次 Run 都追加记录，常驻开销与文件
     // 体积都不小，绝不能默认开。
     EXPECT_TRUE(config.profile_output_dir.empty());
+    // IOBinding 缓冲池：与普通路径逐字节等价（集成测试锁定），长文本
+    // ms/token -12% 实测（docs/performance.md §IOBinding）后默认开；
+    // 单次调用会话靠失败计数自动禁用，默认开的代价可忽略。
+    EXPECT_TRUE(config.enable_io_binding);
 }

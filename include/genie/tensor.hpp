@@ -62,6 +62,17 @@ public:
     /// 元素数非零时抛 genie::Error。
     [[nodiscard]] static Tensor from_raw(ElementType type, Shape shape, const void* data);
 
+    /// **接管**既有字节缓冲构造张量 —— 与 from_raw 的 memcpy 相对的零拷贝
+    /// 路径（vector 指针换手，O(1)；调用方此后不得再使用该缓冲）。
+    ///
+    /// 用途：执行后端把"执行器直接写入的自有输出缓冲"变成 Tensor。
+    /// IOBinding 绑定输出（M5 第二轮，docs/architecture.md §2.11）就是
+    /// 这个场景：ORT 直接写进我们预分配的缓冲， Tensor 接管缓冲即完成
+    /// 输出交接，宿主侧最后一份 KV 拷贝由此消失。storage 的字节数必须与
+    /// 形状 × 元素大小精确一致，否则抛 genie::Error。
+    [[nodiscard]] static Tensor from_buffer(std::vector<std::byte>&& storage,
+                                            ElementType type, Shape shape);
+
     [[nodiscard]] ElementType type() const noexcept { return type_; }
     [[nodiscard]] const Shape& shape() const noexcept { return shape_; }
     [[nodiscard]] std::size_t rank() const noexcept { return shape_.size(); }

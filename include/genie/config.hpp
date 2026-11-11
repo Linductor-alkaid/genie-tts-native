@@ -108,6 +108,20 @@ struct SessionConfig {
     /// 算子级耗时表。profiler 每次 Run 都追加记录，只该在测量场景开启；
     /// 目录由调用方保证存在（genie-bench --profile 会自建）。
     std::string profile_output_dir;
+    /// IOBinding 输出缓冲池（M5 解码热路径第二轮）。开启后，重复推理的
+    /// 会话（stage_decoder 逐步循环是唯一显著场景）在学到相邻步的输出
+    /// 形状增长规律后，把输出绑定到自管缓冲，ORT 直接写入、Tensor 接管
+    /// —— 宿主侧每步 51 份输出拷贝（KV 随长度线性增长）消失。
+    ///
+    /// 形状靠会话内**自学习**：前两次 run 走普通路径观测，从相邻差里学
+    /// "哪个维度 + 增多少"；预测失准（会话跨合成复用时形状跳变）自动
+    /// 回退普通路径重学；连续失准且从未成功过的会话（单次调用的
+    /// first_stage 等）永久禁用绑定 —— 两条路径逐字节等价（集成测试
+    /// 锁定），等价性不依赖开关。实测（i9-13900KF，ORT 1.31，
+    /// docs/performance.md §IOBinding）：长文本 **ms/token -12%**（20.24 →
+    /// 17.81）、短文本 -2%，RSS 持平 —— 默认**开**；单次调用会话的绑定
+    /// 尝试在内核执行前就被 ORT 拒绝，失败成本可忽略。
+    bool enable_io_binding = true;
 };
 
 }  // namespace genie
