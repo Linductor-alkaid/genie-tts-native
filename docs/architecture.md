@@ -434,6 +434,34 @@ float32 / int64 / bool（§2.1 的约束不破）。
 见 `docs/performance.md` 量化一节。量化工具在 `tools/deploy/quantize_package.py`
 （镜像整包 → 逐角色量化 → 重写 manifest 与 SHA-256 → ORT 复核可加载）。
 
+### 2.16 静态 INT8 档与量化 bin 去重（M5 第二档）
+
+**静态档（`--static`，QDQ）**：`quantize_static` 在图内插
+QuantizeLinear/DequantizeLinear，**Conv 从此可量化** —— 这是相对动态档
+（只认 MatMul/Gemm 常量 B 侧）的唯一增量。激活 scale 离线校准，校准集
+直接复用精度门控的捕获目录（真实流水线输入，零额外采集工具）。
+备选方案里被否的：量化器默认算子集（可能含 ConvTranspose，CPU EP 无
+int8 内核，会话初始化 NOT_IMPLEMENTED —— `--ops` 显式列出
+`Conv,MatMul,Gemm` 把风险挡在量化期）；并发量化（校准期建 ORT 会话 +
+shape 推理，实测过一次 SIGSEGV，静态档强制串行）。
+
+**实测裁决（2026-11-11，见 performance.md §静态 INT8）**：激活 int8
+误差逐层累积，解码器 KV / roberta / hubert 全部退档；**Conv 静态化只对
+vits 有净收益**（-47 MB 常驻），且代价是 QDQ 图加载期优化变慢
+（+0.9 s 冷加载）与 vocoder 略慢（DequantizeLinear 开销吃掉 u8s8 收益）
+—— "静态档更快"的假设在本机不成立，第二档的价值最终是**内存**而非
+速度，是否入包由听测裁决。层内混合精度（attention 保持 fp32）是
+规避激活误差的后续路径；QDQ 冷加载成本顺带指到 ORT Format 离线转换。
+
+**量化 bin 去重**：动态档实测发现 t2s 双解码器共享权重量化后产出
+**逐字节相同**的 int8 bin（量化是权重的确定性函数）却各存一份
+（306 → 576 MB 的包体回归）。工具在量化后按内容哈希去重：留一份，
+其余 .onnx 的 `external_data.location` 改指向它 —— 恢复 fp32 包
+"一份 bin 双 role 引用"的既有约定（manifest 本就以 role→file 映射，
+无引擎改动）。**常驻不降**（每个会话仍各自拷贝外部数据，无 mmap 页
+共享），纯包体收益（实测 -288 MB）；QDQ 图因激活 scale 内联位置不同，
+bin 不再逐字节相同，去重是机会性特性。
+
 ---
 
 ## 3. 推理链路与上游的对齐点

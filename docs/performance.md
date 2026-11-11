@@ -318,6 +318,72 @@ int8，SV / vits / hubert 保持 fp32；包 2550→1672 MB，-34%）**：
 roberta 层内混合精度（attention 保持 fp32）、Conv 系（vits / t2s）的
 int8 评估 —— Conv 不量化是 t2s/vits 收益趋零的根因。
 
+### 静态 INT8（2026-11-11，M5 量化第二档）
+
+第二档补上动态档的盲区：`quantize_static` + QDQ（图内插
+QuantizeLinear/DequantizeLinear）让 **Conv 参与量化**，激活 scale 来自
+校准集 —— 校准集直接用 genie-gate 捕获的真实流水线输入
+（`--stage-steps 8` 补采，stage_decoder 前 8 步全量，367 MB）。
+工具同 `tools/deploy/quantize_package.py --static`（静态档强制串行：
+并发 `quantize_static` 校准实测过一次 SIGSEGV）。u8s8 + per-channel。
+
+**逐模型门控（静态 vs fp32，capture-s8 口径，地板相对）**：
+
+| 角色 | 静态权重体积 | 门控 | 最差指标（静态 vs fp32） | 动态档对照 | 裁决 |
+|---|---|---|---|---|---|
+| t2s 双解码器 | 288 MB/个（≈动态） | ❌ | **KV cache rel 0.33 / cos 0.944**（激活误差 24 层逐层累积；y token 仍在地板上） | KV rel ≤0.059 | **退档**，保持动态 |
+| roberta | 367 MB（=动态，无常量 Conv） | ❌ | rel 0.378 / cos 0.933 | rel 0.138 / cos 0.991 | **退档**，超听测校准包络（0.20/0.985）近一倍 |
+| chinese_hubert | 95 MB（动态 122，Conv 前端再省 27） | ❌ | **rel 0.736 / cos 0.749** | rel 0.162 / cos 0.988 | **退档**，Conv 前端量化毁掉 ssl 特征 |
+| t2s_encoder | 7.9 MB（-31%，Conv 静态化生效） | ❌ | **prompts exact 0.748，fp32 地板 = 1.0** | 全零差（动态没动它） | **退档**：encoder 的 prompts 选择是确定性的（地板 1.0，不同于解码器的 0.9914），25% 初始 prompt 改写是系统性漂移；收益仅 3.6 MB |
+| vits | 200 MB（-19%；ConvTranspose 无 int8 内核保持 fp32） | ✅ advisory | 音频 rel 0.86–1.02 == fp32 重放地板量级 | advisory | **唯一幸存者**，听测通过 |
+
+**结论：激活 int8 量化全面被质量门槛拒绝** —— 动态档的"只量化权重"
+恰好避开了激活误差；静态档为 Conv 付出的激活代价对这三个特征/解码
+模型都不可接受。Conv 静态化的净收益收窄到 **vits 一个角色**。
+
+**候选包 `pkg-static-vits`（= 定版混合包 aggressive + vits 静态；
+包 1672→1625 MB）同会话背靠背 bench（loadavg ≈155，另一项目训练在跑，
+绝对值仅供同表内配对比较）**：
+
+| 指标 | fp32 | aggressive（现役） | static-vits |
+|---|---|---|---|
+| 加载后常驻 | 2.13 GB | 1.17 GB | **1.13 GB（-47 MB）** |
+| 峰值 RSS | 4.08 GB | 2.24 GB | 2.20 GB |
+| 冷加载（信任模式） | 1818 ms | **1547 ms** | 2487 ms（**+940 ms**） |
+| RTF（短/中/长） | 0.518 / 0.537 / 0.666 | 0.497 / 0.523 / 0.651 | 0.488 / 0.527 / 0.650 |
+| vocoder 分段（短/长，ms） | 278 / 1902 | 245 / 1890 | 258 / 1975（**不快反慢**） |
+
+- **常驻 -47 MB** 是唯一净收益（vits 是最后一个 fp32 常驻大块）；
+- **冷加载 +0.9 s**：QDQ 图在加载期的图优化变慢（vits 会话 985 → 1884 ms），
+  摊薄手段是 ORT Format 离线转换（M5 挂账项）；
+- **合成不快反慢**：QDQ 路径的 DequantizeLinear 开销吃掉 u8s8 Conv 收益
+  —— 静态档的"更快"假设在本机（AVX2 + AVX_VNNI，无 AVX512）不成立；
+- e2e（aggressive × static-vits，同进程配对）：4 文本 **token 前缀一致率
+  全 1.0** —— vits 在 t2s 下游，语义路径完全不受影响，A/B 只差 vocoder
+  渲染层（WAV：`/home/ybt/genie-assets/quant-ab/staticvits_*`）。
+
+**bin 去重（工具回归修复的端到端验证）**：用合入去重的工具重建
+aggressive 策略包 —— t2s 双解码器的逐字节相同 int8 bin 自动归一
+（`deduped 1 identical weight bin(s), saved 288 MB`），**包 2550→1384 MB
+（-45.7%）**，manifest 回到"一份 bin 双 role 引用"的 fp32 约定，ORT 复核
+全绿。同会话 bench：常驻 1.256 GB ≈ 1.230 GB（**不变** —— 会话各自拷贝
+外部数据，无 mmap 页共享），加载 / RTF 持平。纯包体收益，权重与现役包
+逐字节相同。注意去重只在**动态档**自动生效：静态 QDQ 的初始化器布局
+两解码器不同（激活 scale 内联位置不同），bin 不再逐字节相同，属机会性
+特性，不误伤。
+
+**听测裁决（2026-11-11，已定版）**：A/B 听测（aggressive × static-vits，
+4 文本）**通过** —— vits 静态入包，定版形态 = aggressive 策略 + vits 静态
++ bin 去重（`pkg-final`，1384 MB 基础上再 -47 MB ≈ **1.34 GB 包**）。
+-47 MB 常驻换 +0.9 s 冷加载的交换获用户认可；vocoder 渲染层的
+静态量化伪影在听阈之下（与 e2e token 一致率 1.0 的隔离结论互证）。
+
+原始记录 `benchmarks/2026-11-11-quant/`（gate-static / gate-static-vits /
+gate-aggressive-control / floor-s8-1,2 / bench-static-* / staticvits.json）。
+
+**下一档（M5 阶梯继续）**：roberta 层内混合精度（attention 保持 fp32）、
+ORT Format 离线转换（顺带摊薄 QDQ 冷加载成本）。
+
 ## 已知问题（影响基准覆盖面）
 
 - ~~混读长文本会失败~~：已在 #34 修复（英文 BERT 块以全零特征占位）。

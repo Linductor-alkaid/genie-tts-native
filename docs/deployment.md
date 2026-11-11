@@ -282,6 +282,32 @@ python3 tools/deploy/quantize_package.py \
 - manifest 包级 `weight_format: "int8"` 只描述默认值；加载行为按逐模型
   覆盖裁决（`include/genie/voice_package.hpp` 的 `ModelEntry::weight_format`）。
 
+### 5.5.1 可选：静态 INT8（QDQ，Conv 参与量化）
+
+动态档只量化 MatMul/Gemm 的常量权重侧；要量化 **Conv**（第二档，M5）用
+静态档 —— `quantize_static` + QDQ 在图内插 QuantizeLinear/DequantizeLinear。
+激活 scale 来自校准集，校准集直接用精度门控捕获的真实流水线输入：
+
+```bash
+# 先用 genie-gate capture 落一份捕获目录（见 docs/regression.md），
+# stage_decoder 建议补采全量步：--stage-steps 8
+python3 tools/deploy/quantize_package.py --static \
+    --src $PKG/voice-package-multilang \
+    --dst $PKG/voice-package-static \
+    --calibration-dir /path/to/capture \
+    --roles vits,t2s_encoder
+```
+
+- `--ops` 静态档默认 `Conv,MatMul,Gemm`（显式列出：量化器默认集若含
+  ConvTranspose，CPU EP 无 int8 内核会 NOT_IMPLEMENTED）。
+- 门控兜底是硬约束：**激活量化误差会逐层累积**（解码器 KV cache 实测
+  rel 0.33、roberta rel 0.378、hubert rel 0.736，全部超包络退档，
+  `docs/performance.md` §静态 INT8）；vits 是实测的唯一幸存者
+  （-47 MB 常驻换 ~+0.9 s 冷加载，听测通过与否见该节裁决）。
+- 静态档强制串行量化（并发 `quantize_static` 校准实测过一次 SIGSEGV）。
+- 量化 bin 内容相同的角色自动去重（t2s 双解码器共享权重，包体
+  -288 MB；注意 QDQ 图的初始化器布局不同，去重只在动态档自动生效）。
+
 ---
 
 ## 6. 部署注意事项
