@@ -244,15 +244,24 @@ def gate_command(args):
         "roles": {},
     }
     # 地板报告：fp32 基线包用**同一套回放流程**跑出来的指标。token 类输出
-    # 的裁决以它为基准（变体不得比 fp32 自己更差）。
+    # 的裁决以它为基准（变体不得比 fp32 自己更差）。地板自身在 run 间也波动
+    # （近平局采样翻不翻是概率事件），所以接受多份报告、逐输出取**最小**
+    # 一致率 —— N 次地板都没翻到的地方，变体也不许翻。
     floor_by_role = {}
-    if args.floor_report and Path(args.floor_report).exists():
-        floor_report = json.loads(Path(args.floor_report).read_text(encoding="utf-8"))
+    for path in args.floor_report or []:
+        if not Path(path).exists():
+            continue
+        floor_report = json.loads(Path(path).read_text(encoding="utf-8"))
         for role, entry in floor_report.get("roles", {}).items():
-            floor_by_role[role] = {
-                (o["call"], o["name"]): o.get("metrics", {})
-                for o in entry.get("outputs", [])
-            }
+            by_output = floor_by_role.setdefault(role, {})
+            for o in entry.get("outputs", []):
+                key = (o["call"], o["name"])
+                metrics = o.get("metrics", {})
+                if key not in by_output:
+                    by_output[key] = metrics
+                elif "exact" in metrics and "exact" in by_output[key]:
+                    by_output[key] = {**by_output[key],
+                                      "exact": min(by_output[key]["exact"], metrics["exact"])}
 
     so = ort.SessionOptions()
     so.intra_op_num_threads = args.threads
@@ -345,8 +354,9 @@ def main():
     gate.add_argument("--tol", default=str(Path(__file__).parent / "tolerances.json"))
     gate.add_argument("--roles", help="只测这些角色（逗号分隔），默认全部")
     gate.add_argument("--threads", type=int, default=8)
-    gate.add_argument("--floor-report", help="fp32 基线包自比回放的门控报告"
-                                             "（token 类输出按地板相对裁决）")
+    gate.add_argument("--floor-report", action="append",
+                      help="fp32 基线包自比回放的门控报告，可重复传入多份"
+                           "（token 类输出按地板相对裁决，多份取最小）")
     gate.add_argument("--exact-margin", type=float, default=0.0,
                       help="token 一致率相对地板的容忍余量（默认 0：不得比地板差）")
     gate.add_argument("--report", help="JSON 报告输出路径")
