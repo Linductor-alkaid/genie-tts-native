@@ -7,6 +7,16 @@
 
 ### Added
 
+- **量化工具静态 INT8 档**（M5 量化阶梯第二档的工具侧）：`quantize_package.py
+  --static` 走 `quantize_static` + QDQ（图内插 QuantizeLinear/DequantizeLinear，
+  **Conv 从此可量化** —— 动态档对 Conv 系收益为零的根因），校准集直接吃
+  `genie-gate capture` 的捕获目录（`--calibration-dir`，只取 full call，
+  partial 步喂不出 KV cache）；u8s8 + per-channel 对齐动态档内核选择。
+  `--ops` 静态档默认 `Conv,MatMul,Gemm`（显式列出：量化器默认集若含
+  ConvTranspose，CPU EP 无 int8 内核会 NOT_IMPLEMENTED）。
+  另修一个动态档实测回归：t2s 双解码器共享权重被量化拆成两份**逐字节
+  相同**的 bin（306 MB → 576 MB），现在内容相同的 bin 自动去重、
+  manifest 恢复 fp32 包"一份 bin 双引用"的约定。
 - **动态 INT8 混合精度音色包 + 实测**（M5 量化阶梯第一档）：`WeightFormat::Int8` +
   manifest 逐模型 `weight_format` 覆盖（混合精度的裁决单位）；加载路径与
   fp32 相同（ORT 直读外部数据，无上转），`ModelLoadRequest` 的上转标志从
