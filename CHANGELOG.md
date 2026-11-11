@@ -11,9 +11,15 @@
   manifest 逐模型 `weight_format` 覆盖（混合精度的裁决单位）；加载路径与
   fp32 相同（ORT 直读外部数据，无上转），`ModelLoadRequest` 的上转标志从
   包级改逐请求。量化工具 `tools/deploy/quantize_package.py`（镜像整包 →
-  逐角色 `quantize_dynamic` → 重写 manifest 与 SHA-256 → ORT 复核可加载）。
-  选型理由见 `docs/architecture.md` §2.15，用法见 `docs/deployment.md` §5.5。
-  精度裁决由精度门控承担（`tools/gate/`，另见精度门控 PR）。
+  逐角色 `quantize_dynamic` → 重整外部数据 → 重写 manifest 与 SHA-256 →
+  ORT 复核可加载）。选型理由见 `docs/architecture.md` §2.15，用法见
+  `docs/deployment.md` §5.5。精度裁决由精度门控承担。
+- **精度门控基建**（M0.2 容差框架 / M5 量化前置）：`genie-gate capture` 用包装
+  会话工厂把真实流水线里每个模型的输入输出逐张量落盘（引擎零改动）；
+  `tools/gate/precision_gate.py` 把变体模型放在捕获输入上重放并按
+  `tools/gate/tolerances.json` 的分级容差裁决（token 逐位一致按噪声地板
+  相对、连续张量 rel-L2 + 余弦、音频 advisory）。`genie-gate e2e` 输出
+  基线/变体语义 token 一致率与听测 WAV。见 `docs/regression.md` 精度门控一节。
 
 ## [v0.4.0] - 2026-11-10
 

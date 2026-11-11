@@ -24,3 +24,16 @@ if(GENIE_BUILD_BENCH)
 
     install(TARGETS genie-bench RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
+
+# genie-gate：精度门控（roadmap M0.2 容差框架 / M5 量化实验）。
+# 与 bench 同理：只依赖公开 API（SessionFactory 扩展点 + create_session），
+# 捕获与 e2e 都不需要动引擎。独立开关 —— 门控是实验工具，测基线不要求装它。
+if(GENIE_BUILD_GATE)
+    add_executable(genie-gate gate/main.cpp)
+    target_link_libraries(genie-gate PRIVATE genie::genie)
+    target_include_directories(genie-gate PRIVATE ${CMAKE_SOURCE_DIR}/include
+                                                   ${CMAKE_SOURCE_DIR}/tools)
+    set_target_properties(genie-gate PROPERTIES OUTPUT_NAME genie-gate)
+
+    install(TARGETS genie-gate RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
