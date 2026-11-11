@@ -272,7 +272,9 @@ def gate_command(args):
             report["roles"][role] = {"verdict": "SKIP", "error": "role missing in variant package"}
             all_pass = False
             continue
-        full_calls = [c for c in calls if c["outputs"]]
+        # 只有全量捕获的调用可重放：partial 调用（stage_decoder 后续步）
+        # 的输入只有 iy*，喂不出完整的 past_* KV cache。
+        full_calls = [c for c in calls if c["outputs"] and not c.get("partial", False)]
         if not full_calls:
             report["roles"][role] = {"verdict": "SKIP", "error": "no full captures"}
             continue
