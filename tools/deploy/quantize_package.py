@@ -265,7 +265,8 @@ def main():
     parser.add_argument("--ops", default=None,
                         help=f"量化的算子类型（动态档默认 {DEFAULT_OPS_DYNAMIC}；"
                              f"静态档默认 {DEFAULT_OPS_STATIC}）")
-    parser.add_argument("--workers", type=int, default=2, help="并行量化进程数（默认 2）")
+    parser.add_argument("--workers", type=int, default=2,
+                        help="并行量化进程数（默认 2；仅动态档生效，静态档恒为串行）")
     parser.add_argument("--static", action="store_true",
                         help="静态 INT8（QDQ，Conv 可量化）：需要 --calibration-dir 提供校准集")
     parser.add_argument("--calibration-dir",
@@ -288,6 +289,10 @@ def main():
     }[args.calibration_method]
 
     src, dst = Path(args.src), Path(args.dst)
+    # 静态档强制串行：并发 quantize_static（校准期建 ORT 会话 + shape 推理）
+    # 实测过一次 SIGSEGV（vits + roberta 双任务；两个模型单跑、小对子并发
+    # 都不复现，动态档同参数从没出过事），量化本来就是离线重活，不值得赌。
+    workers = 1 if args.static else max(1, args.workers)
     manifest_path = src / "manifest.json"
     if not manifest_path.exists():
         sys.exit(f"源包没有 manifest.json: {src}")
@@ -324,7 +329,7 @@ def main():
             ok, info = quantize_one(src_onnx, dst_onnx, set(ops.split(",")))
         return role, ok, info
 
-    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         for role, ok, info in pool.map(run, targets):
             results[role] = (ok, info)
             print(f"  quantize {role:24s} {'OK' if ok else 'FAIL  ' + info}")
