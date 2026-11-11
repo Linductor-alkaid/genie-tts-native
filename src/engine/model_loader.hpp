@@ -30,14 +30,21 @@ struct ModelLoadRequest {
     std::string stage;
     /// 加载结果写到这里（由调用方持有，须在加载期间有效）。
     std::unique_ptr<ModelSession>* target = nullptr;
+    /// 该模型的权重是否需要 fp16 上转。
+    ///
+    /// 这是**逐模型**的标志而不是包级开关：混合精度包（M5 量化，逐模型
+    /// weight_format 覆盖）里 fp16 与 int8/fp32 可以共存；int8 权重必须
+    /// 原样交给 ORT，上转只该发生在真正 fp16 打包的请求上。
+    bool upcast_fp16 = false;
 };
 
 /// 批量加载模型会话，阶段耗时记进 timing。
 ///
-/// - fp32 包：逐个走 factory（测试可注入假会话）。
-/// - fp16 包（upcast_fp16_weights）：先流式扫描各模型的外部权重（毫秒级），
-///   按文件判定存储格式；fp16 打包的文件**各上转一次** —— 多个模型共用的
-///   文件（t2s 两个解码器的 t2s_shared）只转一次 —— 再建会话并以内存缓冲
+/// - fp32 / int8 权重：逐个走 factory（测试可注入假会话）—— int8 外部
+///   数据由 ORT 原样直读，与 fp32 同一条路径。
+/// - 标记 upcast_fp16 的请求：先流式扫描外部权重（毫秒级），按文件判定
+///   存储格式；fp16 打包的文件**各上转一次** —— 多个模型共用的文件
+///   （t2s 两个解码器的 t2s_shared）只转一次 —— 再建会话并以内存缓冲
 ///   替换这些文件。不需要上转的模型（自包含、fp32 外部文件）照常走
 ///   factory。上转缓冲在全部会话建完后释放（后端建会话时已拷贝）。
 ///
@@ -54,7 +61,7 @@ struct ModelLoadRequest {
 ///         持有的、已建成的会话随调用方的异常路径释放）
 void load_model_sessions(const std::vector<ModelLoadRequest>& requests,
                          const SessionFactory& factory, const SessionConfig& config,
-                         bool upcast_fp16_weights, std::size_t concurrency, TimingReport& timing);
+                         std::size_t concurrency, TimingReport& timing);
 
 }  // namespace genie::detail
 

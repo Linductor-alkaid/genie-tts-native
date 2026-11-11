@@ -306,9 +306,17 @@ Engine::Engine(std::string root, SessionFactory factory, const EngineConfig& con
     }
     {
         std::vector<detail::ModelLoadRequest> requests;
+        // 生效精度 = 逐模型覆盖（混合精度包），缺省跟包级。上转标志按
+        // 逐请求下发 —— int8/fp32 请求原样走 factory，ORT 直读外部数据。
         const auto request = [&impl, &requests](const ModelRole role, std::string stage,
                                                 std::unique_ptr<ModelSession>& target) {
-            requests.push_back({impl->package.model_path(role), std::move(stage), &target});
+            const auto entry = impl->manifest.models.find(role);
+            const auto effective =
+                entry != impl->manifest.models.end() && entry->second.weight_format.has_value()
+                    ? *entry->second.weight_format
+                    : impl->manifest.weight_format;
+            requests.push_back({impl->package.model_path(role), std::move(stage), &target,
+                                effective == WeightFormat::Fp16});
         };
         request(ModelRole::T2sEncoder, "load/t2s_encoder", impl->encoder);
         request(ModelRole::T2sFirstStageDecoder, "load/t2s_first_stage_decoder", impl->first_stage);
@@ -333,9 +341,8 @@ Engine::Engine(std::string root, SessionFactory factory, const EngineConfig& con
             config.session.intra_op_threads > 0
                 ? static_cast<std::size_t>(config.session.intra_op_threads)
                 : kDefaultLoadConcurrency;
-        detail::load_model_sessions(requests, factory, config.session,
-                                    impl->manifest.weight_format == WeightFormat::Fp16,
-                                    load_concurrency, impl->load_timing);
+        detail::load_model_sessions(requests, factory, config.session, load_concurrency,
+                                    impl->load_timing);
     }
 
     // 3) 文本前端。g2pM（多音字消歧）先于前端装配 —— 前端持有它做

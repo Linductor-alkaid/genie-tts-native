@@ -7,6 +7,19 @@
 
 ### Added
 
+- **动态 INT8 混合精度音色包 + 实测**（M5 量化阶梯第一档）：`WeightFormat::Int8` +
+  manifest 逐模型 `weight_format` 覆盖（混合精度的裁决单位）；加载路径与
+  fp32 相同（ORT 直读外部数据，无上转），`ModelLoadRequest` 的上转标志从
+  包级改逐请求。量化工具 `tools/deploy/quantize_package.py`（镜像整包 →
+  逐角色 `quantize_dynamic` → 重整外部数据 → 重写 manifest 与 SHA-256 →
+  ORT 复核可加载）。选型理由见 `docs/architecture.md` §2.15，用法见
+  `docs/deployment.md` §5.5。**混合包（roberta + t2s 三件套 + prompt_encoder
+  int8）实测：常驻 2.18 → 1.25 GB（-43%）、冷加载 -26%、短文本 RTF -35%**；
+  逐模型门控：speaker_verification 禁量化（cos 0.264 音色崩坏），
+  roberta/hubert 超严格容差，**A/B 听测通过**（2026-11-11，音色/清晰度/
+  自然度无差异）→ 容差按实测上界放宽留档，混合包定版。原始记录
+  `docs/benchmarks/2026-11-11-quant/`，实测分析见 `docs/performance.md`
+  §动态 INT8 量化。
 - **精度门控基建**（M0.2 容差框架 / M5 量化前置）：`genie-gate capture` 用包装
   会话工厂把真实流水线里每个模型的输入输出逐张量落盘（引擎零改动）；
   `tools/gate/precision_gate.py` 把变体模型放在捕获输入上重放并按

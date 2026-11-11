@@ -410,3 +410,44 @@ TEST_F(OrtBackendTest, Fp32PackageSkipsTheUpcastPath) {
         EXPECT_NE(stage.name, "load/fp16_upcast");
     }
 }
+
+TEST_F(OrtBackendTest, MixedPrecisionOverrideSkipsTheUpcastPath) {
+    // 混合精度包（M5 量化）：包级缺省 fp32，vits 逐模型覆盖 int8。
+    //
+    // 夹具里的"int8"模型实际是 fp32 权重 —— 图里声明什么 ORT 就读什么，
+    // 加载路径与 int8 完全一致（原样直读、无上转），所以这里验证的是
+    // 逐模型覆盖的**解析与装配管线**；int8 的数值正确性由真包的精度
+    // 门控实验覆盖（docs/regression.md 精度门控一节）。
+    const TempPackage package;
+    {
+        // 重写 manifest：给 vits 加逐模型覆盖。其余内容与夹具默认一致。
+        std::ofstream manifest(std::filesystem::path(package.root()) / "manifest.json");
+        manifest << R"({
+  "name": "synthetic-mixed-package",
+  "format_version": 1,
+  "model_version": "v2",
+  "language": "chinese",
+  "sample_rate": 32000,
+  "weight_format": "fp32",
+  "models": [
+    {"role": "t2s_encoder", "file": "models/t2s_encoder.onnx"},
+    {"role": "t2s_first_stage_decoder", "file": "models/t2s_first_stage_decoder.onnx"},
+    {"role": "t2s_stage_decoder", "file": "models/t2s_stage_decoder.onnx"},
+    {"role": "vits", "file": "models/vits.onnx", "weight_format": "int8"}
+  ]
+})";
+    }
+
+    Engine engine(package.root(), SessionConfig{});
+    EXPECT_EQ(engine.manifest().weight_format, WeightFormat::Fp32);
+    const auto& vits = engine.manifest().models.at(ModelRole::Vits);
+    ASSERT_TRUE(vits.weight_format.has_value());
+    EXPECT_EQ(*vits.weight_format, WeightFormat::Int8);
+
+    // 覆盖成 int8 不触发上转路径；fp16 请求列表为空时连扫描都不该有。
+    for (const auto& stage : engine.load_timing().stages()) {
+        EXPECT_NE(stage.name, "load/fp16_scan");
+        EXPECT_NE(stage.name, "load/fp16_upcast");
+    }
+    EXPECT_EQ(engine.sample_rate(), 32000);
+}

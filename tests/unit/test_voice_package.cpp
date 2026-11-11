@@ -60,6 +60,8 @@ struct ManifestOptions {
     std::string encoder_sha256;         ///< 非空则写入 t2s_encoder 的校验值
     bool wrong_encoder_sha256 = false;  ///< 写入一个错误的校验值
     bool omit_vits_role = false;        ///< 缺少必需角色
+    std::string package_weight_format;  ///< 非空则写入包级 weight_format
+    std::string encoder_weight_format;  ///< 非空则写入 t2s_encoder 的逐模型覆盖
 };
 
 std::string build_manifest(const ManifestOptions& options) {
@@ -72,6 +74,9 @@ std::string build_manifest(const ManifestOptions& options) {
         encoder += ",\"sha256\":" + quote +
                    (options.wrong_encoder_sha256 ? std::string(64, '0') : options.encoder_sha256) +
                    quote;
+    }
+    if (!options.encoder_weight_format.empty()) {
+        encoder += ",\"weight_format\":" + quote + options.encoder_weight_format + quote;
     }
     encoder += "}";
     entries.push_back(encoder);
@@ -102,6 +107,9 @@ std::string build_manifest(const ManifestOptions& options) {
     manifest += "\"model_version\":\"v2\",";
     manifest += "\"language\":\"chinese\",";
     manifest += "\"sample_rate\":32000,";
+    if (!options.package_weight_format.empty()) {
+        manifest += "\"weight_format\":" + quote + options.package_weight_format + quote + ",";
+    }
     manifest += "\"capabilities\":{\"v2proplus\":" +
                 std::string(options.include_prompt_encoder ? "true" : "false") + "},";
     manifest += "\"models\":" + models;
@@ -243,4 +251,37 @@ TEST(VoicePackage, ModelRoleStringRoundTrip) {
         EXPECT_EQ(model_role_from_string(to_string(role)), role);
     }
     EXPECT_FALSE(model_role_from_string("bogus").has_value());
+}
+
+TEST(VoicePackage, ParsesInt8PackageWeightFormat) {
+    TempPackage package;
+    populate_models(package);
+    package.write_manifest(build_manifest({.package_weight_format = "int8"}));
+
+    const auto loaded = VoicePackage::load(package.root(), /*verify_hash=*/false);
+    EXPECT_EQ(loaded.manifest().weight_format, WeightFormat::Int8);
+    // 逐模型缺省跟包级 —— 没写覆盖条目的模型不应有自己的值。
+    EXPECT_FALSE(loaded.manifest().models.at(ModelRole::Vits).weight_format.has_value());
+}
+
+TEST(VoicePackage, ParsesPerModelWeightFormatOverride) {
+    TempPackage package;
+    populate_models(package);
+    // 混合精度：包级缺省（fp32），仅 t2s_encoder 覆盖为 int8。
+    package.write_manifest(build_manifest({.encoder_weight_format = "int8"}));
+
+    const auto loaded = VoicePackage::load(package.root(), /*verify_hash=*/false);
+    EXPECT_EQ(loaded.manifest().weight_format, WeightFormat::Fp32);
+    const auto& encoder = loaded.manifest().models.at(ModelRole::T2sEncoder);
+    ASSERT_TRUE(encoder.weight_format.has_value());
+    EXPECT_EQ(*encoder.weight_format, WeightFormat::Int8);
+    EXPECT_FALSE(loaded.manifest().models.at(ModelRole::Vits).weight_format.has_value());
+}
+
+TEST(VoicePackage, RejectsUnknownWeightFormat) {
+    TempPackage package;
+    populate_models(package);
+    package.write_manifest(build_manifest({.package_weight_format = "int4"}));
+
+    EXPECT_THROW((void)VoicePackage::load(package.root(), /*verify_hash=*/false), Error);
 }

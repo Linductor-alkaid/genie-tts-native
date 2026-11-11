@@ -42,13 +42,18 @@
 - 🚧 语料构造：中文短句 / 长句、中英混读、英文、日文、韩文、特殊文本、边界输入
   —— 文本层的语料与黄金语料已就位（normalizer / g2pM / jieba / sandhi /
   english / korean / japanese / language_split，共 8 套 `tests/golden/*.json`）；
-  音频层（PCM 级）的黄金语料待补
+  音频层有了**精度门控捕获**（`tools/gate/`：真实流水线逐模型 I/O 落盘 +
+  分级容差裁决，见 `docs/regression.md` 精度门控一节），与 Python 上游的
+  PCM 级黄金比对待权重可达
 - 🚧 逐级参考输出：规范化文本 → 音素 → BERT 特征 → 语义 token → PCM
-  —— 前四级已逐级锁定，PCM 级待补（真实模型权重在 HuggingFace，
-  本环境不可达；需要能下载权重的环境补）
-- ⏳ 固定随机种子；非确定性环节用分阶段容差而非逐样本比对
-  —— 注意：采样在 ONNX 图内，主机侧没有采样器（upstream-audit §5），
-  `SynthesisOptions::seed` 是预留字段，确定性要等图内行为确认
+  —— 前四级已逐级锁定；PCM 级由精度门控接管（fp32 自基线 +
+  噪声地板相对裁决），与 Python 上游的比对待权重可达
+- ✅ 非确定性环节用分阶段容差而非逐样本比对（AGENTS §5.3 落地为
+  `tools/gate/tolerances.json`：token 逐位一致按噪声地板相对、连续张量
+  rel-L2 + 余弦、音频 advisory）—— 2026-11-11 实测：采样在图内、种子在
+  会话内固定，同进程同配置**逐 run 序号可复现**（fp32 自比 WAV 逐字节
+  相同），跨进程/跨 ORT 版本的近平局 token 翻转是稳定的构建间偏差
+  （地板 ≈0.991）；`SynthesisOptions::seed` 仍是预留字段（upstream-audit §5）
 
 **M0.3 性能基线**
 
@@ -165,11 +170,20 @@
   （parallel_for fork-join，8 路；会话段 ~2.9×，冷启动 3.77 → ~1.8 s），
   见 architecture.md §2.14
 - 🚧 内存占用 —— ✅ 加载期会话释放 + 还页（常驻 -1.2 GB，
-  `docs/performance.md` §内存）；⏳ t2s 双解码器共享权重（ORT 探针实测
-  省不出来，等 fp16/int8 推理）；⏳ KV cache 预分配
+  `docs/performance.md` §内存）；✅ 动态 INT8 混合精度包（常驻再 -0.93 GB
+  至 1.25 GB，见 §量化）；⏳ t2s 双解码器共享权重（ORT 探针实测
+  省不出来）；⏳ KV cache 预分配
 - ⏳ 模型常驻、参考音频缓存、文本特征缓存、缓冲区复用
   —— 参考音频特征已在加载期算好常驻（engine 构造期）；其余未做
-- ⏳ 量化（FP32 → 图简化 → 权重量化 → 动态 INT8 → 静态 INT8 → 混合精度）
+- 🚧 量化（FP32 → 图简化 → 权重量化 → 动态 INT8 → 静态 INT8 → 混合精度）
+  —— ✅ **动态 INT8 第一档落地**（2026-11-11）：逐模型门控 + 混合精度包
+  （`WeightFormat::Int8` + 逐模型覆盖，`tools/deploy/quantize_package.py`）。
+  实测：常驻 **2.18 → 1.25 GB（-43%）**、冷加载 -26%、短文本 RTF -35%
+  （u8s8/AVX_VNNI），`docs/performance.md` §动态 INT8 量化。
+  ⏳ roberta/hubert int8 的 A/B 听测 —— ✅ **2026-11-11 听测通过**
+  （音色/清晰度/自然度无差异，容差按实测上界放宽并留档，tolerances.json）；
+  ⏳ 静态 INT8（捕获数据可当校准集）、层内混合、Conv 系评估；
+  ⛔ speaker_verification 禁量化（cos 0.264，音色崩坏，实测记录在案）
 - ⏳ CPU 微架构优化（AVX2/AVX-512、NEON、内存对齐、NUMA）
 
 > ⚠️ **采样器优化不在此列** —— 采样在 ONNX 图内，主机侧无可优化对象。

@@ -26,6 +26,28 @@ constexpr ModelRole kRequiredRoles[] = {
     ModelRole::Vits,
 };
 
+/// 解析 weight_format 字符串（包级与逐模型条目共用一套取值）。
+WeightFormat parse_weight_format(const json::Value& value) {
+    // 值本身就是字符串：用 as_string() 取内容。get_string(key) 是对象
+    // 成员访问 —— 对字符串值调用会静默返回 fallback（fp16 包被当成
+    // fp32 加载，外部 bin 偏移全错，报错离根因很远）。
+    if (!value.is_string()) {
+        throw_error(ErrorCode::InvalidArgument, "manifest: 'weight_format' must be a string");
+    }
+    const auto& name = value.as_string();
+    if (name == "fp32") {
+        return WeightFormat::Fp32;
+    }
+    if (name == "fp16") {
+        return WeightFormat::Fp16;
+    }
+    if (name == "int8") {
+        return WeightFormat::Int8;
+    }
+    throw_error(ErrorCode::InvalidArgument,
+                "manifest: unknown weight_format '" + name + "' (supported: fp32 / fp16 / int8)");
+}
+
 /// 解析 manifest 中的 models 数组。
 std::map<ModelRole, ModelEntry> parse_models(const json::Value& root) {
     std::map<ModelRole, ModelEntry> models;
@@ -53,6 +75,11 @@ std::map<ModelRole, ModelEntry> parse_models(const json::Value& root) {
         entry.role = *role;
         entry.file = file;
         entry.sha256 = item.get_string("sha256");
+        if (const json::Value* weight_format = item.find("weight_format");
+            weight_format != nullptr) {
+            // 逐模型覆盖（混合精度包）：缺省跟包级，加载行为按逐模型裁决。
+            entry.weight_format = parse_weight_format(*weight_format);
+        }
         models[*role] = std::move(entry);
     }
     return models;
@@ -91,21 +118,7 @@ VoiceManifest parse_manifest(const json::Value& root) {
     }
 
     if (const json::Value* weight_format = root.find("weight_format"); weight_format != nullptr) {
-        // 值本身就是字符串：用 as_string() 取内容。get_string(key) 是对象
-        // 成员访问 —— 对字符串值调用会静默返回 fallback（fp16 包被当成
-        // fp32 加载，外部 bin 偏移全错，报错离根因很远）。
-        if (!weight_format->is_string()) {
-            throw_error(ErrorCode::InvalidArgument, "manifest: 'weight_format' must be a string");
-        }
-        const auto& value = weight_format->as_string();
-        if (value == "fp32") {
-            manifest.weight_format = WeightFormat::Fp32;
-        } else if (value == "fp16") {
-            manifest.weight_format = WeightFormat::Fp16;
-        } else {
-            throw_error(ErrorCode::InvalidArgument,
-                        "manifest: unknown weight_format '" + value + "' (supported: fp32 / fp16)");
-        }
+        manifest.weight_format = parse_weight_format(*weight_format);
     }
 
     manifest.models = parse_models(root);
