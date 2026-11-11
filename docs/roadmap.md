@@ -180,7 +180,8 @@
   （`WeightFormat::Int8` + 逐模型覆盖，`tools/deploy/quantize_package.py`）。
   实测：常驻 **2.18 → 1.25 GB（-43%）**、冷加载 -26%、短文本 RTF -35%
   （u8s8/AVX_VNNI），`docs/performance.md` §动态 INT8 量化。
-  ⏳ roberta/hubert int8 的 A/B 听测（超严格容差：rel ~14%，cos 0.99）；
+  ⏳ roberta/hubert int8 的 A/B 听测 —— ✅ **2026-11-11 听测通过**
+  （音色/清晰度/自然度无差异，容差按实测上界放宽并留档，tolerances.json）；
   ⏳ 静态 INT8（捕获数据可当校准集）、层内混合、Conv 系评估；
   ⛔ speaker_verification 禁量化（cos 0.264，音色崩坏，实测记录在案）
 - ⏳ CPU 微架构优化（AVX2/AVX-512、NEON、内存对齐、NUMA）

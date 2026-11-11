@@ -305,10 +305,13 @@ int8，SV / vits / hubert 保持 fp32；包 2550→1672 MB，-34%）**：
 常驻收益几乎全部来自 **roberta int8（约 -0.9 GB）**；短文本 RTF 的
 -35% 是 MLAS u8s8（AVX_VNNI）对 RoBERTa 前向的加速。
 
-**待决（听测定夺）**：roberta / hubert 的 int8 特征误差（rel ~14%，
-方向余弦 0.99）超出当前严格容差。若 A/B 听测无差异，则把
-`tools/gate/tolerances.json` 中这两个角色放宽并记录依据；若有差异，
-混合包退到 t2s 三件套 + prompt_encoder（常驻收益趋零，包体 -8%）。
+**听测裁决（2026-11-11，已定版）**：roberta / hubert 的 int8 特征误差
+（rel ≤0.162，方向余弦 ≥0.988）超出最初的严格容差。A/B 听测
+（fp32 × aggressive / roberta-only / hubert-only，各 4 文本：
+中文短/长、中英混、数字电话号码）**无差异** —— 音色 / 清晰度 /
+自然度均不受影响。`tools/gate/tolerances.json` 据此放宽这两类
+条件化特征角色（rel 0.20 / cos 0.985，留了实测上界的一档余量）
+并写明依据；`pkg-aggressive` 即为定版的混合精度包形态。
 原始记录 `benchmarks/2026-11-11-quant/`。
 
 **下一档（M5 阶梯继续）**：静态 INT8（捕获数据可当校准集）、
