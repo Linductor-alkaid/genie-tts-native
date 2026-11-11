@@ -39,6 +39,12 @@ try:
 except ImportError as exc:  # pragma: no cover
     sys.exit(f"需要 onnxruntime（量化工具链）：pip install onnxruntime\n{exc}")
 
+try:
+    import onnx
+    from onnx.external_data_helper import convert_model_to_external_data
+except ImportError as exc:  # pragma: no cover
+    sys.exit(f"需要 onnx（外部数据重整）：pip install onnx\n{exc}")
+
 # 上游 HF dump 的文件名与角色的对应关系走 manifest，这里只列默认建议：
 # 听感敏感（vits / speaker_verification）与重采样敏感（chinese_hubert）不进
 # 默认清单 —— 由实验门控决定，门控过了再加。
@@ -69,9 +75,37 @@ def quantize_one(src_onnx, dst_onnx, op_types):
             weight_type=ort_quant.QuantType.QInt8,
             extra_options={"MatMulConstBOnly": True},  # 只量化常量 B 侧：transformer 的 QK^V 动态乘不动
         )
-        return True, "ok"
     except Exception as exc:  # noqa: BLE001 —— 单模型失败不应中止整包，报告里给结论
         return False, f"{type(exc).__name__}: {exc}"
+
+    # 量化产物默认把 int8 权重**内联**进 .onnx（t2s_stage 会变成 288 MB 的
+    # 大 protobuf），而旧的 fp32 外部 bin 又因少量未量化张量（LayerNorm /
+    # bias）仍被引用而整份留在包里 —— 包体积不降反升。这里把全部初始化器
+    # 重新外置到**新的紧凑 int8 bin**：protobuf 回到壳大小，磁盘读走顺序
+    # 大块，旧 bin 在引用清点后删除。
+    try:
+        stem = Path(dst_onnx).stem
+        weights_name = f"{stem}_int8.bin"
+        model = onnx.load(str(dst_onnx))  # 外部引用在镜像目录里解析
+        convert_model_to_external_data(
+            model, all_tensors_to_one_file=True, location=weights_name, size_threshold=1024)
+        onnx.save(model, str(dst_onnx))
+    except Exception as exc:  # noqa: BLE001
+        return False, f"externalize failed: {type(exc).__name__}: {exc}"
+    return True, "ok"
+
+
+def referenced_external_files(package_dir):
+    """清点包内所有 .onnx 引用的外部数据文件名（相对 models/ 的位置）。"""
+    referenced = set()
+    for onnx_file in Path(package_dir).rglob("*.onnx"):
+        model = onnx.load(str(onnx_file), load_external_data=False)
+        for initializer in model.graph.initializer:
+            if initializer.data_location == onnx.TensorProto.EXTERNAL:
+                for entry in initializer.external_data:
+                    if entry.key == "location":
+                        referenced.add(Path(onnx_file).parent / entry.value)
+    return referenced
 
 
 def main():
@@ -138,7 +172,17 @@ def main():
             entry["weight_format"] = "fp32"
     manifest["weight_format"] = "int8"
 
-    # 4) 重算被量化模型与所有文件的 SHA-256（校验值是部署契约，见 §7）。
+    # 4) 删除不再被任何 .onnx 引用的旧外部 bin（量化把大权重挪进了新的
+    #    int8 bin；旧 fp32 bin 只剩零星未量化张量引用，重整后引用清零）。
+    referenced = referenced_external_files(dst)
+    removed = 0
+    for bin_file in (dst / "models").glob("*.bin"):
+        if bin_file not in referenced:
+            bin_file.unlink()
+            removed += 1
+    print(f"removed {removed} stale weight bin(s)")
+
+    # 5) 重算被量化模型与所有文件的 SHA-256（校验值是部署契约，见 §7）。
     for entry in manifest["models"]:
         file_path = dst / entry["file"]
         if file_path.exists():
@@ -147,7 +191,7 @@ def main():
     (dst / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    # 5) 体积账 + 复核。
+    # 6) 体积账 + 复核。
     def tree_bytes(root):
         return sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
 
