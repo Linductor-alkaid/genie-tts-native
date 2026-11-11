@@ -147,7 +147,7 @@ private:
     }
 
     [[nodiscard]] static Ort::SessionOptions make_options(const SessionConfig& config,
-                                                         const std::string& model_path) {
+                                                          const std::string& model_path) {
         Ort::SessionOptions options;
         options.SetIntraOpNumThreads(config.intra_op_threads);
         options.SetInterOpNumThreads(config.inter_op_threads);
