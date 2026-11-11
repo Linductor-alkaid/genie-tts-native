@@ -85,6 +85,8 @@ Options:
   --warmup <n>      Warmup runs per text, excluded from stats (default 1)
   --runs <n>        Measured runs per text (default 5)
   --json <file>     Also write the aggregate as JSON to this path
+  --io-binding <0|1> Bind decoder outputs to pooled buffers (M5 round 2;
+                    session learns output-shape growth; identical results).
   --profile <dir>   Enable the ORT op profiler, writing per-session Chrome
                     traces into <dir> (summarize with
                     tools/bench/summarize_profile.py). Timings under
@@ -110,6 +112,7 @@ struct Options {
     int arena = 1;
     int mem_pattern = 1;
     int parallel_prepack = 0;
+    int io_binding = 0;
     int warmup = 1;
     int runs = 5;
     bool no_verify = false;
@@ -147,7 +150,7 @@ bool parse_options(int argc, char** argv, Options& options) {
             }
         } else if (arg == "--threads" || arg == "--spinning" || arg == "--graph-opt" ||
                    arg == "--arena" || arg == "--mem-pattern" || arg == "--parallel-prepack" ||
-                   arg == "--warmup" || arg == "--runs") {
+                   arg == "--io-binding" || arg == "--warmup" || arg == "--runs") {
             std::string value;
             if (!next(value)) {
                 return false;
@@ -165,6 +168,8 @@ bool parse_options(int argc, char** argv, Options& options) {
                 options.mem_pattern = parsed;
             } else if (arg == "--parallel-prepack") {
                 options.parallel_prepack = parsed;
+            } else if (arg == "--io-binding") {
+                options.io_binding = parsed;
             } else if (arg == "--warmup") {
                 options.warmup = parsed;
             } else {
@@ -544,9 +549,11 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
            json_escape(cpu_model()) + "\"},\n";
     std::snprintf(number, sizeof(number),
                   "  \"threads\": %d, \"spinning\": %d, \"graph_opt\": %d, \"arena\": %d, "
-                  "\"mem_pattern\": %d, \"parallel_prepack\": %d, \"runs\": %d, \"warmup\": %d,\n",
+                  "\"mem_pattern\": %d, \"parallel_prepack\": %d, \"io_binding\": %d, "
+                  "\"runs\": %d, \"warmup\": %d,\n",
                   options.threads, options.spinning, options.graph_opt, options.arena,
-                  options.mem_pattern, options.parallel_prepack, options.runs, options.warmup);
+                  options.mem_pattern, options.parallel_prepack, options.io_binding, options.runs,
+                  options.warmup);
     out += number;
     const auto kb_field = [&out, &number](const char* name, const double kb) {
         if (kb < 0.0) {
@@ -662,7 +669,8 @@ int main(int argc, char** argv) {
         (options.spinning != 0 && options.spinning != 1) ||
         (options.arena != 0 && options.arena != 1) ||
         (options.mem_pattern != 0 && options.mem_pattern != 1) ||
-        (options.parallel_prepack != 0 && options.parallel_prepack != 1) || options.graph_opt < 0 ||
+        (options.parallel_prepack != 0 && options.parallel_prepack != 1) ||
+        (options.io_binding != 0 && options.io_binding != 1) || options.graph_opt < 0 ||
         options.graph_opt > 3) {
         std::cerr << "--runs/--threads must be >= 1, --warmup must be >= 0, "
                      "--spinning/--arena/--mem-pattern/--parallel-prepack must be 0 or 1, "
@@ -702,6 +710,7 @@ int main(int argc, char** argv) {
     config.session.enable_cpu_mem_arena = options.arena != 0;
     config.session.enable_mem_pattern = options.mem_pattern != 0;
     config.session.parallel_prepack = options.parallel_prepack != 0;
+    config.session.enable_io_binding = options.io_binding != 0;
     if (!options.profile_dir.empty()) {
         // 算子级 profiler（M5 性能分析采集端）：目录自建，trace 按会话
         // （模型文件 stem）分文件落盘，tools/bench/summarize_profile.py 聚合。

@@ -57,6 +57,7 @@ Options:
   --language <lang>    auto | chinese | english | japanese | korean | hybrid-chinese-english
   --seed <n>           Reserved (see note below)
   --threads <n>        ORT intra-op threads per session (default 8)
+  --io-binding <0|1>   Bind decoder outputs to pooled buffers (default 0)
   --no-verify          Skip voice package SHA-256 verification (faster cold start;
                        only for packages produced by a trusted local workflow)
   --timing             Print per-stage timing (model load + synthesis) to stderr
@@ -78,6 +79,7 @@ struct Options {
     std::string english_dir;
     std::uint64_t seed = 0;
     int threads = 8;
+    int io_binding = 0;
     bool no_verify = false;
     bool timing = false;
     bool help = false;
@@ -127,6 +129,12 @@ bool parse_options(int argc, char** argv, Options& options) {
                 return false;
             }
             options.threads = std::atoi(value.c_str());
+        } else if (arg == "--io-binding") {
+            std::string value;
+            if (!next(value)) {
+                return false;
+            }
+            options.io_binding = std::atoi(value.c_str());
         } else if (arg == "--timing") {
             options.timing = true;
         } else if (arg == "--no-verify") {
@@ -382,6 +390,9 @@ int command_synth(const Options& options) {
     genie::EngineConfig config;
     if (options.threads > 0) {
         config.session.intra_op_threads = options.threads;
+    }
+    if (options.io_binding != 0) {
+        config.session.enable_io_binding = true;
     }
     if (options.no_verify) {
         // 跳过的决定必须在终端上可见 —— 冷启动快了 4 秒的同时也放弃了

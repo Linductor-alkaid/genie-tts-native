@@ -138,6 +138,21 @@ Tensor Tensor::from_raw(ElementType type, Shape shape, const void* data) {
     return tensor;
 }
 
+Tensor Tensor::from_buffer(std::vector<std::byte>&& storage, ElementType type, Shape shape) {
+    Tensor tensor;
+    tensor.type_ = type;
+    tensor.shape_ = std::move(shape);
+    tensor.element_count_ = product_of(tensor.shape_);
+    const std::size_t bytes = tensor.element_count_ * element_size(type);
+    if (storage.size() != bytes) {
+        throw_error(ErrorCode::InvalidArgument, "tensor shape implies " + std::to_string(bytes) +
+                                                    " bytes but the buffer holds " +
+                                                    std::to_string(storage.size()));
+    }
+    tensor.storage_ = std::move(storage);
+    return tensor;
+}
+
 std::int64_t Tensor::dim(std::size_t dim) const noexcept {
     return dim < shape_.size() ? shape_[dim] : 0;
 }

@@ -7,6 +7,15 @@
 
 ### Added
 
+- **IOBinding 输出缓冲池**（M5 解码热路径第二轮）：会话内自学习输出
+  形状增长（前两次普通 run 观测相邻差），此后输出绑定到自管缓冲、
+  ORT 直接写入、`Tensor::from_buffer` 接管 —— 宿主侧每步 51 份输出
+  memcpy 消失，零接口变更（`ModelSession::run` 签名不动，假会话 /
+  门控装饰器 / 域层无感）。实测（`docs/performance.md` §IOBinding）：
+  长文本 **ms/token 20.24 → 17.81（-12%）**、短文本 -2%、RSS 持平，
+  两条路径逐字节等价由集成测试锁定 → `enable_io_binding` **默认开**；
+  单次调用会话（first_stage 等）靠"连续失准且从未成功即永久禁用"
+  防永久双跑。决策记录 `docs/architecture.md` §2.18。
 - **ORT Format 音色包转换工具**（M5 冷启动收尾）：`convert_package_to_ort.py`
   把每个角色的 .onnx 经 ORT 离线图优化序列化为自包含 .ort —— 引擎零
   改动（manifest file 直通 `InferenceSession`，后缀嗅探）。实测

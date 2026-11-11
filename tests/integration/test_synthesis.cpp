@@ -14,6 +14,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -160,6 +161,41 @@ TEST_F(OrtBackendTest, ProfilingWritesChromeTracePerSession) {
     }
     EXPECT_GE(trace_files, 1U);
     fs::remove_all(profile_dir);
+}
+
+TEST_F(OrtBackendTest, IoBindingPoolKeepsResultsIdentical) {
+    // 绑定路径与普通路径必须**逐字节**等价（M5 第二轮的验收线）：开关
+    // 关闭跑三遍作基线；开关打开跑四遍 —— 前两遍是形状学习（synthetic
+    // 模型形状静态，学到"不增长"即就绪），后两遍走绑定缓冲池。
+    const auto make_feed = [](std::int64_t alpha_value) {
+        return TensorFeed{
+            {"alpha", Tensor::from_int64({1, 4}, std::vector<std::int64_t>(4, alpha_value))},
+            {"beta", Tensor::from_float32({4, 1024}, std::vector<float>(4U * 1024U, 0.75F))},
+            {"gamma", Tensor::from_float32({1, 768, 8}, std::vector<float>(768U * 8U, 0.0F))},
+        };
+    };
+
+    config_.enable_io_binding = false;
+    auto plain = create_session(model_path_.string(), config_);
+    std::vector<std::vector<Tensor>> baseline;
+    for (int r = 0; r < 3; ++r) {
+        baseline.push_back(plain->run(make_feed(5 + r)));
+    }
+
+    config_.enable_io_binding = true;
+    auto pooled = create_session(model_path_.string(), config_);
+    for (int r = 0; r < 4; ++r) {
+        const auto outputs = pooled->run(make_feed(5 + r % 3));
+        const auto& expected = baseline[static_cast<std::size_t>(r % 3)];
+        ASSERT_EQ(outputs.size(), expected.size());
+        for (std::size_t i = 0; i < outputs.size(); ++i) {
+            EXPECT_EQ(outputs[i].shape_string(), expected[i].shape_string());
+            ASSERT_EQ(outputs[i].byte_size(), expected[i].byte_size());
+            EXPECT_TRUE(std::equal(outputs[i].bytes().begin(), outputs[i].bytes().end(),
+                                   expected[i].bytes().begin()))
+                << "run " << r << " output " << i << " differs";
+        }
+    }
 }
 
 TEST_F(OrtBackendTest, MissingModelThrowsModelLoadError) {
