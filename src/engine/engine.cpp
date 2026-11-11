@@ -311,10 +311,10 @@ Engine::Engine(std::string root, SessionFactory factory, const EngineConfig& con
         const auto request = [&impl, &requests](const ModelRole role, std::string stage,
                                                 std::unique_ptr<ModelSession>& target) {
             const auto entry = impl->manifest.models.find(role);
-            const auto effective = entry != impl->manifest.models.end() &&
-                                           entry->second.weight_format.has_value()
-                                       ? *entry->second.weight_format
-                                       : impl->manifest.weight_format;
+            const auto effective =
+                entry != impl->manifest.models.end() && entry->second.weight_format.has_value()
+                    ? *entry->second.weight_format
+                    : impl->manifest.weight_format;
             requests.push_back({impl->package.model_path(role), std::move(stage), &target,
                                 effective == WeightFormat::Fp16});
         };
