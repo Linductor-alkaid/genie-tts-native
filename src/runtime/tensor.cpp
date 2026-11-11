@@ -145,9 +145,9 @@ Tensor Tensor::from_buffer(std::vector<std::byte>&& storage, ElementType type, S
     tensor.element_count_ = product_of(tensor.shape_);
     const std::size_t bytes = tensor.element_count_ * element_size(type);
     if (storage.size() != bytes) {
-        throw_error(ErrorCode::InvalidArgument,
-                    "tensor shape implies " + std::to_string(bytes) +
-                        " bytes but the buffer holds " + std::to_string(storage.size()));
+        throw_error(ErrorCode::InvalidArgument, "tensor shape implies " + std::to_string(bytes) +
+                                                    " bytes but the buffer holds " +
+                                                    std::to_string(storage.size()));
     }
     tensor.storage_ = std::move(storage);
     return tensor;

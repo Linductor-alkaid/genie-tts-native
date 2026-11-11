@@ -315,8 +315,8 @@ private:
                 return Ort::Value::CreateTensor<std::int64_t>(
                     info, static_cast<std::int64_t*>(data), element_count, dims, rank);
             case ElementType::Bool:
-                return Ort::Value::CreateTensor<bool>(info, static_cast<bool*>(data),
-                                                      element_count, dims, rank);
+                return Ort::Value::CreateTensor<bool>(info, static_cast<bool*>(data), element_count,
+                                                      dims, rank);
         }
         throw_error(ErrorCode::Internal, "unreachable tensor type");
     }
@@ -497,11 +497,11 @@ private:
 
     // IOBinding 输出缓冲池的状态（全部只在 run() 内演进；引擎契约是
     // 单线程使用会话，见 deployment §6）。
-    bool io_binding_enabled_ = false;   // SessionConfig::enable_io_binding
-    bool binding_ready_ = false;        // 全部输出的形状增长已学到
-    bool binding_banned_ = false;       // 反复预测失准：永久禁用（防永久双跑）
-    int binding_failures_ = 0;          // 连续预测失败且无成功间隔的次数
-    std::vector<Tensor::Shape> last_shapes_;          // 上一步实际输出形状
+    bool io_binding_enabled_ = false;  // SessionConfig::enable_io_binding
+    bool binding_ready_ = false;       // 全部输出的形状增长已学到
+    bool binding_banned_ = false;      // 反复预测失准：永久禁用（防永久双跑）
+    int binding_failures_ = 0;         // 连续预测失败且无成功间隔的次数
+    std::vector<Tensor::Shape> last_shapes_;  // 上一步实际输出形状
     std::vector<std::optional<std::pair<int, std::int64_t>>> growth_;  // 维度+增量
 
     std::string model_path_;

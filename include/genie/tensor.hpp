@@ -70,8 +70,8 @@ public:
     /// 这个场景：ORT 直接写进我们预分配的缓冲， Tensor 接管缓冲即完成
     /// 输出交接，宿主侧最后一份 KV 拷贝由此消失。storage 的字节数必须与
     /// 形状 × 元素大小精确一致，否则抛 genie::Error。
-    [[nodiscard]] static Tensor from_buffer(std::vector<std::byte>&& storage,
-                                            ElementType type, Shape shape);
+    [[nodiscard]] static Tensor from_buffer(std::vector<std::byte>&& storage, ElementType type,
+                                            Shape shape);
 
     [[nodiscard]] ElementType type() const noexcept { return type_; }
     [[nodiscard]] const Shape& shape() const noexcept { return shape_; }

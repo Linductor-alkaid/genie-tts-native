@@ -14,8 +14,8 @@
 
 #include <gtest/gtest.h>
 
-#include <chrono>
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>

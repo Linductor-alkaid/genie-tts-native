@@ -1,0 +1,66 @@
+{
+  "model": "/home/ybt/genie-assets/quant-exp/pkg-final",
+  "version": "0.4.0",
+  "environment": {"ort": "1.31.0", "os": "Linux 6.8.0-124-generic x86_64", "cpu": "13th Gen Intel(R) Core(TM) i9-13900KF"},
+  "threads": 8, "spinning": 0, "graph_opt": 3, "arena": 1, "mem_pattern": 1, "parallel_prepack": 0, "io_binding": 1, "runs": 5, "warmup": 1,
+  "peak_rss_kb": 2345504,
+  "rss_after_load_kb": 1193300,
+  "rss_end_kb": 1729772,
+  "errors": 0,
+  "verify_voice_package": false,
+  "profile_output_dir": "",
+  "load": {"total_ms":2458.800,"stages":[{"name":"load/voice_package","ms":0.198,"count":1},{"name":"load/sessions","ms":1923.887,"count":1},{"name":"load/t2s_encoder","ms":23.724,"count":1},{"name":"load/t2s_first_stage_decoder","ms":500.840,"count":1},{"name":"load/t2s_stage_decoder","ms":487.494,"count":1},{"name":"load/vits","ms":1922.918,"count":1},{"name":"load/prompt_encoder","ms":52.695,"count":1},{"name":"load/speaker_verification","ms":409.168,"count":1},{"name":"load/roberta","ms":303.411,"count":1},{"name":"load/chinese_hubert","ms":168.566,"count":1},{"name":"load/jieba","ms":73.902,"count":1},{"name":"load/english_frontend","ms":25.958,"count":1},{"name":"load/g2pm","ms":12.494,"count":1},{"name":"load/roberta_tokenizer","ms":0.357,"count":1},{"name":"load/reference","ms":97.658,"count":1},{"name":"load/reference_ssl","ms":71.501,"count":1},{"name":"load/reference_bert","ms":18.740,"count":1},{"name":"load/global_embeddings","ms":199.874,"count":1},{"name":"load/release_load_only_models","ms":34.210,"count":1}]},
+  "texts": [
+    {"text": "今天天气真不错。", "rtf": {"mean": 0.516, "min": 0.457, "median": 0.496, "max": 0.604}, "audio_seconds": {"mean": 1.832}, "total_wall_ms": {"mean": 945.6, "min": 803.6, "max": 1087.4}, "cpu_cores": {"mean": 4.83}, "iterations": {"mean": 46.8, "min": 44, "max": 52}, "stages": [
+      {"name": "language_detect", "ms": {"mean": 0.000, "min": 0.000, "max": 0.000, "median": 0.000}},
+      {"name": "frontend", "ms": {"mean": 0.062, "min": 0.061, "max": 0.063, "median": 0.062}},
+      {"name": "text_bert", "ms": {"mean": 11.093, "min": 10.436, "max": 11.806, "median": 11.161}},
+      {"name": "t2s/encoder", "ms": {"mean": 1.529, "min": 1.473, "max": 1.674, "median": 1.479}},
+      {"name": "t2s/first_stage", "ms": {"mean": 50.449, "min": 45.502, "max": 54.106, "median": 51.900}},
+      {"name": "t2s/stage_decoder", "ms": {"mean": 600.513, "min": 555.609, "max": 725.475, "median": 570.862}},
+      {"name": "t2s", "ms": {"mean": 654.823, "min": 611.263, "max": 783.570, "median": 620.003}},
+      {"name": "vocoder", "ms": {"mean": 279.548, "min": 173.847, "max": 435.431, "median": 216.840}}
+    ],
+    "samples": [
+      {"wall_ms": 803.6, "rtf": 0.4566, "cpu_cores": 4.72, "iterations": 45, "stages": {"language_detect": 0.000, "frontend": 0.063, "text_bert": 11.278, "t2s/encoder": 1.674, "t2s/first_stage": 47.739, "t2s/stage_decoder": 566.659, "t2s": 618.273, "vocoder": 173.847}},
+      {"wall_ms": 1001.2, "rtf": 0.5441, "cpu_cores": 4.96, "iterations": 47, "stages": {"language_detect": 0.000, "frontend": 0.062, "text_bert": 11.161, "t2s/encoder": 1.475, "t2s/first_stage": 45.502, "t2s/stage_decoder": 570.862, "t2s": 620.003, "vocoder": 369.915}},
+      {"wall_ms": 823.6, "rtf": 0.4788, "cpu_cores": 4.79, "iterations": 44, "stages": {"language_detect": 0.000, "frontend": 0.061, "text_bert": 10.436, "t2s/encoder": 1.473, "t2s/first_stage": 51.900, "t2s/stage_decoder": 555.609, "t2s": 611.263, "vocoder": 201.705}},
+      {"wall_ms": 1087.4, "rtf": 0.6041, "cpu_cores": 5.09, "iterations": 46, "stages": {"language_detect": 0.000, "frontend": 0.063, "text_bert": 10.785, "t2s/encoder": 1.479, "t2s/first_stage": 52.996, "t2s/stage_decoder": 583.958, "t2s": 641.008, "vocoder": 435.431}},
+      {"wall_ms": 1012.4, "rtf": 0.4963, "cpu_cores": 4.61, "iterations": 52, "stages": {"language_detect": 0.000, "frontend": 0.061, "text_bert": 11.806, "t2s/encoder": 1.546, "t2s/first_stage": 54.106, "t2s/stage_decoder": 725.475, "t2s": 783.570, "vocoder": 216.840}}
+    ]},
+    {"text": "今天天气真不错，我们出去散步吧，顺便去公园里看看花。", "rtf": {"mean": 0.477, "min": 0.462, "median": 0.472, "max": 0.508}, "audio_seconds": {"mean": 5.032}, "total_wall_ms": {"mean": 2386.1, "min": 1685.1, "max": 2681.5}, "cpu_cores": {"mean": 4.57}, "iterations": {"mean": 126.8, "min": 84, "max": 142}, "stages": [
+      {"name": "language_detect", "ms": {"mean": 0.000, "min": 0.000, "max": 0.000, "median": 0.000}},
+      {"name": "frontend", "ms": {"mean": 0.335, "min": 0.330, "max": 0.339, "median": 0.334}},
+      {"name": "text_bert", "ms": {"mean": 19.358, "min": 17.454, "max": 22.002, "median": 19.358}},
+      {"name": "t2s/encoder", "ms": {"mean": 1.779, "min": 1.658, "max": 1.959, "median": 1.693}},
+      {"name": "t2s/first_stage", "ms": {"mean": 55.214, "min": 47.029, "max": 70.820, "median": 52.309}},
+      {"name": "t2s/stage_decoder", "ms": {"mean": 1707.707, "min": 1193.030, "max": 1919.091, "median": 1791.224}},
+      {"name": "t2s", "ms": {"mean": 1769.418, "min": 1268.722, "max": 1977.082, "median": 1852.882}},
+      {"name": "vocoder", "ms": {"mean": 596.891, "min": 396.061, "max": 685.819, "median": 640.022}}
+    ],
+    "samples": [
+      {"wall_ms": 1685.1, "rtf": 0.5076, "cpu_cores": 4.64, "iterations": 84, "stages": {"language_detect": 0.000, "frontend": 0.339, "text_bert": 19.862, "t2s/encoder": 1.693, "t2s/first_stage": 70.820, "t2s/stage_decoder": 1193.030, "t2s": 1268.722, "vocoder": 396.061}},
+      {"wall_ms": 2436.9, "rtf": 0.4723, "cpu_cores": 4.54, "iterations": 130, "stages": {"language_detect": 0.000, "frontend": 0.330, "text_bert": 22.002, "t2s/encoder": 1.669, "t2s/first_stage": 52.309, "t2s/stage_decoder": 1743.306, "t2s": 1803.836, "vocoder": 610.571}},
+      {"wall_ms": 2510.8, "rtf": 0.4615, "cpu_cores": 4.58, "iterations": 137, "stages": {"language_detect": 0.000, "frontend": 0.334, "text_bert": 17.454, "t2s/encoder": 1.658, "t2s/first_stage": 55.900, "t2s/stage_decoder": 1791.224, "t2s": 1852.882, "vocoder": 640.022}},
+      {"wall_ms": 2681.5, "rtf": 0.4754, "cpu_cores": 4.56, "iterations": 142, "stages": {"language_detect": 0.000, "frontend": 0.339, "text_bert": 18.115, "t2s/encoder": 1.959, "t2s/first_stage": 50.009, "t2s/stage_decoder": 1919.091, "t2s": 1977.082, "vocoder": 685.819}},
+      {"wall_ms": 2616.4, "rtf": 0.4672, "cpu_cores": 4.54, "iterations": 141, "stages": {"language_detect": 0.000, "frontend": 0.332, "text_bert": 19.358, "t2s/encoder": 1.914, "t2s/first_stage": 47.029, "t2s/stage_decoder": 1891.883, "t2s": 1944.568, "vocoder": 651.981}}
+    ]},
+    {"text": "二零二五年秋天，原生推理引擎完成了从脚本语言到本地机器码的迁移，它不依赖任何在线服务，在一台普通的台式机上就能实时合成出自然的语音。", "rtf": {"mean": 0.590, "min": 0.582, "median": 0.583, "max": 0.614}, "audio_seconds": {"mean": 13.800}, "total_wall_ms": {"mean": 8151.4, "min": 7706.7, "max": 8892.2}, "cpu_cores": {"mean": 4.13}, "iterations": {"mean": 346.0, "min": 332, "max": 363}, "stages": [
+      {"name": "language_detect", "ms": {"mean": 0.003, "min": 0.000, "max": 0.013, "median": 0.001}},
+      {"name": "frontend", "ms": {"mean": 0.826, "min": 0.789, "max": 0.846, "median": 0.837}},
+      {"name": "text_bert", "ms": {"mean": 29.030, "min": 27.259, "max": 31.626, "median": 28.546}},
+      {"name": "t2s/encoder", "ms": {"mean": 1.524, "min": 1.407, "max": 1.784, "median": 1.459}},
+      {"name": "t2s/first_stage", "ms": {"mean": 64.285, "min": 59.198, "max": 69.571, "median": 63.412}},
+      {"name": "t2s/stage_decoder", "ms": {"mean": 6162.855, "min": 5852.228, "max": 6620.011, "median": 6087.222}},
+      {"name": "t2s", "ms": {"mean": 6240.842, "min": 5931.630, "max": 6696.300, "median": 6164.884}},
+      {"name": "vocoder", "ms": {"mean": 1880.476, "min": 1746.755, "max": 2166.270, "median": 1843.192}}
+    ],
+    "samples": [
+      {"wall_ms": 8375.0, "rtf": 0.5898, "cpu_cores": 4.12, "iterations": 356, "stages": {"language_detect": 0.000, "frontend": 0.813, "text_bert": 29.298, "t2s/encoder": 1.784, "t2s/first_stage": 59.198, "t2s/stage_decoder": 6376.346, "t2s": 6449.835, "vocoder": 1894.818}},
+      {"wall_ms": 7742.3, "rtf": 0.5830, "cpu_cores": 4.13, "iterations": 333, "stages": {"language_detect": 0.000, "frontend": 0.789, "text_bert": 28.419, "t2s/encoder": 1.415, "t2s/first_stage": 69.571, "t2s/stage_decoder": 5878.466, "t2s": 5961.562, "vocoder": 1751.344}},
+      {"wall_ms": 8040.8, "rtf": 0.5827, "cpu_cores": 4.12, "iterations": 346, "stages": {"language_detect": 0.001, "frontend": 0.846, "text_bert": 31.626, "t2s/encoder": 1.557, "t2s/first_stage": 63.412, "t2s/stage_decoder": 6087.222, "t2s": 6164.884, "vocoder": 1843.192}},
+      {"wall_ms": 7706.7, "rtf": 0.5821, "cpu_cores": 4.14, "iterations": 332, "stages": {"language_detect": 0.001, "frontend": 0.837, "text_bert": 27.259, "t2s/encoder": 1.459, "t2s/first_stage": 66.770, "t2s/stage_decoder": 5852.228, "t2s": 5931.630, "vocoder": 1746.755}},
+      {"wall_ms": 8892.2, "rtf": 0.6141, "cpu_cores": 4.13, "iterations": 363, "stages": {"language_detect": 0.013, "frontend": 0.846, "text_bert": 28.546, "t2s/encoder": 1.407, "t2s/first_stage": 62.471, "t2s/stage_decoder": 6620.011, "t2s": 6696.300, "vocoder": 2166.270}}
+    ]}
+  ]
+}

@@ -158,10 +158,13 @@
   §算子级耗时 —— KV 图内管理 Transpose+Concat ≈21% 是 MatMul 外最大块，
   宿主侧拷贝在 profiler 不可见）；Cache Miss / SIMD 利用率未做（无
   轻量采集口子，明确挂起）
-- 🚧 KV Cache 复用、预分配解码缓冲区、减少 Host 内存拷贝 ——
+- ✅ KV Cache 复用、预分配解码缓冲区、减少 Host 内存拷贝 ——
   ✅ 第一轮：解码循环 move 语义、输入零拷贝包装、输出单次拷贝
   （ms/token -23%~-31%，`docs/performance.md`）；
-  ⏳ 剩余：IOBinding / 跨步预分配缓冲池
+  ✅ 第二轮：IOBinding 输出缓冲池（2026-11-11，会话内自学习形状增长，
+  宿主侧每步 51 份输出拷贝消失，长文本 ms/token -12% 默认开，
+  `docs/performance.md` §IOBinding）—— 宿主侧可摘的拷贝摘完，图内
+  KV concat/Transpose（≈21%）需改模型导出，归 M6 流式一并评估
 - 🚧 ONNX Runtime 参数搜索（线程数、图优化、执行模式、内存 arena/pattern、
   CPU 亲和性、ORT Format）—— ✅ 线程 × 自旋（默认 8 线程、自旋关）、
   图优化级别 / arena / 内存模式（默认全开，扫描无稳健更优组合，
