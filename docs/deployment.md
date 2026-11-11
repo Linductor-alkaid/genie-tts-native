@@ -256,6 +256,34 @@ $G synth --model $PKG --text "你好，我是 feibi。" --output hello.wav --no-
 
 ---
 
+## 5.5 可选：动态 INT8 混合精度包（缩常驻内存）
+
+fp16 分发（§3 末尾的"也可以不转"）省的是**磁盘**；要缩**运行时常驻**
+（fp32 包权重 ~2.6 GB，RoBERTa 1.2 GB 是最大头），用动态 INT8 量化包：
+
+```bash
+pip install onnxruntime numpy onnx
+
+# 从 fp32 包生成混合精度包（默认只量化 roberta / prompt_encoder；
+# vits / speaker_verification 听感敏感，必须显式指定并过精度门控）
+python3 tools/deploy/quantize_package.py \
+    --src $PKG/voice-package-multilang \
+    --dst $PKG/voice-package-int8 \
+    --roles roberta,prompt_encoder
+```
+
+- 逐模型权重 4 字节/元素 → 1 字节/元素（MLAS u8s8，AVX_VNNI 机器上
+  通常还略提速）。加载路径与 fp32 完全相同，无需转换、无需上转。
+- **精度不是白给的**：每个角色要过精度门控（`tools/gate/`，见
+  `docs/regression.md` 精度门控一节）——token 输出逐位一致按噪声地板
+  相对裁决、特征 rel-L2 + 余弦、vits 音频听测。门控没过的角色在
+  manifest 里写回 `weight_format: "fp32"`（逐模型覆盖），包从此是
+  混合精度。实测数据见 `docs/performance.md` 量化一节。
+- manifest 包级 `weight_format: "int8"` 只描述默认值；加载行为按逐模型
+  覆盖裁决（`include/genie/voice_package.hpp` 的 `ModelEntry::weight_format`）。
+
+---
+
 ## 6. 部署注意事项
 
 - **线程数**：Engine 一次加载 4–8 个 ONNX 会话，每个会话默认 8 个

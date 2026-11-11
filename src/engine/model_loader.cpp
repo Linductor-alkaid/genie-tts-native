@@ -2,6 +2,7 @@
 
 #include "engine/model_loader.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -27,17 +28,26 @@ struct PackedWeightRef {
 
 void load_model_sessions(const std::vector<ModelLoadRequest>& requests,
                          const SessionFactory& factory, const SessionConfig& config,
-                         const bool upcast_fp16_weights, const std::size_t concurrency,
-                         TimingReport& timing) {
+                         const std::size_t concurrency, TimingReport& timing) {
     // 每个请求要注入的 fp16 打包文件；上转结果按磁盘路径去重。
     std::vector<std::vector<PackedWeightRef>> packed(requests.size());
     std::map<std::string, Fp32WeightBuffer> upcast;
 
-    if (upcast_fp16_weights) {
+    // 上转请求在扫描阶段才逐个判定（classify 按文件实际字节长识别 fp16
+    // 打包），所以"有没有 fp16 请求"要先看一遍 —— 没有（纯 fp32/int8 包）
+    // 就连扫描计时条目都不留。
+    const bool has_fp16_requests =
+        std::any_of(requests.begin(), requests.end(),
+                    [](const ModelLoadRequest& request) { return request.upcast_fp16; });
+
+    if (has_fp16_requests) {
         {
             ScopedStageTimer timer(timing, "load/fp16_scan");
             timer.set_count(static_cast<std::uint32_t>(requests.size()));
             for (std::size_t i = 0; i < requests.size(); ++i) {
+                if (!requests[i].upcast_fp16) {
+                    continue;  // 混合精度包：int8/fp32 请求不参与扫描。
+                }
                 const auto directory = std::filesystem::path(requests[i].path).parent_path();
                 for (const auto& file : scan_external_weights(requests[i].path)) {
                     const auto path = (directory / file.location).string();

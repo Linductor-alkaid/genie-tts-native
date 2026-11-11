@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- **动态 INT8 混合精度音色包**（M5 量化阶梯第一档）：`WeightFormat::Int8` +
+  manifest 逐模型 `weight_format` 覆盖（混合精度的裁决单位）；加载路径与
+  fp32 相同（ORT 直读外部数据，无上转），`ModelLoadRequest` 的上转标志从
+  包级改逐请求。量化工具 `tools/deploy/quantize_package.py`（镜像整包 →
+  逐角色 `quantize_dynamic` → 重写 manifest 与 SHA-256 → ORT 复核可加载）。
+  选型理由见 `docs/architecture.md` §2.15，用法见 `docs/deployment.md` §5.5。
+  精度裁决由精度门控承担（`tools/gate/`，另见精度门控 PR）。
+
 ## [v0.4.0] - 2026-11-10
 
 本版本是**性能优化专版**：M0.3 建立了首份性能基线，M5 在其上完成三轮优化 ——

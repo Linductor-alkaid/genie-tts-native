@@ -62,6 +62,19 @@ enum class ModelRole {
 [[nodiscard]] std::string to_string(ModelRole role);
 [[nodiscard]] std::optional<ModelRole> model_role_from_string(std::string_view text);
 
+/// 外部权重文件的存储精度。
+enum class WeightFormat {
+    Fp32,  ///< fp32 权重（.onnx 图直接引用，运行时原样加载）
+    Fp16,  ///< fp16 权重（HF 上游的 `*_fp16.bin`）—— 加载期在内存里
+           ///< 上转为 FP32 再建会话，包体积减半、运行时仍是 FP32。
+           ///< 借鉴上游 Genie-TTS 的分发格式（docs/architecture.md）。
+    Int8,  ///< 动态 INT8 权重（onnxruntime.quantization quantize_dynamic 的
+           ///< 产物，M5 量化阶梯）。权重常驻从 4 字节/元素降到 1 字节，
+           ///< 运行时由 MLAS 的 u8s8 内核计算（AVX_VNNI 直配）。加载路径
+           ///< 与 fp32 相同 —— ORT 直读外部数据，没有上转这一步。
+           ///< 精度是否无损由精度门控裁决（tools/gate/）。
+};
+
 /// 一个模型文件的描述。
 struct ModelEntry {
     ModelRole role = ModelRole::T2sEncoder;
@@ -70,16 +83,14 @@ struct ModelEntry {
     /// 小写十六进制 SHA-256。空表示不校验（不推荐）。
     std::string sha256;
 
+    /// 逐模型精度覆盖（manifest 模型条目的 "weight_format"，缺省跟包级）。
+    ///
+    /// 混合精度包的核心：量化门控没过的模型保持 fp32，过了的写 int8 ——
+    /// 包级 weight_format 只描述默认值，真正的加载行为按逐模型裁决。
+    std::optional<WeightFormat> weight_format;
+
     /// 解析后的绝对路径（由 VoicePackage 填充）。
     std::string absolute_path;
-};
-
-/// 外部权重文件的存储精度。
-enum class WeightFormat {
-    Fp32,  ///< fp32 权重（.onnx 图直接引用，运行时原样加载）
-    Fp16,  ///< fp16 权重（HF 上游的 `*_fp16.bin`）—— 加载期在内存里
-           ///< 上转为 FP32 再建会话，包体积减半、运行时仍是 FP32。
-           ///< 借鉴上游 Genie-TTS 的分发格式（docs/architecture.md）。
 };
 
 /// 音色包清单。
