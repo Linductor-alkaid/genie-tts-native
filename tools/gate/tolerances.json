@@ -1,0 +1,29 @@
+{
+  "_comment": "精度门控默认容差（AGENTS.md §5.3 分级容差的量化档）。float：相对 L2 + 余弦双门槛；int64/bool：逐位一致。roles 里的条目按角色覆盖全局值。默认值是动态 INT8 全扫实验的起点，实验结论会回写 performance.md 并视结果收紧。",
+  "float": {
+    "max_rel_l2": 0.05,
+    "min_cosine": 0.99
+  },
+  "int64": {
+    "min_exact": 1.0
+  },
+  "bool": {
+    "min_exact": 1.0
+  },
+  "roles": {
+    "roberta": {
+      "max_rel_l2": 0.02,
+      "min_cosine": 0.995,
+      "_comment": "BERT 特征直接条件化 t2s 与 vits，收紧一档"
+    },
+    "speaker_verification": {
+      "max_rel_l2": 0.01,
+      "min_cosine": 0.998,
+      "_comment": "sv_emb 决定音色，宁可不过量也不换音色"
+    },
+    "t2s_stage_decoder": {
+      "min_exact": 1.0,
+      "_comment": "y 是采样 token：量化翻 token 等于语义分岔，无容忍"
+    }
+  }
+}

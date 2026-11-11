@@ -43,6 +43,7 @@ add_executable(genie_unit_tests
     unit/test_hubert.cpp
     unit/test_t2s.cpp
     unit/test_timing.cpp
+    unit/test_gate_capture.cpp
     unit/test_engine.cpp
     unit/test_reference.cpp
     unit/test_normalizer.cpp
@@ -56,6 +57,8 @@ add_executable(genie_unit_tests
     unit/test_scheduler_lifetime.cpp
 )
 target_link_libraries(genie_unit_tests PRIVATE genie_test_support)
+# 精度门控捕获基础设施（tools/gate/capture.hpp）的 单测要 include 工具头。
+target_include_directories(genie_unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
 # 黄金语料目录（由 tools/verify_normalizer.py 用上游 Python 生成）
 target_compile_definitions(genie_unit_tests PRIVATE
     GENIE_NORMALIZER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden")
