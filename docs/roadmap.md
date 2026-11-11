@@ -186,7 +186,8 @@
   genie-gate 捕获（`--static --calibration-dir`）。裁决 —— **激活 int8 量化
   全面退档**（解码器 KV rel 0.33 / roberta rel 0.378 / hubert rel 0.736，
   均远超包络，`docs/performance.md` §静态 INT8）；Conv 静态化唯一幸存者
-  **vits**（-47 MB 常驻，冷加载 +0.9 s，e2e token 一致率 1.0，听测终审）；
+  **vits** 听测通过入包（-47 MB 常驻，冷加载 +0.9 s，e2e token 一致率 1.0，
+  2026-11-11 定版：aggressive + vits 静态 + bin 去重 ≈ 1.34 GB 包）；
   量化 bin 自动去重（t2s 双解码器共享权重，包体再 -288 MB，常驻不变）；
   ⏳ roberta 层内混合精度、ORT Format 离线转换（顺带摊薄 QDQ 冷加载）；
   ⛔ speaker_verification 禁量化（cos 0.264，音色崩坏，实测记录在案）

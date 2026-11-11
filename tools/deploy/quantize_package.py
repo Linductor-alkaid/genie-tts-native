@@ -334,19 +334,21 @@ def main():
             results[role] = (ok, info)
             print(f"  quantize {role:24s} {'OK' if ok else 'FAIL  ' + info}")
 
-    # 3) 重写 manifest：包级标 int8（描述"这是一个量化包"），每个量化成功
-    #    的角色显式写 weight_format=int8，没量化的角色写 fp32 —— 逐模型
-    #    覆盖才是真正的裁决字段（src/runtime/voice_package.cpp）。静态 /
-    #    动态在引擎侧是同一个标签：loader 只用它跳过 fp16 上转扫描。
+    # 3) 重写 manifest：包级标 int8（描述"这是一个量化包"），本次量化成功
+    #    的角色显式写 weight_format=int8 —— 逐模型覆盖才是真正的裁决字段
+    #    （src/runtime/voice_package.cpp）。静态 / 动态在引擎侧是同一个标签：
+    #    loader 只用它跳过 fp16 上转扫描。
+    #    没动过（或量化失败，镜像里就是源文件本身）的角色**保留源标签**：
+    #    链式量化（在已量化包上再叠一层，如动态包 + vits 静态）时，源角色
+    #    的 int8 权重是真的 int8，不能因为"这次没碰"改判 fp32 —— 引擎行为
+    #    不受标签影响，但 manifest 是部署契约，不能撒谎。源包无标签时落
+    #    fp32（老包 / 纯 fp32 源的原语义）。
     for entry in manifest["models"]:
         role = entry["role"]
-        if role in results:
-            if not results[role][0]:
-                entry["weight_format"] = "fp32"  # 量化失败的角色保持 fp32
-            else:
-                entry["weight_format"] = "int8"
+        if role in results and results[role][0]:
+            entry["weight_format"] = "int8"
         else:
-            entry["weight_format"] = "fp32"
+            entry.setdefault("weight_format", "fp32")
     manifest["weight_format"] = "int8"
 
     # 3.5) 内容相同的量化 bin 去重（t2s 双解码器共享权重，见函数注释）。

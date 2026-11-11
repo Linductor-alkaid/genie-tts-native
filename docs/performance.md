@@ -335,7 +335,7 @@ QuantizeLinear/DequantizeLinear）让 **Conv 参与量化**，激活 scale 来�
 | roberta | 367 MB（=动态，无常量 Conv） | ❌ | rel 0.378 / cos 0.933 | rel 0.138 / cos 0.991 | **退档**，超听测校准包络（0.20/0.985）近一倍 |
 | chinese_hubert | 95 MB（动态 122，Conv 前端再省 27） | ❌ | **rel 0.736 / cos 0.749** | rel 0.162 / cos 0.988 | **退档**，Conv 前端量化毁掉 ssl 特征 |
 | t2s_encoder | 7.9 MB（-31%，Conv 静态化生效） | ❌ | **prompts exact 0.748，fp32 地板 = 1.0** | 全零差（动态没动它） | **退档**：encoder 的 prompts 选择是确定性的（地板 1.0，不同于解码器的 0.9914），25% 初始 prompt 改写是系统性漂移；收益仅 3.6 MB |
-| vits | 200 MB（-19%；ConvTranspose 无 int8 内核保持 fp32） | ✅ advisory | 音频 rel 0.86–1.02 == fp32 重放地板量级 | advisory | **唯一幸存者**，听测终审 |
+| vits | 200 MB（-19%；ConvTranspose 无 int8 内核保持 fp32） | ✅ advisory | 音频 rel 0.86–1.02 == fp32 重放地板量级 | advisory | **唯一幸存者**，听测通过 |
 
 **结论：激活 int8 量化全面被质量门槛拒绝** —— 动态档的"只量化权重"
 恰好避开了激活误差；静态档为 Conv 付出的激活代价对这三个特征/解码
@@ -372,9 +372,11 @@ aggressive 策略包 —— t2s 双解码器的逐字节相同 int8 bin 自动�
 两解码器不同（激活 scale 内联位置不同），bin 不再逐字节相同，属机会性
 特性，不误伤。
 
-**听测裁决**：待定 —— A/B 听测通过则 vits 静态入包（-47 MB 常驻换
-+0.9 s 冷加载的取舍随听测定版）；不过则 vits 保持 fp32，静态档整体
-记 ⛔（工具与门控机制保留，数据已留档）。
+**听测裁决（2026-11-11，已定版）**：A/B 听测（aggressive × static-vits，
+4 文本）**通过** —— vits 静态入包，定版形态 = aggressive 策略 + vits 静态
++ bin 去重（`pkg-final`，1384 MB 基础上再 -47 MB ≈ **1.34 GB 包**）。
+-47 MB 常驻换 +0.9 s 冷加载的交换获用户认可；vocoder 渲染层的
+静态量化伪影在听阈之下（与 e2e token 一致率 1.0 的隔离结论互证）。
 
 原始记录 `benchmarks/2026-11-11-quant/`（gate-static / gate-static-vits /
 gate-aggressive-control / floor-s8-1,2 / bench-static-* / staticvits.json）。
