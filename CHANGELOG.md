@@ -7,6 +7,21 @@
 
 ### Added
 
+- **音色包预设 `--preset {full,min-zh,min-zh-roberta}`（端侧最小包）**
+  （2026-11-12）：`make_voice_package.py` 把"选哪些角色"固化成预设 ——
+  min-zh（核心 4 角色 + 自动带仓库 g2pm/jieba，默认 fp16，磁盘 ~270/~450 MB）
+  与 min-zh-roberta（加 RoBERTa，韵律不再全零降级）；manifest schema 与
+  引擎零改动。预设只裁角色：min 包拒绝可选特征 flag，缺降级路径与上游
+  同款（`docs/deployment.md` §4.1「端侧最小部署」，含与上游 README
+  "~230MB" 口径的对照）。同 PR 两处健壮性修复：(1) 包变体（V2 /
+  V2ProPlus）改由 `tts_models` 目录内容判定 —— ProPlus 目录缺
+  `--speaker-encoder` 会产出 `model_version=v2` 却装着 ProPlus vits
+  的坏包（推理期才炸），现在打包期拦截；V2 目录给 speaker-encoder
+  同样拒绝。(2) fp16 组包对 `t2s_encoder`（HF 上只有 fp32 权重）自动
+  保留 fp32 源 —— 引擎按"图声明区间 vs 文件大小"逐模型判定加载格式
+  （audit §22），混精度包合法；此前 fp16 模式对真实 HF 下载目录必然
+  报缺 `t2s_encoder_fp16.bin`。
+
 - **Linux ARM64 交叉编译（M4 跨平台收口）**（2026-11-12）：新增
   `cmake/toolchains/aarch64-linux-gnu.cmake` 与 `arm64-release` preset，CI 新增
   `arm64` job —— 交叉工具链编译全部源码（含测试与 OpenJTalk），链接 aarch64 版

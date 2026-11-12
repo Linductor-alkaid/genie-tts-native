@@ -33,6 +33,14 @@ convert_fp16_weights.py 转好 fp32）的目录；脚本负责改名、算 SHA-2
         --reference <voice>/prompt_wav/xxx.wav \
         --reference-text ref.txt \
         --output ~/voice-packages/feibi
+
+端侧最小包用 --preset（详见 docs/deployment.md「端侧最小部署」）：
+
+    python3 tools/deploy/make_voice_package.py --preset min-zh \
+        --name feibi --tts-models <dl>/tts_models \
+        --speaker-encoder <dl>/speaker_encoder.onnx \
+        --reference <voice>/prompt_wav/xxx.wav \
+        --output ~/voice-packages/feibi-min
 """
 
 from __future__ import annotations
@@ -44,13 +52,17 @@ import pathlib
 import shutil
 
 # 角色 → (源文件相对 tts-models/hubert/roberta 目录的名字, 是否必需)
+# 核心四角色：V2 与 V2ProPlus 音色目录都有。
 TTS_ROLES: list[tuple[str, str]] = [
     ("t2s_encoder", "t2s_encoder_fp32.onnx"),
     ("t2s_first_stage_decoder", "t2s_first_stage_decoder_fp32.onnx"),
     ("t2s_stage_decoder", "t2s_stage_decoder_fp32.onnx"),
     ("vits", "vits_fp32.onnx"),
-    ("prompt_encoder", "prompt_encoder_fp32.onnx"),
 ]
+# 只有 V2ProPlus 的目录才有这张图 ✓（V2 目录没有 ✓）。
+# 目录里有没有它决定包的 model_version —— ProPlus 的 vits 图吃
+# ge / ge_advanced（不吃 ref_audio），两条路不可互换（audit §12）。
+PROPLUS_GRAPH = ("prompt_encoder", "prompt_encoder_fp32.onnx")
 # fp16 需转换的权重：角色 → 转换后的 .bin 名（与 .onnx 同目录）。
 #
 # **t2s_shared_fp32.bin 是两张解码器图共用的那份** ✓ ——
@@ -69,6 +81,21 @@ V2PROPLUS_WEIGHTS: list[tuple[str, str]] = [
     ("prompt_encoder", "prompt_encoder_fp32.bin"),
 ]
 
+# min 预设自动带的仓库自带前端数据（缺省路径，可被显式 flag 覆盖）。
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+DEFAULT_G2PM = REPO_ROOT / "third_party" / "g2pm" / "g2pm.bin"
+DEFAULT_JIEBA = REPO_ROOT / "third_party" / "jieba" / "jieba.bin"
+
+# min 预设排除的角色 flag 名 → 用途说明（冲突时报错用）。
+MIN_EXCLUDED_FLAGS: dict[str, str] = {
+    "hubert": "HuBERT 内容特征（缺了 ssl_content 走全零降级）",
+    "english_cmu_dict": "英文 G2P（缺了英文文本报错，不合成英文）",
+    "english_pos_tagger": "英文词性标注",
+    "english_g2p_model": "英文 GRU 兜底",
+    "english_word_segment": "英文 ngram 分词词典",
+    "japanese_dictionary": "OpenJTalk 词典（缺了日文文本报错）",
+}
+
 
 def sha256_of(path: pathlib.Path) -> str:
     digest = hashlib.sha256()
@@ -84,6 +111,13 @@ def main() -> None:
     parser.add_argument("--name", required=True, help="音色名（写进 manifest.name）")
     parser.add_argument("--tts-models", required=True, type=pathlib.Path,
                         help="<voice>/tts_models 目录（已含 fp32 图与 fp32 权重）")
+    parser.add_argument("--preset", choices=("full", "min-zh", "min-zh-roberta"),
+                        help="角色集合预设（默认不设 = 逐 flag 自由组合，等价 full）。"
+                             "min-zh：核心 4 角色 + 自动带 g2pm/jieba，排除可选特征与"
+                             "英日资源（RoBERTa/HuBERT 缺失走上游同款全零降级）；"
+                             "默认 --weights fp16（磁盘最小）。min-zh-roberta："
+                             "min-zh + --roberta 必须提供。包变体（V2/V2ProPlus）"
+                             "由 tts_models 目录内容决定，不由 preset 决定")
     parser.add_argument("--hubert", type=pathlib.Path, help="chinese-hubert-base 目录（可选）")
     parser.add_argument("--speaker-encoder", type=pathlib.Path,
                         help="speaker_encoder.onnx 路径（可选；hubert 同给时启用 V2ProPlus）")
@@ -114,13 +148,72 @@ def main() -> None:
     parser.add_argument("--reference-text", type=pathlib.Path,
                         help="参考文本（可选；给了才有 ref_seq）")
     parser.add_argument("--language", default="chinese", help="manifest.language（默认 chinese）")
-    parser.add_argument("--weights", choices=("fp32", "fp16"), default="fp32",
-                        help="外部权重精度（默认 fp32）。fp16 = 保留 HF 上游的 "
-                             "*_fp16.bin（包体积减半），引擎加载期在内存里上转 FP32 "
-                             "（manifest 会写 weight_format: fp16）；自包含模型"
-                             "（RoBERTa 等）不受影响")
+    parser.add_argument("--weights", choices=("fp32", "fp16"), default=None,
+                        help="外部权重精度（默认 fp32；min 预设默认 fp16）。fp16 = "
+                             "保留 HF 上游的 *_fp16.bin（包体积减半），引擎加载期在"
+                             "内存里上转 FP32（manifest 会写 weight_format: fp16）；"
+                             "自包含模型（RoBERTa 等）不受影响")
     parser.add_argument("--output", required=True, type=pathlib.Path, help="音色包输出目录")
     args = parser.parse_args()
+
+    # ---- preset 解析：只做角色集合的裁剪与校验，manifest schema 不变 ----
+    min_preset = args.preset in ("min-zh", "min-zh-roberta")
+    # 包变体由 tts_models 目录内容决定：有没有 prompt_encoder 图。
+    # 这要在任何校验之前确定 —— 后面所有分支都依赖它。
+    proplus_dir = (args.tts_models / PROPLUS_GRAPH[1]).exists()
+
+    # min 预设默认 fp16（磁盘最小是端侧的首要目标；引擎加载期上转只多 ~0.7s，
+    # 实测见 docs/performance.md）。显式传了 --weights 就尊重用户。
+    args.weights = args.weights or ("fp16" if min_preset else "fp32")
+
+    if min_preset:
+        # min 包的取舍写明：排除可选特征与英日资源。给了就报冲突，
+        # 而不是悄悄打一个"想要 min 却混进了 599 MB RoBERTa"的包。
+        excluded = dict(MIN_EXCLUDED_FLAGS)
+        if args.preset == "min-zh":
+            excluded["roberta"] = "RoBERTa 中文韵律（缺了 text_bert 走全零降级；" \
+                                  "要韵律请用 --preset min-zh-roberta）"
+        provided = [f"--{k.replace('_', '-')}" for k in excluded
+                    if getattr(args, k) is not None]
+        if provided:
+            raise SystemExit(
+                f"--preset {args.preset} 不接受 {', '.join(provided)}："
+                f"min 包裁掉这些角色换体积（缺失降级路径见 deployment.md"
+                f"「端侧最小部署」）。要全量包请用 --preset full 或去掉 --preset。")
+        if args.preset == "min-zh-roberta" and args.roberta is None:
+            raise SystemExit("--preset min-zh-roberta 需要 --roberta <RoBERTa 目录>。")
+        # 仓库自带的 g2pm / jieba 是 min 包的一部分（多音字与变调边界，
+        # 合计 ~11 MB，中文读音质量的核心）；显式 flag 可覆盖路径。
+        if args.g2pm is None:
+            args.g2pm = DEFAULT_G2PM
+        if args.jieba is None:
+            args.jieba = DEFAULT_JIEBA
+        for flag, path in (("g2pm", args.g2pm), ("jieba", args.jieba)):
+            if not path.exists():
+                raise SystemExit(
+                    f"--preset {args.preset} 需要的 {path} 不存在"
+                    f"（仓库自带数据）；用 --{flag} 显式指定路径。")
+
+    if args.preset:
+        print(f"preset: {args.preset}  weights={args.weights}  "
+              f"变体={'V2ProPlus' if proplus_dir else 'V2'}")
+
+    # 变体一致性：ProPlus 目录必须有 speaker_encoder（引擎硬依赖，缺失时
+    # V2ProPlus 分支不可用，audit §12）；V2 目录不能给 speaker_encoder
+    # （vits 图吃 ref_audio，manifest 标成 v2ProPlus 只会在加载期报缺
+    # prompt_encoder）。此前脚本只看 speaker_encoder 有没有给，
+    # ProPlus 目录不传 SV 会产出 model_version=v2 但装着 ProPlus vits
+    # 的包 —— 推理期才炸，这里在打包期就拦住。
+    if proplus_dir != (args.speaker_encoder is not None):
+        if proplus_dir:
+            raise SystemExit(
+                "tts_models 目录含 prompt_encoder（V2ProPlus 音色），必须提供 "
+                "--speaker-encoder（引擎硬依赖）。只要 V2 包请改用 V2 音色的 "
+                "tts_models 目录（不含 prompt_encoder_fp32.onnx）。")
+        raise SystemExit(
+            "tts_models 目录不含 prompt_encoder（V2 音色），不能提供 "
+            "--speaker-encoder —— V2 的 vits 图吃 ref_audio，V2ProPlus 的"
+            "说话人链路对它是死重且会在加载期报缺 prompt_encoder。")
 
     models_dir = args.output / "models"
     ref_dir = args.output / "reference"
@@ -152,6 +245,23 @@ def main() -> None:
         shutil.copyfile(src, dest)
         print(f"  {'(外部权重)':<22} <- {src.name}")
 
+    def resolve_weight_source(dest_name: str) -> pathlib.Path:
+        """fp16 模式下，某个权重没有 fp16 版就退回 fp32 源文件。
+
+        HF 上 t2s_encoder 只有 fp32（audit §2.1：encoder 权重本来就是
+        fp32 发布）。引擎按"图声明区间 vs 文件大小"**逐模型**判定加载
+        格式（audit §22），混精度包是合法形态：fp32 bin 在 fp16 包里
+        会被按 fp32 直接读，不需要任何转换。"""
+        src16 = args.tts_models / weight_source_name(dest_name)
+        if args.weights == "fp32" or src16.exists():
+            return src16
+        src32 = args.tts_models / dest_name
+        if src32.exists():
+            print(f"  {'(fp32 保留)':<22} <- {src32.name}（无 fp16 版，"
+                  f"引擎按文件大小逐模型判定）")
+            return src32
+        return src16  # 两个都不在 —— 调用方报错，错误信息保留 fp16 提示
+
     # 核心 TTS 图（tts_models 目录内平铺）。
     for role, filename in TTS_ROLES:
         src = args.tts_models / filename
@@ -162,17 +272,18 @@ def main() -> None:
     # 才报 "no such file: xxx.bin" ✓（external data 的 location 写死在图里 ✓），
     # 那个报错离"打包时少拷了一个文件"太远了 ✓。
     for role, filename in TTS_WEIGHTS:
-        src = args.tts_models / weight_source_name(filename)
+        src = resolve_weight_source(filename)
         if not src.exists():
             hint = "" if args.weights == "fp32" else \
                 f"（fp16 模式需要 HF 的 {weight_source_name(filename)}；不存在就用 --weights fp32）"
             raise SystemExit(f"缺少 {src}（{role} 的 external data 权重，"
                              f"文件名不能改、必须与 onnx 同目录）{hint}")
         place_weights(src, filename)
-    # V2ProPlus 的 prompt_encoder 权重：跟着 prompt_encoder 图走 ✓。
-    if (args.tts_models / "prompt_encoder_fp32.onnx").exists():
+    # V2ProPlus 的 prompt_encoder 图与权重：跟着目录内容走 ✓（V2 目录没有 ✓）。
+    if proplus_dir:
+        place(PROPLUS_GRAPH[0], args.tts_models / PROPLUS_GRAPH[1], PROPLUS_GRAPH[1])
         for role, filename in V2PROPLUS_WEIGHTS:
-            src = args.tts_models / weight_source_name(filename)
+            src = resolve_weight_source(filename)
             if not src.exists():
                 hint = "" if args.weights == "fp32" else \
                     "（fp16 模式需要 HF 的 fp16 版本；不存在就用 --weights fp32）"
@@ -187,7 +298,10 @@ def main() -> None:
     if args.hubert:
         place("chinese_hubert", args.hubert / "chinese-hubert-base.onnx",
               "chinese-hubert-base.onnx")
+        # 与 resolve_weight_source 同一语义：优先 fp16 源，缺了退 fp32。
         weights = args.hubert / weight_source_name("chinese-hubert-base_weights.bin")
+        if not weights.exists():
+            weights = args.hubert / "chinese-hubert-base_weights.bin"
         if weights.exists():
             place_weights(weights, "chinese-hubert-base_weights.bin")
 
