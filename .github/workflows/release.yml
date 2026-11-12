@@ -303,8 +303,10 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME#v}"
-          # 取 CHANGELOG 里 "## [<tag>]" 到下一个 "## [" 之间的内容
-          python3 - "${TAG}" <<'PYEOF'
+          # 取 CHANGELOG 里 "## [v<tag>]" 到下一个 "## [" 之间的内容。
+          # 本仓库 CHANGELOG 的版本标题带 v 前缀（## [v0.5.0]），而
+          # GITHUB_REF_NAME 也带 v —— 直接用 GITHUB_REF_NAME 拼 marker。
+          python3 - "${GITHUB_REF_NAME}" <<'PYEOF'
           import sys, pathlib
           tag = sys.argv[1]
           text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
