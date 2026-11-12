@@ -27,6 +27,12 @@ set(CMAKE_FIND_ROOT_PATH /usr/aarch64-linux-gnu)
 
 # 程序（ninja、git、python3 —— FetchContent 需要）一律用宿主机的。
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+# LIBRARY / INCLUDE 用 NEVER：**绝对路径 HINTS 在 ONLY 模式下也会被
+# re-root**（实测：ONLY 时 find_path(HINTS /abs/include) 变成
+# /usr/aarch64-linux-gnu/abs/include → 找不到，GENIE_ENABLE_ORT 被强制
+# OFF，产物缺 ORT；NEVER 时按原路径找到）。编译期头文件与库的实际解析
+# 由交叉 gcc 自己的 sysroot 负责，root 重映射对它没有意义；
+# host 上装了 x86 config 包的情形由上面的 MODE_PACKAGE ONLY 拦住。
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE NEVER)
