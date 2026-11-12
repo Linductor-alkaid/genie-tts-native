@@ -20,15 +20,17 @@ std::vector<std::string> split(std::string_view text, std::size_t max_chars = 10
 
 TEST(SegmenterTest, EmptyTextProducesNoSegments) {
     EXPECT_TRUE(split("").empty());
-    EXPECT_TRUE(split("   ").empty());          // 纯空白
-    EXPECT_TRUE(split("\xE3\x80\x80").empty()); // 全角空格
+    EXPECT_TRUE(split("   ").empty());           // 纯空白
+    EXPECT_TRUE(split("\xE3\x80\x80").empty());  // 全角空格
 }
 
 TEST(SegmenterTest, SingleSentenceStaysWhole) {
     // 没有终止符、没超长 → 整段一段（整段合成路径的 parity 基础）。
-    const auto segments = split("\xE4\xBB\x8A\xE5\xA4\xA9\xE5\xA4\xA9\xE6\xB0\x94\xE4\xB8\x8D\xE9\x94\x99");
+    const auto segments =
+        split("\xE4\xBB\x8A\xE5\xA4\xA9\xE5\xA4\xA9\xE6\xB0\x94\xE4\xB8\x8D\xE9\x94\x99");
     ASSERT_EQ(segments.size(), 1U);
-    EXPECT_EQ(segments[0], "\xE4\xBB\x8A\xE5\xA4\xA9\xE5\xA4\xA9\xE6\xB0\x94\xE4\xB8\x8D\xE9\x94\x99");
+    EXPECT_EQ(segments[0],
+              "\xE4\xBB\x8A\xE5\xA4\xA9\xE5\xA4\xA9\xE6\xB0\x94\xE4\xB8\x8D\xE9\x94\x99");
 }
 
 TEST(SegmenterTest, SplitsOnHardTerminators) {
