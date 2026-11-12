@@ -34,7 +34,11 @@
 （tag 推送触发；三平台 bundle：linux-x64 / linux-aarch64 / windows-x64，
 捆绑的 ONNX Runtime 版本写在 workflow 的
 `ONNXRUNTIME_RELEASE_VERSION`，当前 1.31.0 —— 与 `docs/performance.md`
-的实测口径一致；ci.yml 的 1.22.0 是编译验证口径，两者刻意不同）：
+的实测口径一致；ci.yml 的 1.22.0 是编译验证口径，两者刻意不同）。
+**Linux 产物基线 = ubuntu:22.04 容器（glibc 2.35）**：两个 Linux 构建job
+都在容器里编，产物兼容 Ubuntu 22.04+ / Debian 12+；不要把构建迁回
+ubuntu-latest —— 最新发行版栈（glibc 2.42）编出的产物在旧 glibc 机器上
+直接拒载（v0.5.0 首轮正式 run 实测）：
 
 - [ ] 首次或改动后先 **dry run**：master 上手动触发
       `Release` workflow（`workflow_dispatch`，勾选 dry_run）——
