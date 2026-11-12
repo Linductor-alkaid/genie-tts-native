@@ -521,7 +521,8 @@ ORT 1.31、threads=8 自旋关、`--no-verify`、5 runs mean（warmup 1）。文
 
 听测样例：`genie-bench --stream --save <file.wav>` 本地生成（首轮实测波形，
 段间 150 ms 静音，供人工确认分块拼接边界无声学瑕疵；WAV 与 --profile 的
-trace 体量大，均不入库）。
+trace 体量大，均不入库）。**人工听测通过（2026-11-12）**：分块拼接边界、
+句间静音与整体自然度无瑕疵。
 
 ### t2s 图内 KV concat/Transpose 重导出评估（M5 挂账，M6 结案）
 

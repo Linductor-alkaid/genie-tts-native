@@ -227,8 +227,9 @@
 > **收官注（2026-11-12）**：四项全部落地。流式性能的 CI 可测项
 > （取消响应上界、并发冒烟）进了 unit；TTFA / 块间隔 / RTF 实测
 > 进 performance.md M6 节（pkg-final 本机实测，TTFA 最低 2.26 s =
-> 端到端的 15%）；欠载与爆音属可听指标，样例 WAV 本地生成留人工
-> 听测。KV 重导出挂账结案 ⛔（performance.md 有裁决与数据）。
+> 端到端的 15%）；欠载与爆音属可听指标，样例 WAV 人工听测**通过**
+> （2026-11-12，performance.md M6 节留档）。KV 重导出挂账结案 ⛔
+> （performance.md 有裁决与数据）。
 
 - ✅ 异步合成流水线（`Engine::synthesize_streaming()`：任务跑在 kairo
   调度器上，调用线程只消费音频通道）
