@@ -143,8 +143,10 @@
   - 立刻抓出了 `text_seq` / `ref_bert` / `text_bert` 三处**秩错**
 - ✅ ASan / UBSan / TSan 常态化（CI 两个 job：`asan + ubsan` 与 `tsan`；
   TSan 只在 CI 跑 —— 本地同时开 asan + tsan 会把 3 GB 的沙箱 OOM 掉）
-- ✅ 跨平台构建：Linux x86-64 ✅ / Windows x86-64 ✅（MSVC 默认不编 OpenJTalk）
-- ⏳ 跨平台构建：Linux ARM64（交叉编译 CI）
+- ✅ 跨平台构建：Linux x86-64 ✅ / Windows x86-64 ✅（MSVC 默认不编 OpenJTalk）/
+  Linux ARM64 ✅（2026-11-12 交叉编译 CI —— 托管 runner 是 x86，只编译验证
+  不跑测试；`cmake/toolchains/aarch64-linux-gnu.cmake` + `arm64-release` preset）
+- ⏳ 内存泄漏、模型重复加载、异常恢复、长文本稳定性、连续推理检查
 - ⏳ 内存泄漏、模型重复加载、异常恢复、长文本稳定性、连续推理检查
 - ✅ **v0.1.0 / v0.2.0 / v0.3.0 / v0.3.1 发布**
 

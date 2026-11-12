@@ -69,6 +69,15 @@
         "CMAKE_BUILD_TYPE": "Release",
         "GENIE_WARNINGS_AS_ERRORS": "ON"
       }
+    },
+    {
+      "name": "arm64-release",
+      "displayName": "Release (Linux ARM64 cross-compile)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      },
+      "toolchainFile": "${sourceDir}/cmake/toolchains/aarch64-linux-gnu.cmake"
     }
   ],
   "buildPresets": [
@@ -77,7 +86,8 @@
     { "name": "asan",    "configurePreset": "asan" },
     { "name": "ubsan",   "configurePreset": "ubsan" },
     { "name": "tsan",    "configurePreset": "tsan" },
-    { "name": "warnings","configurePreset": "warnings" }
+    { "name": "warnings","configurePreset": "warnings" },
+    { "name": "arm64-release", "configurePreset": "arm64-release" }
   ],
   "testPresets": [
     { "name": "debug",   "configurePreset": "debug",   "output": { "outputOnFailure": true } },
