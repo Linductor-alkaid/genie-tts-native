@@ -149,6 +149,10 @@ def build_external_fp16(out_dir: pathlib.Path) -> None:
 
 
 def main() -> int:
+    # 进度输出带中文；Windows 控制台默认 cp1252，print 直接 UnicodeEncodeError
+    # （首个 Windows 发布构建实测 —— 模型已写完，只在最后的 print 上炸）。
+    if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("out_path", nargs="?", help="自包含模型的输出路径")

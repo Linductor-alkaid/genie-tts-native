@@ -96,6 +96,10 @@ def version_from_install_tree(stage: pathlib.Path) -> str:
 
 
 def main() -> None:
+    # 进度输出带中文；Windows 控制台默认 cp1252，print 直接 UnicodeEncodeError
+    # （与 make_synthetic_model.py 同款问题 —— 本脚本要在 Windows runner 上跑）。
+    if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--build-dir", required=True, type=pathlib.Path,
@@ -124,7 +128,15 @@ def main() -> None:
 
     ort_root = args.ort_root.resolve()
     is_windows = args.tag.startswith("windows")
-    ort_libdir = ort_root / "bin" if is_windows else ort_root / "lib"
+    if is_windows:
+        # win-x64 预编译包把 DLL 与 .lib 一起放在 lib\（没有 bin\）；老布局
+        # 可能拆在 bin\ —— 两处都找，取真有 DLL 的那份。
+        candidates = [ort_root / "lib", ort_root / "bin"]
+        ort_libdir = next((d for d in candidates
+                           if d.is_dir() and any(d.glob("onnxruntime*.dll"))),
+                          ort_root / "lib")
+    else:
+        ort_libdir = ort_root / "lib"
 
     stage = args.output_dir.resolve() / "stage"
     if stage.exists():
@@ -165,12 +177,19 @@ def main() -> None:
         print("[3/5] Windows 产物不 strip（MSVC 无 strip；PDB 不在产物内）")
     else:
         print("[3/5] strip 自有 ELF")
+        # 交叉产物：宿主 binutils 的 strip 不识别其他架构的 ELF
+        # （"Unable to recognise the architecture"），有对应交叉 strip 就用它。
+        arch = elf_arch(stage / "bin" / bin_name)
+        strip_tool = "strip"
+        if arch == "ARM aarch64" and shutil.which("aarch64-linux-gnu-strip"):
+            strip_tool = "aarch64-linux-gnu-strip"
+            print(f"    （aarch64 产物 → {strip_tool}）")
         targets = sorted((stage / "bin").glob("*")) + \
             sorted(p for p in (stage / "lib").glob("libgenie*")
                    if p.is_file() and not p.name.endswith(".a"))
         for t in targets:
             if t.is_file() and not t.is_symlink():
-                run(["strip", "--strip-unneeded", str(t)])
+                run([strip_tool, "--strip-unneeded", str(t)])
 
     # ---- 4) 版本 + 可运行性冒烟 ----
     version = version_from_install_tree(stage)
