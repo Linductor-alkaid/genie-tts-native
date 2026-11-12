@@ -27,6 +27,9 @@ enum class ErrorCode : int {
     Timeout = 8,
     BackendUnavailable = 9,
     Internal = 10,
+    /// 资源忙（M6 增量流式：引擎已有一个活跃的流式会话 ——
+    /// 模型会话不是线程安全的，同一个 Engine 同时只允许一条流）。
+    Busy = 11,
 };
 
 /// 稳定的错误码文本，用于日志与 C ABI。

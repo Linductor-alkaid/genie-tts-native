@@ -192,4 +192,74 @@ std::vector<std::string> split_for_synthesis(std::string_view text, std::size_t 
     return segments;
 }
 
+SegmentPrefix complete_prefix(std::string_view text, std::size_t max_chars) {
+    SegmentPrefix none;
+    if (text.empty()) {
+        return none;
+    }
+
+    // 与 split_for_synthesis 同一套状态机 —— 但只走到**第一刀**就返回。
+    // max_chars == 0 = 不限长：只有硬终止符成段（与 split 一致）；
+    // 引擎侧"不分句"（整段一块）由调用方直接不调本函数实现。
+    std::size_t seg_start = 0;  // 内容起点（跳过纯终止符前缀之后）
+    std::size_t pos = 0;
+    std::size_t char_count = 0;
+    std::size_t last_soft_end = 0;
+    bool has_content = false;
+
+    utf8::Char ch;
+    while (utf8::decode_next(text, pos, ch)) {
+        const std::uint32_t cp = ch.codepoint;
+        if (is_hard_terminator(cp)) {
+            // 连续终止符 + 收尾引号并入同一次落刀（peek，不白吃首字符）。
+            for (;;) {
+                std::size_t peek = pos;
+                if (!utf8::decode_next(text, peek, ch)) {
+                    pos = peek;
+                    break;
+                }
+                if (!is_hard_terminator(ch.codepoint) && !is_closer(ch.codepoint)) {
+                    break;
+                }
+                pos = peek;
+            }
+            if (has_content) {
+                return SegmentPrefix{seg_start, pos};
+            }
+            // 纯终止符前缀：丢弃（split 的 has_content 规则），继续攒。
+            seg_start = pos;
+            char_count = 0;
+            last_soft_end = 0;
+            has_content = false;
+            continue;
+        }
+        if (!is_soft_terminator(cp) && !is_closer(cp) && !is_ignorable_space(cp)) {
+            has_content = true;
+        }
+        if (is_soft_terminator(cp)) {
+            last_soft_end = pos;
+        }
+        ++char_count;
+        if (max_chars != 0 && char_count >= max_chars) {
+            if (last_soft_end > seg_start) {
+                // 回退到最近的软终止符落刀。
+                return SegmentPrefix{seg_start, last_soft_end};
+            }
+            // 超限但下一个字符是天然边界（或文本暂尽）→ 这一刀让给它 /
+            // 继续攒：**不能**重置计数 —— 当前字符仍属于未落刀的段，
+            // 边界字符的下一次迭代要靠 cc >= max 与 has_content 把整段
+            // （含句尾标点）收走，否则段会被当"纯标点前缀"丢掉。
+            std::size_t peek = pos;
+            utf8::Char next;
+            if (!utf8::decode_next(text, peek, next) || is_hard_terminator(next.codepoint) ||
+                is_soft_terminator(next.codepoint)) {
+                continue;
+            }
+            // 没有软点、下一个字符也不是边界 → 硬切。
+            return SegmentPrefix{seg_start, pos};
+        }
+    }
+    return none;
+}
+
 }  // namespace genie::text

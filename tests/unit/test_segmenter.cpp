@@ -130,5 +130,80 @@ TEST(SegmenterTest, PurePunctuationTextProducesNoSegments) {
     EXPECT_TRUE(split("。。。 ！？ \n").empty());
 }
 
+// ------------------------------------------------------------------------------------------
+// complete_prefix —— 增量喂入的"可成段前缀"。规则与 split_for_synthesis 同源，
+// 喂入侧反复调用它必须产出与整段 split 相同的段序列。
+// ------------------------------------------------------------------------------------------
+
+TEST(SegmenterTest, CompletePrefixNoTerminatorMeansNothingYet) {
+    const auto cut = text::complete_prefix("今天天气真好", 100);
+    EXPECT_EQ(cut.end, 0U);
+    EXPECT_EQ(cut.skip, 0U);
+}
+
+TEST(SegmenterTest, CompletePrefixCutsAtTerminator) {
+    const auto cut = text::complete_prefix("你好。世界", 100);
+    EXPECT_EQ(cut.skip, 0U);
+    EXPECT_EQ(cut.end, 9U);  // "你好。"
+}
+
+TEST(SegmenterTest, CompletePrefixDiscardsPurePunctPrefix) {
+    // "……" 是纯终止符前缀：skip=6（丢弃），段文本 [6,15) = "你好。"
+    const auto cut = text::complete_prefix("……你好。世界", 100);
+    EXPECT_EQ(cut.skip, 6U);
+    EXPECT_EQ(cut.end, 15U);
+}
+
+TEST(SegmenterTest, CompletePrefixSoftCutMatchesSplit) {
+    // 超长时回退软终止符 —— 与 split 的刀口完全一致。
+    const auto cut = text::complete_prefix("一二三四，五六七八九十", 5);
+    EXPECT_EQ(cut.skip, 0U);
+    EXPECT_EQ(cut.end, 15U);  // "一二三四，"
+}
+
+TEST(SegmenterTest, CompletePrefixDefersToBoundary) {
+    // 超限但下一个字符是句号 —— 这一刀让给它：句尾标点留在段里。
+    const auto cut = text::complete_prefix("五六七八九。其余", 5);
+    ASSERT_NE(cut.end, 0U);
+    EXPECT_EQ(cut.skip, 0U);
+    EXPECT_EQ(cut.end, 18U);  // "五六七八九。"
+}
+
+TEST(SegmenterTest, CompletePrefixMaxZeroOnlyHardTerminators) {
+    const auto cut = text::complete_prefix("一二三四五六七八九十", 0);
+    EXPECT_EQ(cut.end, 0U);  // 不限长：没有终止符就不成段
+    const auto cut2 = text::complete_prefix("你好。世界。", 0);
+    EXPECT_EQ(cut2.end, 9U);
+}
+
+TEST(SegmenterTest, IncrementalFeedingMatchesWholeSplit) {
+    // 核心不变量：逐字节喂入反复调 complete_prefix，产出的段序列与
+    // 整段 split_for_synthesis 完全一致（文本不含空白，段无修剪差异）。
+    const std::string text = "今天天气真好。我们去公园散步，然后吃饭。好吗？好！";
+    const std::vector<std::string> whole = split(text, 20);
+
+    std::vector<std::string> incremental;
+    std::string buffer;
+    for (const char c : text) {
+        buffer.push_back(c);
+        for (;;) {
+            const auto cut = text::complete_prefix(buffer, 20);
+            if (cut.end == 0) {
+                break;
+            }
+            incremental.push_back(buffer.substr(cut.skip, cut.end - cut.skip));
+            buffer.erase(0, cut.end);
+        }
+    }
+    if (!buffer.empty()) {
+        incremental.push_back(buffer);  // finish 冲刷残余
+    }
+
+    ASSERT_EQ(incremental.size(), whole.size());
+    for (std::size_t i = 0; i < whole.size(); ++i) {
+        EXPECT_EQ(incremental[i], whole[i]) << "segment " << i;
+    }
+}
+
 }  // namespace
 }  // namespace genie

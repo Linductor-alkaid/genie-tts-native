@@ -558,6 +558,29 @@ performance.md §IOBinding）：长文本 ms/token **20.24 → 17.81（-12%）**
   每个块解包，而耗时/错误本质是"整条流一次"的信息，塞进 footer 更贴合
   单消费者的读取模式。
 
+### 2.19.1 增量会话（M6：StreamingSynthesis）
+
+一次性 `synthesize_streaming(text)` 与增量 `start_streaming()` **共用同一个
+worker**（`Engine::run_stream_session`）——一次性封装只是
+`start + pin_language + feed + finish` 的语法糖。一份逻辑意味着取消收口、
+footer 契约、背压策略只需要修对一次。
+
+- **增量抽取与整段切分同源**：`feed()` 反复调用
+  `genie::text::complete_prefix`（与 `split_for_synthesis` 同一套状态机、
+  只走到第一刀）——逐字节喂入与一次性喂入产出**相同段序列**，由
+  单测锁定。已知差异两处（增量场景的本质）：段边缘空白不修剪（前端
+  规范化吃掉，音频等价）；文本末尾的残余不交付，留给 `finish()` 冲刷。
+- **有界段队列**（容量 8）：合成跟不上时 `feed()` 阻塞 —— 背压从音频
+  通道延伸到文本入口；阻塞期间取消立刻放弃。
+- **单流记账持公开对象**：踩过的坑 —— 一次性封装里会话是局部变量，
+  封装返回就析构；析构即取消的话，worker 还在队列里没开跑就被扼杀
+  （表现为"没有音频、通道秒关"）。`Engine::Impl` 因此持
+  `shared_ptr<StreamingSynthesis>`（公开对象）保活；活跃会话未终结时
+  再开流抛 `Busy`（新错误码，C ABI 同步 `GENIE_ERROR_BUSY = 11`）。
+- **语言口径**：一次性封装对整段检测后 `pin_language`（与同步路径
+  同口径）；纯增量喂入不预设时以**第一个句段**检测、全流固定 ——
+  增量场景拿不到全文，这是必要妥协（文档写明）。
+
 ---
 
 ## 3. 推理链路与上游的对齐点

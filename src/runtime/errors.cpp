@@ -15,7 +15,7 @@ struct ErrorCodeEntry {
     std::string_view text;
 };
 
-constexpr std::array<ErrorCodeEntry, 11> kErrorCodes{{
+constexpr std::array<ErrorCodeEntry, 12> kErrorCodes{{
     {ErrorCode::Ok, "ok"},
     {ErrorCode::InvalidArgument, "invalid_argument"},
     {ErrorCode::NotFound, "not_found"},
@@ -27,6 +27,7 @@ constexpr std::array<ErrorCodeEntry, 11> kErrorCodes{{
     {ErrorCode::Timeout, "timeout"},
     {ErrorCode::BackendUnavailable, "backend_unavailable"},
     {ErrorCode::Internal, "internal"},
+    {ErrorCode::Busy, "busy"},
 }};
 
 }  // namespace

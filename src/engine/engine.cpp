@@ -5,10 +5,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
+#include <deque>
 #include <exception>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -141,6 +144,64 @@ void return_free_memory_to_os() noexcept {
 
 }  // namespace
 
+// ======================================================================================
+// StreamingSynthesis::Impl —— 增量流式会话的内部状态。
+//
+// 必须先于 Engine::Impl 完成定义：后者持有 shared_ptr<Impl>（单流记账），
+// 其隐式析构在 ~Engine 里实例化时需要完整类型。
+// ======================================================================================
+
+struct StreamingSynthesis::Impl {
+    Impl(Engine* owner, SynthesisOptions synth_opts, StreamOptions stream_opts,
+         std::shared_ptr<AudioChunkChannel> chan)
+        : engine(owner),
+          options(std::move(synth_opts)),
+          stream(std::move(stream_opts)),
+          channel(std::move(chan)) {}
+
+    Engine* engine;  // worker 的宿主；生命周期由 Engine 析构的"取消并等待"保证
+
+    SynthesisOptions options;
+    StreamOptions stream;
+    std::shared_ptr<AudioChunkChannel> channel;
+    /// 一次性封装预设的合成语言；增量喂入不预设时以第一段检测为准。
+    std::optional<Language> pinned;
+
+    // 喂入与段队列共用一把锁：feed 的"攒文本 → 抽段 → 入队"与 worker 的
+    // "取段 → eof 取残余"碰的是同一批状态。两把锁要论证锁序，一把锁没有
+    // 这个负担（cv 等待会放锁，这里没有吞吐可言）。
+    std::mutex mutex;
+    std::condition_variable cv;
+    /// 还没凑成完整段落的文本残余。
+    std::string buffer;
+    /// 已抽取、待合成的句段（有界 —— 满了 feed 阻塞，就是背压）。
+    std::deque<std::string> queue;
+    static constexpr std::size_t kQueueCapacity = 8;
+    /// finish() 已调用：没有更多输入了。
+    bool eof = false;
+
+    /// 取消已请求（worker 与 feed 的快速退出旗标；真正的取消走
+    /// Scheduler::cancel → token）。
+    std::atomic<bool> cancelled{false};
+    /// 会话终结（完成 / 出错 / 取消）。Engine 的单流限制以它为准。
+    std::atomic<bool> finished{false};
+    /// worker 的调度任务 id（cancel 用）。
+    Scheduler::TaskId task_id = 0;
+
+    /// 请求取消（幂等）：置旗标 + 取消调度任务 + 唤醒所有等待者。
+    /// 公开 cancel() 与 Engine 析构都走这里。
+    void request_cancel() {
+        if (finished.load(std::memory_order_acquire)) {
+            return;
+        }
+        cancelled.store(true, std::memory_order_release);
+        if (task_id != 0) {
+            (void)Scheduler::instance().cancel(task_id);
+        }
+        cv.notify_all();  // 唤醒等段的 worker 与等空位的 feed
+    }
+};
+
 struct Engine::Impl {
     std::string root;
     VoicePackage package;
@@ -198,8 +259,13 @@ struct Engine::Impl {
     std::unique_ptr<text::TextFrontend> japanese_frontend;
 #endif
 
-    /// 最近一次流式合成的任务 id。
-    std::atomic<Scheduler::TaskId> streaming_task{0};
+    /// 当前流式会话（一次性 synthesize_streaming 与增量 start_streaming
+    /// 都走它）。Engine 的单流限制以此为记账；会话终结后可替换。
+    ///
+    /// 持**公开对象**而不是内部 Impl：一次性封装里会话是局部变量，
+    /// 封装返回就要析构 —— 析构即取消的话，worker 还在队列里没开跑
+    /// 就被扼杀了。Engine 的这份引用保证封装返回后会话仍然活着。
+    std::shared_ptr<StreamingSynthesis> active_stream;
 
     /// 构造期的分阶段耗时（模型加载 / 参考特征 / 全局嵌入），经
     /// Engine::load_timing() 公开 —— 冷启动基线只采这一次。
@@ -493,19 +559,22 @@ Engine::Engine(std::string root, SessionFactory factory, const EngineConfig& con
 }
 
 Engine::~Engine() {
-    // 流式任务捕获了 this（引擎不是线程安全的，一个引擎同时只跑一个流式合成）。
-    // 引擎析构时必须**等任务收尾**，否则任务会访问已析构的对象。
+    // 流式会话的 worker 捕获了 this（引擎不是线程安全的，一个引擎同时
+    // 只跑一条流）。引擎析构必须**先取消、再等 worker 收尾**，否则
+    // worker 会访问已析构的引擎。取消只是置标志位，worker 可能在等段
+    // （50 ms 粒度醒来）或一次不可打断的解码/声码 Run 里 —— 有界等待。
     //
-    // 注意：即使 cancel_streaming() 已经取消过，这里也要再等一次 ——
-    // 取消只是置标志位，任务可能还在跑。
-    const auto task_id = impl_->streaming_task.load();
-    if (task_id == 0) {
-        return;
+    // 会话的 worker 自己持有 Impl 的 shared_ptr：即便超时放弃等待，
+    // worker 看到的是已失效的 engine 指针之前的最后一次访问 ——
+    // 等不到就说明卡在模型 Run 里，超时后放弃是唯一的止损手段
+    // （与 M6 之前对调度任务的 5 秒等待同口径）。
+    if (impl_->active_stream) {
+        impl_->active_stream->cancel();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!impl_->active_stream->finished() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
     }
-    auto& scheduler = Scheduler::instance();
-    scheduler.cancel(task_id);
-    scheduler.wait(task_id, std::chrono::seconds(5));
-    impl_->streaming_task.store(0);
 }
 
 const VoiceManifest& Engine::manifest() const noexcept {
@@ -669,69 +738,110 @@ SynthesisResult Engine::synthesize_one(const std::string& prepared_text, Languag
     return result;
 }
 
-std::shared_ptr<AudioChunkChannel> Engine::synthesize_streaming(std::string_view text,
-                                                                const SynthesisOptions& options,
-                                                                const StreamOptions& stream) {
-    // 通道容量来自调度器配置（SchedulerConfig::stream_capacity ——
-    // 这个字段 M6 之前一直没人消费，现在是它的正式出口）。
-    auto channel = std::make_shared<AudioChunkChannel>(Scheduler::instance().stream_capacity());
+// ======================================================================================
+// 流式合成（M6）：一次性封装 + 增量会话
+//
+// 两条入口共用同一个会话 worker（run_stream_session）：
+//   - synthesize_streaming(text)  = start_streaming + pin_language + feed + finish
+//   - start_streaming()           → StreamingSynthesis::feed / finish / cancel
+//
+// worker 的所有失败都收敛为"footer.error + 关闭通道"，不向调度器抛异常
+// —— 抛上去只会变成 Scheduler 的失败计数，消费者根本看不到原因。
+// ======================================================================================
 
-    // 调度器是进程级单例，initialize() 幂等 —— 这里保证它已经就绪，
-    // 让调用方不必自己初始化。
-    auto& scheduler = Scheduler::instance();
-    if (!scheduler.initialized()) {
-        scheduler.initialize({});
+StreamingSynthesis::StreamingSynthesis(std::shared_ptr<Impl> impl) : impl_(std::move(impl)) {}
+
+StreamingSynthesis::~StreamingSynthesis() {
+    // 调用方放手即视为放弃这条流：请求取消并等待 worker 收尾。
+    // worker 捕获了引擎指针 —— 引擎析构走的是同一条等待路径（Engine::~Engine），
+    // 这里是"消费者先放手"的情形：worker 还持有 Impl 的 shared_ptr，
+    // 通道也由任务持有，收尾不会踩已析构对象。
+    cancel();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!impl_->finished.load(std::memory_order_acquire) &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
-
-    // 合成任务在调度器（kairo）上跑；调用线程只负责消费音频。
-    // 引擎本身不是线程安全的，所以这里捕获的是 this —— 同一个 Engine
-    // 不应该同时跑两个流式合成。
-    const std::string owned_text(text);
-    auto* target = this;
-    // 任务持有通道的 shared_ptr：调用方先放手也不会让通道在任务还在写的时候析构。
-    const auto task_id = Scheduler::instance().submit(
-        [target, owned_text, options, stream, channel](const CancellationToken& token) {
-            target->synthesize_streamed(owned_text, options, stream, &token, *channel);
-        });
-
-    // 守护任务：合成任务**落定**之后兜底关通道。
-    //
-    // 没有它，"取消"有一个永远漏收口的洞：任务还在队列里没开跑就被取消时，
-    // kairo 走 RequestedBeforeStart —— 任务体**根本不会执行**，也就没有人去
-    // close 通道，消费者的"读到关闭为止"循环会永远等下去（M6 之前这个
-    // 洞就存在，只是旧测试从不验证通道关闭）。正常路径下合成任务自己
-    // 会 close，守护任务只是空转一次；等待挂在 future 上，不烧 CPU。
-    (void)Scheduler::instance().submit([channel, task_id](const CancellationToken&) {
-        (void)Scheduler::instance().wait(task_id, std::chrono::seconds(60));
-        if (!channel->closed()) {
-            // 走到这里说明合成任务体没执行过（排队即被终止）——
-            // 它没机会设 footer。守住"关闭 ⇒ footer 可读"的消费者契约：
-            // 空报告 + 无错误 = "这条流什么都没合成"。
-            channel->set_footer(StreamFooter{});
-            channel->close();
-        }
-    });
-
-    impl_->streaming_task.store(task_id);
-    return channel;
 }
 
-void Engine::synthesize_streamed(const std::string& text, const SynthesisOptions& options,
-                                 const StreamOptions& stream, const CancellationToken* cancelled,
-                                 AudioChunkChannel& channel) {
-    // 所有失败都收敛到 footer（错误原因 + 各段累计耗时），绝不向调度器抛
-    // —— 抛上去只会变成 Scheduler 的失败计数，消费者根本看不到原因。
-    // 通道的"排空且已关闭"是唯一的结束信号，footer 是它的注释。
-    StreamFooter footer;
+std::shared_ptr<AudioChunkChannel> StreamingSynthesis::channel() const noexcept {
+    return impl_->channel;
+}
 
-    // 满通道时的投递：短轮询（非阻塞 try_push + 小睡）。通道是**有界**的，
-    // 消费者不腾位就得等 —— 这就是背压；轮询间隙随时响应取消。
-    // 不用 push(timeout) 阻塞版：它的参数按值收、超时返回时实参已被移走，
-    // 重试反而要保底稿拷贝，不如让 try_push 每轮自己拷一次（每段音频
-    // 只在满通道的重试轮次里拷，常态零成本）。
+bool StreamingSynthesis::finished() const noexcept {
+    return impl_->finished.load(std::memory_order_acquire);
+}
+
+void StreamingSynthesis::pin_language(Language language) {
+    std::lock_guard lock(impl_->mutex);
+    impl_->pinned = language;
+}
+
+void StreamingSynthesis::feed(std::string_view text) {
+    auto& impl = *impl_;
+    if (text.empty()) {
+        return;
+    }
+    std::unique_lock lock(impl.mutex);
+    if (impl.eof) {
+        throw_error(ErrorCode::InvalidArgument, "feed after finish");
+    }
+    if (impl.finished.load(std::memory_order_acquire)) {
+        throw_error(ErrorCode::InvalidArgument, "streaming session already finished");
+    }
+    impl.buffer.append(text);
+    if (impl.stream.max_segment_chars == 0) {
+        // 不分句：整段攒着，finish 时一次性交付（M6 之前的旧行为）。
+        return;
+    }
+    for (;;) {
+        const auto cut = text::complete_prefix(impl.buffer, impl.stream.max_segment_chars);
+        if (cut.end == 0) {
+            break;  // 还没有完整段：继续攒
+        }
+        std::string segment = impl.buffer.substr(cut.skip, cut.end - cut.skip);
+        impl.buffer.erase(0, cut.end);
+        // 有界投递：队列满 = 合成跟不上 → 阻塞（背压）。cv 等待会放锁，
+        // worker 能继续取段；等锁期间被取消则立刻放弃。
+        impl.cv.wait(lock, [&impl] {
+            return impl.queue.size() < StreamingSynthesis::Impl::kQueueCapacity ||
+                   impl.eof ||  // 理论不可达（finish 与 feed 互斥），防御性保留
+                   impl.cancelled.load(std::memory_order_acquire);
+        });
+        if (impl.cancelled.load(std::memory_order_acquire)) {
+            throw_error(ErrorCode::Cancelled, "streaming session was cancelled while feeding");
+        }
+        impl.queue.push_back(std::move(segment));
+        impl.cv.notify_all();
+    }
+}
+
+void StreamingSynthesis::finish() {
+    auto& impl = *impl_;
+    std::lock_guard lock(impl.mutex);
+    if (impl.eof) {
+        return;  // 幂等
+    }
+    impl.eof = true;
+    impl.cv.notify_all();
+}
+
+void StreamingSynthesis::cancel() {
+    impl_->request_cancel();
+}
+
+void Engine::run_stream_session(std::shared_ptr<StreamingSynthesis::Impl> impl,
+                                const CancellationToken& token) {
+    StreamFooter footer;
+    TimingReport& report = footer.timing;
+    auto& channel = *impl->channel;
+
+    // 满通道时的投递：短轮询（try_push + 小睡）。通道是**有界**的，消费者
+    // 不腾位就得等 —— 这就是背压；轮询间隙随时响应取消。不用 push(timeout)
+    // 阻塞版：参数按值收、超时返回时实参已被移走，重试反而要保底稿拷贝。
     const auto push_chunk = [&](const AudioBuffer& chunk) {
         while (!channel.try_push(chunk)) {
-            if (cancelled != nullptr && cancelled->cancelled()) {
+            if (token.cancelled()) {
                 return false;
             }
             if (channel.closed()) {
@@ -744,69 +854,86 @@ void Engine::synthesize_streamed(const std::string& text, const SynthesisOptions
 
     const auto run = [&]() {
         try {
-            if (cancelled != nullptr && cancelled->cancelled()) {
+            if (token.cancelled()) {
                 throw_error(ErrorCode::Cancelled, "streaming cancelled before it started");
             }
-            if (text.empty()) {
-                throw_error(ErrorCode::InvalidArgument, "streaming text is empty");
-            }
-            if (impl_->frontend == nullptr) {
-                throw_error(ErrorCode::BackendUnavailable,
-                            "no text frontend for language: " +
-                                language_to_string(impl_->manifest.language));
-            }
-
-            TimingReport& report = footer.timing;
             const auto stream_start = std::chrono::steady_clock::now();
 
-            // 语言与前端：整条流只做一次，全段共用（与同步路径同口径 ——
-            // 上游也是一次 get_phones_and_bert 定语言，不逐句重判）。
-            Language language;
-            {
-                detail::ScopedStageTimer timer(report, "language_detect");
-                language = detect_language(text, options.language);
-            }
-            const text::TextFrontend* frontend = impl_->frontend_for(language);
-            if (frontend == nullptr) {
-                throw_error(ErrorCode::BackendUnavailable,
-                            "no text frontend for language: " + language_to_string(language) +
-                                " —— " + missing_frontend_hint(language));
-            }
+            std::optional<Language> language;
+            const text::TextFrontend* frontend = nullptr;
+            std::size_t synthesized = 0;
 
-            // 分段。max_segment_chars == 0 = 不分句（整段一次解码，M6 之前的旧行为）。
-            const std::vector<std::string> segments =
-                stream.max_segment_chars == 0
-                    ? std::vector<std::string>{text}
-                    : text::split_for_synthesis(text, stream.max_segment_chars);
-            if (segments.empty()) {
-                throw_error(ErrorCode::InvalidArgument, "streaming text produced no segments");
-            }
-
-            for (std::size_t i = 0; i < segments.size(); ++i) {
-                if (cancelled != nullptr && cancelled->cancelled()) {
-                    // 段间取消：安静收尾 —— 取消是调用方自己发起的，
-                    // 不算错误，通道关闭本身就是信号。
+            for (;;) {
+                if (token.cancelled()) {
                     return;
+                }
+
+                // 取下一段。队列优先；队列空且 eof 时把缓冲残余作为
+                // 最后一段冲刷（**原始内容**，含纯空白 —— 让前端按
+                // 一次性路径同样处理；彻底为空则视作空流报错）。
+                std::string segment;
+                bool is_final = false;
+                {
+                    std::unique_lock lock(impl->mutex);
+                    impl->cv.wait_for(lock, std::chrono::milliseconds(50),
+                                      [&] { return !impl->queue.empty() || impl->eof; });
+                    if (!impl->queue.empty()) {
+                        segment = std::move(impl->queue.front());
+                        impl->queue.pop_front();
+                        is_final = impl->eof && impl->queue.empty() && impl->buffer.empty();
+                        impl->cv.notify_all();  // 等空位的 feed 放行
+                    } else if (impl->eof) {
+                        segment = std::move(impl->buffer);
+                        impl->buffer.clear();
+                        is_final = true;
+                    } else {
+                        continue;  // 超时醒来：回循环顶重查取消
+                    }
+                }
+
+                if (segment.empty()) {
+                    // eof 残余为空且队列已空：要么全部完成，要么整条流
+                    // 没有喂进任何内容。
+                    if (synthesized == 0) {
+                        throw_error(ErrorCode::InvalidArgument, "streaming text is empty");
+                    }
+                    break;
+                }
+
+                // 语言与前端：整条流只定一次。一次性封装会预设（整段检测，
+                // 与同步路径同口径）；增量喂入不预设时以第一段为准。
+                if (!language.has_value()) {
+                    language = impl->pinned.has_value()
+                                   ? *impl->pinned
+                                   : detect_language(segment, impl->options.language);
+                    frontend = impl_->frontend_for(*language);
+                    if (frontend == nullptr) {
+                        throw_error(
+                            ErrorCode::BackendUnavailable,
+                            "no text frontend for language: " + language_to_string(*language) +
+                                " —— " + missing_frontend_hint(*language));
+                    }
                 }
 
                 // 上游的 "。" 前缀逐段加（audit §4.3）：每段是一次独立合成，
                 // 单段口径与"调用方自己分句逐句喂"完全一致（audit §24.3）。
-                auto result = synthesize_one(std::string(kUpstreamTextPrefix) + segments[i],
-                                             language, *frontend, options, cancelled, report);
+                auto result = synthesize_one(std::string(kUpstreamTextPrefix) + segment, *language,
+                                             *frontend, impl->options, &token, report);
 
-                // 句间静音：追加在前一段尾部（最后一段不加）。按引擎的
-                // **实际**采样率折算 —— output_sample_rate 目前只是改标称值，
-                // 静音时长必须跟波形本身的节奏对齐。
-                if (stream.sentence_silence_ms > 0 && i + 1 < segments.size()) {
+                // 句间静音：追加在**非末段**的尾部。按引擎的**实际**采样率
+                // 折算 —— output_sample_rate 目前只是改标称值，静音时长
+                // 必须跟波形本身的节奏对齐。
+                if (impl->stream.sentence_silence_ms > 0 && !is_final) {
                     const auto silence =
                         static_cast<std::size_t>(static_cast<long long>(impl_->sample_rate) *
-                                                 stream.sentence_silence_ms / 1000);
+                                                 impl->stream.sentence_silence_ms / 1000);
                     result.audio.samples.resize(result.audio.samples.size() + silence, 0.0F);
                 }
 
                 if (!push_chunk(result.audio)) {
                     return;  // 段间取消或通道被关闭：安静收尾
                 }
+                ++synthesized;
             }
 
             report.set_total_ms(std::chrono::duration<double, std::milli>(
@@ -815,11 +942,11 @@ void Engine::synthesize_streamed(const std::string& text, const SynthesisOptions
         } catch (const Error& e) {
             // 取消引发的报错（decode 循环取消后返回空 token，会以
             // "no semantic tokens" 之类冒出来）不算失败。
-            if (cancelled == nullptr || !cancelled->cancelled()) {
+            if (!token.cancelled()) {
                 footer.error = e;
             }
         } catch (...) {
-            if (cancelled == nullptr || !cancelled->cancelled()) {
+            if (!token.cancelled()) {
                 footer.error =
                     Error(ErrorCode::Internal, "streaming synthesis failed with unknown error");
             }
@@ -827,17 +954,76 @@ void Engine::synthesize_streamed(const std::string& text, const SynthesisOptions
     };
     run();
 
+    impl->finished.store(true, std::memory_order_release);
     channel.set_footer(std::move(footer));
     channel.close();
 }
 
-bool Engine::cancel_streaming() {
-    // 注意：**不**清空 task id —— 析构时还要靠它等待任务收尾。
-    const auto task_id = impl_->streaming_task.load();
-    if (task_id == 0) {
-        return false;
+std::shared_ptr<StreamingSynthesis> Engine::start_streaming(const SynthesisOptions& options,
+                                                            const StreamOptions& stream) {
+    if (impl_->active_stream && !impl_->active_stream->finished()) {
+        throw_error(ErrorCode::Busy,
+                    "engine already has an active streaming session —— cancel it or wait for "
+                    "it to finish (one engine runs one stream: model sessions are not "
+                    "thread-safe)");
     }
-    return Scheduler::instance().cancel(task_id);
+
+    // 调度器是进程级单例，initialize() 幂等 —— 这里保证它已经就绪。
+    if (!Scheduler::instance().initialized()) {
+        Scheduler::instance().initialize({});
+    }
+
+    // 通道容量来自调度器配置（SchedulerConfig::stream_capacity）。
+    // 构造函数对 Engine 私有 —— make_shared 的内部分配器拿不到访问权，
+    // 用 new 走成员函数自己的访问权限。
+    auto session = std::shared_ptr<StreamingSynthesis>(
+        new StreamingSynthesis(std::make_shared<StreamingSynthesis::Impl>(
+            this, options, stream,
+            std::make_shared<AudioChunkChannel>(Scheduler::instance().stream_capacity()))));
+
+    // 合成任务在调度器（kairo）上跑；调用线程只负责消费音频。
+    auto impl = session->impl_;
+    impl->task_id = Scheduler::instance().submit(
+        [this, impl](const CancellationToken& token) { run_stream_session(impl, token); });
+
+    // 守护任务：worker **落定**之后兜底关通道。任务还在队列里没开跑就被
+    // 取消时，kairo 走 RequestedBeforeStart —— 任务体根本不会执行，没人
+    // 去 close 通道，消费者的"读到关闭为止"循环会永远等下去。正常路径
+    // 下 worker 自己会 close，守护任务只是空转一次（等待挂在 future 上）。
+    (void)Scheduler::instance().submit([impl, task_id = impl->task_id](const CancellationToken&) {
+        (void)Scheduler::instance().wait(task_id, std::chrono::seconds(60));
+        if (!impl->channel->closed()) {
+            // worker 没执行过（排队即被终止）：守住"关闭 ⇒ footer 可读"
+            // 的消费者契约 —— 空报告 + 无错误 = 这条流什么都没合成。
+            impl->channel->set_footer(StreamFooter{});
+            impl->channel->close();
+        }
+        impl->finished.store(true, std::memory_order_release);
+    });
+
+    impl_->active_stream = session;
+    return session;
+}
+
+std::shared_ptr<AudioChunkChannel> Engine::synthesize_streaming(std::string_view text,
+                                                                const SynthesisOptions& options,
+                                                                const StreamOptions& stream) {
+    // 一次性封装：整段文本先检测语言（与同步路径同口径）再按增量会话
+    // 走同一条 worker —— 两条入口一份逻辑。
+    auto session = start_streaming(options, stream);
+    session->pin_language(detect_language(text, options.language));
+    session->feed(text);
+    session->finish();
+    return session->channel();
+}
+
+bool Engine::cancel_streaming() {
+    // 单流记账：活跃会话（一次性封装与增量会话都在这里）优先。
+    if (impl_->active_stream && !impl_->active_stream->finished()) {
+        impl_->active_stream->cancel();
+        return true;
+    }
+    return false;
 }
 
 }  // namespace genie
