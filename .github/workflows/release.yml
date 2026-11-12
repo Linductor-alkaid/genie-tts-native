@@ -212,6 +212,19 @@ jobs:
           # （实测捞到 1.17.1：API 版本不符直接段错误）。
           "$env:GENIE_ONNXRUNTIME_ROOT\lib" | Out-File -Append -FilePath $env:GITHUB_PATH
 
+      - name: Copy ORT DLL next to test executables (deterministic load)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # Windows loader 的搜索第一顺位是**应用自身目录**，压过 System32 与
+          # PATH —— PATH 方案被 runner 上未知的 1.17.1 副本压住过一次
+          # （PATH 前缀未生效的原因不明），拷到 exe 旁边是确定性做法。
+          # where.exe 输出留作侦查：到底 PATH 上还有谁在提供 onnxruntime.dll。
+          where.exe onnxruntime.dll 2>&1 | Out-String | Write-Host
+          Copy-Item "$env:GENIE_ONNXRUNTIME_ROOT\lib\onnxruntime*.dll" `
+            -Destination "build\windows\tests\" -Force
+          Get-ChildItem "build\windows\tests\onnxruntime*.dll"
+
       - name: Configure
         run: >
           cmake -S . -B build/windows -G Ninja
