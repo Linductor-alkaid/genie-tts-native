@@ -7,6 +7,12 @@
 
 ### Added
 
+- **Linux ARM64 交叉编译（M4 跨平台收口）**（2026-11-12）：新增
+  `cmake/toolchains/aarch64-linux-gnu.cmake` 与 `arm64-release` preset，CI 新增
+  `arm64` job —— 交叉工具链编译全部源码（含测试与 OpenJTalk），链接 aarch64 版
+  ONNX Runtime，`file` / `readelf` 校验产物架构与 ORT 依赖。只做编译验证不跑
+  ctest：托管 runner 是 x86，aarch64 产物无法就地运行，运行验证属于部署侧。
+
 - **M6 增量流式会话 `StreamingSynthesis`**（2026-11-12）：`Engine::start_streaming()`
   返回会话对象，`feed()` 分多次喂入文本（ASR 中间结果场景）、`finish()` 冲刷
   残余、`cancel()` 随时取消；每凑齐一个完整句段（句末终止符；超长软/硬切，

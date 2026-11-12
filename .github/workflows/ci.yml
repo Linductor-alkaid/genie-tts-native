@@ -225,6 +225,71 @@ jobs:
         run: ctest --test-dir build/windows --output-on-failure
 
   # ---------------------------------------------------------------------------
+  # 跨平台：Linux ARM64 交叉编译（aarch64）。
+  #
+  # 托管 runner 是 x86，aarch64 产物没法在本 job 里运行，所以这里只做
+  # **编译验证**：交叉工具链能吃下全部源码（含测试与 OpenJTalk），
+  # 链接的是 aarch64 版 ONNX Runtime，产物用 file / readelf 校验架构
+  # 与 ORT 依赖。不跑 ctest —— 运行验证要在 aarch64 机器（或 qemu）上做，
+  # 那是部署侧的事。
+  # ---------------------------------------------------------------------------
+  arm64:
+    name: linux-arm64 (cross-compile)
+    runs-on: ubuntu-latest
+    # 交叉构建 + FetchContent（kairo / GTest）比原生构建慢，放宽一点。
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-aarch64-linux-gnu file
+
+      - name: Download ONNX Runtime (Linux aarch64)
+        run: |
+          set -euo pipefail
+          ORT_DIR="$RUNNER_TEMP/onnxruntime-aarch64"
+          mkdir -p "$ORT_DIR"
+          curl -fsSL --retry 3 --retry-delay 2 \
+            -o "$RUNNER_TEMP/ort-aarch64.tgz" \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-aarch64-${ONNXRUNTIME_VERSION}.tgz"
+          tar -xzf "$RUNNER_TEMP/ort-aarch64.tgz" -C "$ORT_DIR" --strip-components=1
+          test -f "$ORT_DIR/include/onnxruntime_cxx_api.h"
+          test -f "$ORT_DIR/lib/libonnxruntime.so"
+          echo "GENIE_ONNXRUNTIME_ROOT=$ORT_DIR" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake --preset arm64-release -DGENIE_ONNXRUNTIME_ROOT="$GENIE_ONNXRUNTIME_ROOT"
+
+      - name: Build
+        run: cmake --build --preset arm64-release --parallel
+
+      # 编译验证的落点：每个关键产物都必须是 aarch64 ELF，且引擎侧
+      # 二进制确实链到了 aarch64 ORT（而不是静默退化为无 ORT 构建 ——
+      # Dependencies.cmake 在找不到 ORT 时会强制 GENIE_ENABLE_ORT=OFF，
+      # 那样的"构建成功"对本 job 是假绿）。
+      - name: Verify artifacts are aarch64 and link ORT
+        run: |
+          set -euo pipefail
+          B=build/arm64-release
+          for f in "$B/tools/genie-tts" \
+                   "$B/src/libgenie_tts.so" \
+                   "$B/tests/genie_unit_tests" \
+                   "$B/tests/genie_integration_tests"; do
+            test -f "$f" || { echo "missing: $f" >&2; exit 1; }
+            file "$f" | grep -q "ARM aarch64" \
+              || { echo "not aarch64: $f" >&2; file "$f"; exit 1; }
+          done
+          readelf -d "$B/tools/genie-tts" | grep -q "libonnxruntime.so.1" \
+            || { echo "genie-tts does not link onnxruntime" >&2; exit 1; }
+          readelf -d "$B/src/libgenie_tts.so" | grep -q "libonnxruntime.so.1" \
+            || { echo "libgenie_tts.so does not link onnxruntime" >&2; exit 1; }
+          echo "arm64 artifacts verified."
+
+  # ---------------------------------------------------------------------------
   # 格式检查
   #
   # clang-format 的**版本**会影响输出，因此必须钉死 —— 否则 apt 装的版本一升级

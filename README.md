@@ -31,10 +31,10 @@
 | M1 C++ Runtime 基础设施 | ✅ CMake 体系、ONNX Runtime 封装、张量抽象、音色包、JSON / SHA-256 / UTF-8 自带实现 |
 | M2 文本与音频前处理 | ✅ 中 / 英 / 日 / 韩 四种语言的 G2P 全部落地（符号表逐字一致、拼音全量比对一致、TextNormalizer 规范化、jieba 分词、变调与儿化、多音字 g2pM 与词级读音修正、RoBERTa 韵律特征） |
 | M3 完整推理迁移 | ✅ T2S 自回归解码、VITS、端到端引擎、流式流水线、参考音频条件、V2ProPlus |
-| M4 原生 SDK | ✅ C++ SDK + C ABI 共享库 + CLI；Linux / Windows CI；Golden Dataset（模型 I/O 契约快照）|
+| M4 原生 SDK | ✅ C++ SDK + C ABI 共享库 + CLI；Linux / Windows / ARM64 交叉编译 CI；Golden Dataset（模型 I/O 契约快照）|
 | M5 性能优化 | 🚧 三轮优化已落地：解码热路径宿主拷贝消除、ORT 会话参数调优（自旋关 / 8 线程）、加载期会话释放 + 并行加载。冷启动 3.8 → **1.8 s**、常驻 −1.2 GB、RTF 0.72 → **0.47**（信任模式口径，见 [`docs/performance.md`](docs/performance.md)）；⏳ 量化与 CPU 微架构优化 |
 | M6 低延迟流式 | ✅ 分句分块输出、增量会话、TTFA 2.3 s 起（i9-13900KF 实测） |
-| M7 工程化 | 🚧 ARM64 交叉编译、故障排查文档 |
+| M7 工程化 | 🚧 发布链（打包 / release 流水线）、故障排查文档 |
 
 已发布版本：**v0.1.0**、**v0.2.0**、**v0.3.0**、**v0.3.1**、**v0.4.0**（当前）。
 
