@@ -131,21 +131,34 @@ public:
     [[nodiscard]] SynthesisResult synthesize(std::string_view text,
                                              const SynthesisOptions& options = {});
 
-    /// 流式合成。
+    /// 流式合成（M6 真分块）。
     ///
     /// 合成任务提交给调度器（kairo）执行；调用方从返回的通道里取音频块。
     /// 调用线程完全不参与计算，可以直接拿去播放。
     ///
-    /// 通道在合成结束（或出错）后会被关闭 —— 消费者读到"排空且已关闭"即结束。
+    /// 文本先按句读分句（句末终止符落刀、超长才在逗号级标点回退切分；
+    /// ASCII `.` 不切，小数/时间安全），逐段走完 前端 → T2S → VITS
+    /// 后**立刻**把该段音频推入通道
+    /// —— 首块延迟是第一句话的合成耗时，不用等整篇。除最后一段外，
+    /// 每段音频尾部追加 `stream.sentence_silence_ms` 的静音（自然句间停顿）。
+    /// `stream.max_segment_chars == 0` 时退回旧行为：整段一次解码、一个块。
+    ///
+    /// 语言检测整条流只做一次（与同步路径同口径），全段共用一个前端。
+    ///
+    /// 通道在合成结束（或出错、被取消）后关闭；阶段耗时与失败原因在
+    /// `channel->footer()` 里（错误时 `footer()->error` 非 nullopt，
+    /// 协作式取消不算错误）。消费者读到"排空且已关闭"即结束。
     ///
     /// 返回 **shared_ptr** 而不是 unique_ptr：后台任务也持有通道的一份引用，
     /// 这样即使调用方先放手，通道也不会在任务还在往里写的时候被析构。
     ///
     /// @param text    要合成的文本
     /// @param options 合成参数
+    /// @param stream  分段参数（分句上限、句间静音）
     /// @return 音频块通道
     [[nodiscard]] std::shared_ptr<AudioChunkChannel> synthesize_streaming(
-        std::string_view text, const SynthesisOptions& options = {});
+        std::string_view text, const SynthesisOptions& options = {},
+        const StreamOptions& stream = {});
 
     /// 取消最近一次流式合成。
     ///
@@ -172,6 +185,24 @@ private:
     [[nodiscard]] SynthesisResult synthesize_impl(std::string_view text,
                                                   const SynthesisOptions& options,
                                                   const CancellationToken* cancelled);
+
+    /// 单段合成核心：前端转换 → RoBERTa → T2S 解码 → 声码器。
+    ///
+    /// 同步路径与流式路径共用 —— 同步 `synthesize()` 的行为必须与
+    /// 抽取前逐字节一致（golden 一致性），流式只是把多段分别调它。
+    /// 文本必须是已带上游 `"。"` 前缀的最终文本；语言与前端由调用方
+    /// 选定（语言检测是"整条请求一次"的开销，不进单段）。
+    /// 各阶段耗时记入调用方给的 report（同名阶段累加合并）；
+    /// 端到端 total 与 timing 的挂载由调用方负责。
+    [[nodiscard]] SynthesisResult synthesize_one(
+        const std::string& prepared_text, Language language, const text::TextFrontend& frontend,
+        const SynthesisOptions& options, const CancellationToken* cancelled, TimingReport& report);
+
+    /// 流式合成的任务体：分段 → 逐段 synthesize_one → 逐段推通道。
+    /// 所有失败都收敛为"footer.error + 关闭通道"，不会向调度器抛异常。
+    void synthesize_streamed(const std::string& text, const SynthesisOptions& options,
+                             const StreamOptions& stream, const CancellationToken* cancelled,
+                             AudioChunkChannel& channel);
 };
 
 }  // namespace genie

@@ -322,11 +322,24 @@ std::uint64_t Scheduler::failure_count() const noexcept {
     return impl_->failures.load();
 }
 
+std::size_t Scheduler::stream_capacity() const noexcept {
+    // config 只在 initialize()（幂等）里写一次，但为了对 TSan 干净，
+    // 读取也走同一把锁 —— 每条流只调一次，开销可忽略。
+    // 显式配 0 视为"用默认值"：容量 0 的通道什么都装不下。
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    return impl_->config.stream_capacity != 0 ? impl_->config.stream_capacity : 64;
+}
+
 // ======================================================================================
 // AudioChunkChannel
 // ======================================================================================
 
 struct AudioChunkChannel::Impl {
+    // 流尾元数据 —— 两条实现路径共用。kairo 的 MpscChannel 只管 chunk，
+    // "整条流"的信息（耗时、失败原因）放在 genie 侧。
+    mutable std::mutex footer_mutex;
+    std::optional<StreamFooter> footer;
+
 #if defined(GENIE_HAVE_KAIRO)
     kairo::comm::MpscChannel<AudioBuffer> channel;
 #else
@@ -429,6 +442,16 @@ void AudioChunkChannel::close() noexcept {
     impl_->not_empty.notify_all();
     impl_->not_full.notify_all();
 #endif
+}
+
+void AudioChunkChannel::set_footer(StreamFooter footer) {
+    std::lock_guard<std::mutex> lock(impl_->footer_mutex);
+    impl_->footer = std::move(footer);
+}
+
+const StreamFooter* AudioChunkChannel::footer() const noexcept {
+    std::lock_guard<std::mutex> lock(impl_->footer_mutex);
+    return impl_->footer.has_value() ? &*impl_->footer : nullptr;
 }
 
 bool AudioChunkChannel::closed() const noexcept {

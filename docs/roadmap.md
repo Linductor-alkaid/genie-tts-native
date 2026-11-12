@@ -226,9 +226,14 @@
 
 - ✅ 异步合成流水线（`Engine::synthesize_streaming()`：任务跑在 kairo
   调度器上，调用线程只消费音频通道）
-- ✅ 取消与抢占（`Engine::cancel_streaming()` + CancellationToken）
-- ⏳ 增量文本输入与分段
-- ⏳ 音频分块输出（当前是整段音频一次性推入通道）
+- ✅ 取消与抢占（`Engine::cancel_streaming()` + CancellationToken；
+  2026-11-12 修复"排队中即被取消的通道永不关闭"，守护任务兜底收口）
+- ✅ 音频分块输出（2026-11-12：分句分段逐段出块，`src/text/segmenter` +
+  `synthesize_one` 单段核心；句间静音与分段上限由 `StreamOptions` 配置；
+  流尾元数据 `StreamFooter` 带全流耗时与失败原因 —— architecture.md
+  §2.19、upstream-audit.md §25）
+- ⏳ 增量文本输入（分句器与单段核心已就位，剩 `StreamingSession`
+  feed / finish / cancel API）
 - ⏳ 流式性能测试（TTFA、缓冲区欠载、分句静音、爆音、取消响应时间、并发延迟）
 
 > 调度与并发基础设施由 kairo 提供，见 [architecture.md §2.4](architecture.md)。

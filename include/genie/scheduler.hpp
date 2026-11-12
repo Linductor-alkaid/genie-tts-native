@@ -24,10 +24,13 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "genie/audio.hpp"
+#include "genie/errors.hpp"
+#include "genie/timing.hpp"
 
 namespace genie {
 
@@ -118,6 +121,13 @@ public:
     /// 累计任务失败数（任务抛出异常）。
     [[nodiscard]] std::uint64_t failure_count() const noexcept;
 
+    /// 流式音频通道的容量（chunk 数），取自初始化时的 SchedulerConfig::stream_capacity。
+    ///
+    /// 未初始化（或未显式配置）时返回默认值 64。流式合成用它创建
+    /// AudioChunkChannel —— 这个字段在 M6 之前一直没人消费，
+    /// 现在是它的正式出口。
+    [[nodiscard]] std::size_t stream_capacity() const noexcept;
+
 private:
     Scheduler();
     struct Impl;
@@ -129,6 +139,22 @@ private:
     ///        kairo 的 Executor 是函数级静态，比本单例更早析构，
     ///        那时碰它就是 use-after-free。
     void shutdown_impl(bool use_executor);
+};
+
+/// 流式合成的结束元数据（M6 真分块流式）。
+///
+/// 音频块本身只有波形，分段合成的阶段耗时、失败原因这些"整条流"
+/// 的信息没有地方放 —— 都收在流尾。生产者在 close() 之前设置；
+/// 消费者在读到"排空且已关闭"后取用。
+struct StreamFooter {
+    /// 全流分阶段耗时（分段合成逐段并入：同名阶段累加、count 为段内步数
+    /// 之和）。取失败时也尽力保留已完成段的耗时。
+    TimingReport timing;
+
+    /// 非 nullopt 表示流因错误终止（模型推理失败、文本不合法等）。
+    /// 协作式取消**不算**错误 —— 取消是调用方自己发起的，
+    /// 通道关闭本身就是信号。
+    std::optional<Error> error;
 };
 
 /// 有界音频分块通道 —— 流式 PCM 的分发通道。
@@ -159,6 +185,15 @@ public:
 
     /// 关闭通道。消费者会收到"已排空"信号。
     void close() noexcept;
+
+    /// 设置流尾元数据。生产者在 close() **之前**调用；重复设置以最后一次为准。
+    void set_footer(StreamFooter footer);
+
+    /// 流尾元数据。未设置时返回 nullptr。
+    ///
+    /// 指针指向通道内部存储，随通道存活；按"单消费者"约定，
+    /// close() 之后不会再有写入，读取不需要额外同步。
+    [[nodiscard]] const StreamFooter* footer() const noexcept;
 
     [[nodiscard]] bool closed() const noexcept;
     [[nodiscard]] bool drained() const noexcept;

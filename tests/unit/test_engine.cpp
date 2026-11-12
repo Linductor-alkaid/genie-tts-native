@@ -159,6 +159,25 @@ SessionFactory fake_factory_v2proplus(int stop_after = 3) {
     };
 }
 
+/// 收割流式通道：按序取块，直到通道关闭（或超时 —— 挂死时让测试失败得有据可查）。
+std::vector<AudioBuffer> drain_stream(const std::shared_ptr<AudioChunkChannel>& channel,
+                                      std::chrono::milliseconds budget = std::chrono::seconds(10)) {
+    std::vector<AudioBuffer> chunks;
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (std::chrono::steady_clock::now() < deadline) {
+        AudioBuffer chunk;
+        if (channel->try_pop(chunk)) {
+            chunks.push_back(std::move(chunk));
+            continue;
+        }
+        if (channel->closed()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return chunks;
+}
+
 TEST(Engine, V2ProPlusComputesGlobalEmbeddings) {
     TempVoicePackage package(/*v2proplus=*/true);
     Engine engine(package.root(), fake_factory_v2proplus());
@@ -867,21 +886,92 @@ TEST(Engine, StreamingDeliversAudioAndCloses) {
 
     auto channel = engine.synthesize_streaming("\xE4\xBD\xA0\xE5\xA5\xBD");
 
-    AudioBuffer chunk;
-    bool got_audio = false;
-    // 通道在合成结束后会关闭 —— 读到"取不出且已关闭"即结束。
-    for (int i = 0; i < 200; ++i) {
-        if (channel->try_pop(chunk)) {
-            got_audio = !chunk.empty();
-            continue;
-        }
-        if (channel->closed()) {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    EXPECT_TRUE(got_audio);
+    const auto chunks = drain_stream(channel);
+    ASSERT_FALSE(chunks.empty());
+    EXPECT_FALSE(chunks.front().empty());
     EXPECT_TRUE(channel->closed());
+
+    // 流尾元数据：整条流的阶段耗时 + 无错误。
+    ASSERT_NE(channel->footer(), nullptr);
+    EXPECT_EQ(channel->footer()->error, std::nullopt);
+    EXPECT_FALSE(channel->footer()->timing.stages().empty());
+}
+
+TEST(Engine, StreamingChunksOnePerSentenceWithSilence) {
+    // 两句文本 → 两个块；第一块尾部带 150 ms 句间静音（默认 StreamOptions），
+    // 第二块不带。分段合成走的是与同步完全相同的单段核心。
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory());
+
+    const std::string text =
+        "\xE4\xBB\x8A\xE5\xA4\xA9\xE5\xA4\xA9\xE6\xB0\x94\xE7\x9C\x9F\xE5\xA5\xBD\xE3\x80\x82"
+        "\xE6\x88\x91\xE4\xBB\xAC\xE5\x8E\xBB\xE5\x85\xAC\xE5\x9B\xAD\xE6\x95\xA3\xE6\xAD\xA5"
+        "\xE5\x90\xA7\xE3\x80\x82";  // 今天天气真好。我们去公园散步吧。
+    auto channel = engine.synthesize_streaming(text);
+
+    const auto chunks = drain_stream(channel);
+    ASSERT_EQ(chunks.size(), 2U);
+
+    // 静音：32000 Hz × 150 ms = 4800 样本，追加在第一块尾部。
+    constexpr std::size_t kVocoderSamples = 64;
+    EXPECT_EQ(chunks[0].samples.size(), kVocoderSamples + 4800U);
+    for (std::size_t i = kVocoderSamples; i < chunks[0].samples.size(); ++i) {
+        ASSERT_EQ(chunks[0].samples[i], 0.0F) << "silence tail sample " << i;
+    }
+    EXPECT_EQ(chunks[1].samples.size(), kVocoderSamples);
+
+    // 两段都走完了：t2s/stage_decoder 的次数是两段之和。
+    const auto* decoder = static_cast<const StageTiming*>(nullptr);
+    for (const auto& stage : channel->footer()->timing.stages()) {
+        if (stage.name == "t2s/stage_decoder") {
+            decoder = &stage;
+        }
+    }
+    ASSERT_NE(decoder, nullptr);
+    // 假会话的 stop_after 是**会话生命周期**计数：第一段用掉 3 步后停下，
+    // 第二段再跑 2 步（计数到 5）就命中同一道停止条件 —— 合计 5 步。
+    EXPECT_EQ(decoder->count, 5U);
+}
+
+TEST(Engine, StreamingSingleSentenceMatchesSyncPath) {
+    // parity guard：无终止符的短文本只切成一段 —— 除了不加静音，
+    // 音频与同步 synthesize 必须逐样本一致（同一份单段核心）。
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory());
+
+    const std::string text = "\xE4\xBD\xA0\xE5\xA5\xBD";
+    const auto sync = engine.synthesize(text);
+    auto channel = engine.synthesize_streaming(text);
+
+    const auto chunks = drain_stream(channel);
+    ASSERT_EQ(chunks.size(), 1U);
+    ASSERT_EQ(chunks[0].samples.size(), sync.audio.samples.size());
+    for (std::size_t i = 0; i < sync.audio.samples.size(); ++i) {
+        ASSERT_EQ(chunks[0].samples[i], sync.audio.samples[i]) << "sample " << i;
+    }
+    EXPECT_EQ(chunks[0].sample_rate, sync.audio.sample_rate);
+}
+
+TEST(Engine, StreamingWithoutSegmentationKeepsLegacyBehavior) {
+    // max_segment_chars = 0 = 不分句：整段一次解码、一个块、不加静音
+    // —— M6 之前的旧行为，留给不需要分段的调用方。
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory());
+
+    const std::string text =
+        "\xE4\xBD\xA0\xE5\xA5\xBD\xE3\x80\x82\xE4\xB8\x96\xE7\x95\x8C\xE3\x80\x82";  // 你好。世界。
+    StreamOptions legacy;
+    legacy.max_segment_chars = 0;
+    auto channel = engine.synthesize_streaming(text, {}, legacy);
+
+    const auto chunks = drain_stream(channel);
+    ASSERT_EQ(chunks.size(), 1U);
+
+    const auto sync = engine.synthesize(text);
+    ASSERT_EQ(chunks[0].samples.size(), sync.audio.samples.size());
+    for (std::size_t i = 0; i < sync.audio.samples.size(); ++i) {
+        ASSERT_EQ(chunks[0].samples[i], sync.audio.samples[i]) << "sample " << i;
+    }
 }
 
 TEST(Engine, MissingModelFailsAtConstruction) {
@@ -900,7 +990,53 @@ TEST(Engine, CancelsStreaming) {
     Engine engine(package.root(), fake_factory(/*stop_after=*/-1));
     auto channel = engine.synthesize_streaming("\xE4\xBD\xA0\xE5\xA5\xBD");
     EXPECT_TRUE(engine.cancel_streaming());
-    (void)channel;
+
+    // 取消后通道必须关闭，且取消**不算错误**（是调用方自己发起的）。
+    const auto chunks = drain_stream(channel, std::chrono::seconds(5));
+    EXPECT_TRUE(chunks.empty());
+    EXPECT_TRUE(channel->closed());
+    ASSERT_NE(channel->footer(), nullptr);
+    EXPECT_EQ(channel->footer()->error, std::nullopt);
+}
+
+TEST(Engine, StreamingFailureSurfacesInFooter) {
+    // 纯空白文本：语言检测落到英文 → 没有英文前端 → 合成失败。
+    // 错误必须出现在 footer 里，而不是像 M6 之前那样无声无息地
+    // 表现为"通道提前关闭"。
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory());
+
+    auto channel = engine.synthesize_streaming("   ");
+    const auto chunks = drain_stream(channel);
+    EXPECT_TRUE(chunks.empty());
+    EXPECT_TRUE(channel->closed());
+    ASSERT_NE(channel->footer(), nullptr);
+    ASSERT_NE(channel->footer()->error, std::nullopt);
+    EXPECT_EQ(channel->footer()->error->code(), ErrorCode::BackendUnavailable);
+
+    // 空文本同理。
+    auto empty_channel = engine.synthesize_streaming("");
+    (void)drain_stream(empty_channel);
+    ASSERT_NE(empty_channel->footer(), nullptr);
+    EXPECT_EQ(empty_channel->footer()->error->code(), ErrorCode::InvalidArgument);
+}
+
+TEST(Engine, StreamingCancelAcrossSegmentsLeavesNoError) {
+    // 多段文本，第一段解码永不结束 → 取消后必须安静收尾：
+    // 无错误 footer、通道关闭，后续段不再合成。
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory(/*stop_after=*/-1));
+
+    const std::string text =
+        "\xE4\xBD\xA0\xE5\xA5\xBD\xE3\x80\x82\xE4\xB8\x96\xE7\x95\x8C\xE3\x80\x82";  // 你好。世界。
+    auto channel = engine.synthesize_streaming(text);
+    EXPECT_TRUE(engine.cancel_streaming());
+
+    const auto chunks = drain_stream(channel, std::chrono::seconds(5));
+    EXPECT_TRUE(chunks.empty());
+    EXPECT_TRUE(channel->closed());
+    ASSERT_NE(channel->footer(), nullptr);
+    EXPECT_EQ(channel->footer()->error, std::nullopt);
 }
 
 // 信任模式（EngineConfig::verify_voice_package）：manifest 登记了错误的

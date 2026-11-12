@@ -7,6 +7,19 @@
 
 ### Added
 
+- **M6 流式合成分段与真分块输出**（2026-11-12）：`synthesize_streaming()`
+  按合成级规则分句（`src/text/segmenter`：句末终止符落刀、软终止符仅
+  超长回退、ASCII `.` 不切 —— 小数/时间安全），逐段走完
+  前端 → T2S → VITS 后立刻推一段音频，句间静音可配
+  （`StreamOptions::max_segment_chars` / `sentence_silence_ms`，置 0 回
+  旧整段行为）—— 首块延迟从端到端降为首句合成耗时。同步
+  `synthesize()` 不分句（上游一致性优先，行为逐字节不变）。配套：
+  `AudioChunkChannel` 流尾元数据 `StreamFooter`（全流分阶段耗时 +
+  失败原因，"关闭 ⇒ footer 可读"；取消不算错误）；`SchedulerConfig::
+  stream_capacity` 转正为流通道容量出口；修复"排队中即被取消的任务
+  永远不关通道"（kairo `RequestedBeforeStart` 不执行任务体，守护任务
+  兜底收口）。决策记录 `docs/architecture.md` §2.19、上游对照
+  `docs/upstream-audit.md` §25。
 - **M5 收官**（2026-11-11）：解码热路径两轮（-31% / -12% ms/token）、
   算子级 profiler、ORT Format 工具链（冷加载再 -23%）、量化阶梯两档
   （动态全量落地 + 静态裁决）全部收官。同机实测：加载后常驻
