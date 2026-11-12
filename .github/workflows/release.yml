@@ -138,7 +138,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build git curl ca-certificates file \
-            g++-aarch64-linux-gnu
+            python3-pip g++-aarch64-linux-gnu
       - uses: actions/checkout@v4
 
 
