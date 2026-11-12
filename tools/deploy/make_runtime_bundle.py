@@ -165,12 +165,19 @@ def main() -> None:
         print("[3/5] Windows 产物不 strip（MSVC 无 strip；PDB 不在产物内）")
     else:
         print("[3/5] strip 自有 ELF")
+        # 交叉产物：宿主 binutils 的 strip 不识别其他架构的 ELF
+        # （"Unable to recognise the architecture"），有对应交叉 strip 就用它。
+        arch = elf_arch(stage / "bin" / bin_name)
+        strip_tool = "strip"
+        if arch == "ARM aarch64" and shutil.which("aarch64-linux-gnu-strip"):
+            strip_tool = "aarch64-linux-gnu-strip"
+            print(f"    （aarch64 产物 → {strip_tool}）")
         targets = sorted((stage / "bin").glob("*")) + \
             sorted(p for p in (stage / "lib").glob("libgenie*")
                    if p.is_file() and not p.name.endswith(".a"))
         for t in targets:
             if t.is_file() and not t.is_symlink():
-                run(["strip", "--strip-unneeded", str(t)])
+                run([strip_tool, "--strip-unneeded", str(t)])
 
     # ---- 4) 版本 + 可运行性冒烟 ----
     version = version_from_install_tree(stage)

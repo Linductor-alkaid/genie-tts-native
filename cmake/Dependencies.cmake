@@ -61,9 +61,27 @@ if(NOT onnxruntime_FOUND AND GENIE_ONNXRUNTIME_ROOT)
         NO_DEFAULT_PATH)
     if(ORT_INCLUDE_DIR AND ORT_LIBRARY)
         add_library(onnxruntime::onnxruntime SHARED IMPORTED)
-        set_target_properties(onnxruntime::onnxruntime PROPERTIES
-            IMPORTED_LOCATION "${ORT_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${ORT_INCLUDE_DIR}")
+        if(WIN32)
+            # MSVC 链接要 import lib（.lib），运行时要 DLL —— 缺 IMPORTED_IMPLIB
+            # 会在 generate 期直接报错（"IMPORTED_IMPLIB not set"）。win-x64
+            # 预编译包的布局：lib/ 里同时有 onnxruntime.lib 与 onnxruntime.dll。
+            find_file(ORT_DLL
+                NAMES onnxruntime.dll
+                HINTS "${GENIE_ONNXRUNTIME_ROOT}/lib" "${GENIE_ONNXRUNTIME_ROOT}/bin"
+                NO_DEFAULT_PATH)
+            set_target_properties(onnxruntime::onnxruntime PROPERTIES
+                IMPORTED_IMPLIB "${ORT_LIBRARY}"
+                IMPORTED_LOCATION "${ORT_DLL}"
+                INTERFACE_INCLUDE_DIRECTORIES "${ORT_INCLUDE_DIR}")
+            if(NOT ORT_DLL)
+                message(WARNING "onnxruntime.dll not found under "
+                        "${GENIE_ONNXRUNTIME_ROOT} —— 部署侧要自行携带 DLL")
+            endif()
+        else()
+            set_target_properties(onnxruntime::onnxruntime PROPERTIES
+                IMPORTED_LOCATION "${ORT_LIBRARY}"
+                INTERFACE_INCLUDE_DIRECTORIES "${ORT_INCLUDE_DIR}")
+        endif()
         # 构建树里运行需要能找到版本化的 .so（预编译包的 libonnxruntime.so
         # 是指向 libonnxruntime.so.<ver> 的软链）。这里**刻意不**用裸的
         # `LINKER:-rpath` 链接旗标：CMake 对它无感知，install 期的 RPATH_CHANGE
