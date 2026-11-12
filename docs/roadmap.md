@@ -232,8 +232,9 @@
   `synthesize_one` 单段核心；句间静音与分段上限由 `StreamOptions` 配置；
   流尾元数据 `StreamFooter` 带全流耗时与失败原因 —— architecture.md
   §2.19、upstream-audit.md §25）
-- ⏳ 增量文本输入（分句器与单段核心已就位，剩 `StreamingSession`
-  feed / finish / cancel API）
+- ✅ 增量文本输入（2026-11-12：`StreamingSynthesis` 会话 —— feed / finish /
+  cancel，`complete_prefix` 增量抽取与整段切分同源等价；活跃期再开流抛
+  `Busy`）
 - ⏳ 流式性能测试（TTFA、缓冲区欠载、分句静音、爆音、取消响应时间、并发延迟）
 
 > 调度与并发基础设施由 kairo 提供，见 [architecture.md §2.4](architecture.md)。

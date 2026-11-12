@@ -41,7 +41,9 @@ typedef enum genie_status {
     GENIE_ERROR_CANCELLED = 7,
     GENIE_ERROR_TIMEOUT = 8,
     GENIE_ERROR_BACKEND_UNAVAILABLE = 9,
-    GENIE_ERROR_INTERNAL = 10
+    GENIE_ERROR_INTERNAL = 10,
+    /** 资源忙：引擎已有一个活跃的流式会话（M6 增量流式）。 */
+    GENIE_ERROR_BUSY = 11
 } genie_status;
 
 /** 语言。数值与 C++ 侧 genie::Language 一一对应。 */

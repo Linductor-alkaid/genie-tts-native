@@ -999,6 +999,114 @@ TEST(Engine, CancelsStreaming) {
     EXPECT_EQ(channel->footer()->error, std::nullopt);
 }
 
+TEST(Engine, IncrementalFeedAcrossFeedsCompletesSegment) {
+    // 半句话不出段；句号跨两次 feed 到齐后才成段合成。
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory());
+    auto session = engine.start_streaming();
+    auto channel = session->channel();
+
+    session->feed("\xE4\xBB\x8A\xE5\xA4\xA9\xE5\xA4\xA9\xE6\xB0\x94");  // 今天天气
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    {
+        AudioBuffer chunk;
+        EXPECT_FALSE(channel->try_pop(chunk)) << "半句话不该出段";
+    }
+
+    session->feed("\xE7\x9C\x9F\xE5\xA5\xBD\xE3\x80\x82");  // 真好。
+    const auto chunks = drain_stream(session->channel(), std::chrono::seconds(5));
+    ASSERT_EQ(chunks.size(), 1U);  // 只喂了一句，finish 之前只有这一段
+
+    session->finish();
+    (void)drain_stream(channel);
+    EXPECT_TRUE(session->finished());
+}
+
+TEST(Engine, IncrementalFeedMatchesOneShot) {
+    // 增量等价性：同一文本分多次喂入与一次性喂入，产出的音频块序列
+    // 逐样本一致（FakeSession 确定性；分句器两侧同源）。
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory());
+
+    const std::string text =
+        "\xE4\xBB\x8A\xE5\xA4\xA9\xE5\xA4\xA9\xE6\xB0\x94\xE7\x9C\x9F\xE5\xA5\xBD\xE3\x80\x82"
+        "\xE6\x88\x91\xE4\xBB\xAC\xE5\x8E\xBB\xE5\x85\xAC\xE5\x9B\xAD\xE6\x95\xA3\xE6\xAD\xA5"
+        "\xE5\x90\xA7\xE3\x80\x82";  // 今天天气真好。我们去公园散步吧。
+
+    const auto one_shot = drain_stream(engine.synthesize_streaming(text));
+
+    auto session = engine.start_streaming();
+    session->feed(text.substr(0, 12));  // 今天天气真好（半句）
+    session->feed(text.substr(12, 9));  // 。我
+    session->feed(text.substr(21));     // 们去公园散步吧。
+    session->finish();
+    const auto incremental = drain_stream(session->channel());
+
+    ASSERT_EQ(incremental.size(), one_shot.size());
+    for (std::size_t i = 0; i < one_shot.size(); ++i) {
+        ASSERT_EQ(incremental[i].samples.size(), one_shot[i].samples.size()) << "chunk " << i;
+        for (std::size_t j = 0; j < one_shot[i].samples.size(); ++j) {
+            ASSERT_EQ(incremental[i].samples[j], one_shot[i].samples[j])
+                << "chunk " << i << " sample " << j;
+        }
+    }
+}
+
+TEST(Engine, FeedAfterFinishThrows) {
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory());
+    auto session = engine.start_streaming();
+    session->feed("\xE4\xBD\xA0\xE5\xA5\xBD\xE3\x80\x82");
+    session->finish();
+    EXPECT_THROW(session->feed("\xE4\xB8\x96\xE7\x95\x8C\xE3\x80\x82"), Error);
+    (void)drain_stream(session->channel());
+}
+
+TEST(Engine, SecondSessionWhileActiveThrowsBusy) {
+    // 单流限制：活跃会话未终结时再开一条 → Busy；终结后可以开新的。
+    TempVoicePackage package;
+    // stop_after=-1 → 第一条流的解码永不结束，会话保持活跃。
+    Engine engine(package.root(), fake_factory(/*stop_after=*/-1));
+
+    auto first = engine.start_streaming();
+    first->feed("\xE4\xBD\xA0\xE5\xA5\xBD\xE3\x80\x82");
+
+    try {
+        (void)engine.start_streaming();
+        FAIL() << "expected Busy";
+    } catch (const Error& e) {
+        EXPECT_EQ(e.code(), ErrorCode::Busy);
+    }
+
+    first->cancel();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!first->finished() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    ASSERT_TRUE(first->finished());
+
+    // 终结之后：新会话放行。
+    auto second = engine.start_streaming();
+    second->feed("\xE4\xB8\x96\xE7\x95\x8C\xE3\x80\x82");
+    second->finish();
+    (void)drain_stream(second->channel());
+    EXPECT_TRUE(second->finished());
+}
+
+TEST(Engine, CancelIncrementalSessionQuietlyCloses) {
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory(/*stop_after=*/-1));
+    auto session = engine.start_streaming();
+    session->feed("\xE4\xBD\xA0\xE5\xA5\xBD\xE3\x80\x82");  // 解码永不结束
+
+    session->cancel();
+    const auto chunks = drain_stream(session->channel(), std::chrono::seconds(5));
+    EXPECT_TRUE(chunks.empty());
+    EXPECT_TRUE(session->finished());
+    ASSERT_NE(session->channel()->footer(), nullptr);
+    EXPECT_EQ(session->channel()->footer()->error, std::nullopt);
+}
+
 TEST(Engine, StreamingFailureSurfacesInFooter) {
     // 纯空白文本：语言检测落到英文 → 没有英文前端 → 合成失败。
     // 错误必须出现在 footer 里，而不是像 M6 之前那样无声无息地

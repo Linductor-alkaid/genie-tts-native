@@ -78,6 +78,72 @@ struct SynthesisResult {
     TimingReport timing;
 };
 
+/// 增量流式合成会话（M6）。
+///
+/// 与一次性的 synthesize_streaming() 不同，会话允许调用方把文本
+/// **分多次喂进来**（典型场景：ASR 的中间结果持续流入）——
+/// 每凑齐一个完整句段就立刻开始合成，音频从 channel() 里流出。
+///
+/// 生命周期：start_streaming() → feed()×N → finish()（或随时 cancel()）。
+///
+/// 线程安全：feed / finish / cancel 可从任意线程调用（内部有锁）；
+/// 但一个 Engine 同时只有一个**活跃**会话 —— 模型会话不是线程安全的，
+/// 活跃期间再次 start_streaming() 抛 Busy。
+///
+/// 结束语义与一次性接口一致：channel() 在全部句段合成完（或出错、
+/// 被取消）后关闭；"排空且已关闭"即结束，流尾元数据在 footer() 里。
+class StreamingSynthesis {
+public:
+    /// 丢弃会话即放弃这条流：析构请求取消并等待合成任务收尾
+    /// （worker 持有引擎指针，不能让它看到已析构的引擎）。
+    ~StreamingSynthesis();
+
+    StreamingSynthesis(const StreamingSynthesis&) = delete;
+    StreamingSynthesis& operator=(const StreamingSynthesis&) = delete;
+
+    /// 音频块通道。会话存活期间恒有效。
+    [[nodiscard]] std::shared_ptr<AudioChunkChannel> channel() const noexcept;
+
+    /// 喂入一段文本（线程安全）。
+    ///
+    /// 文本先累积，凑齐完整句段（句末终止符；超长时软终止符回退/硬切，
+    /// 规则与一次性接口同源 —— 增量喂入与一次性喂入产出相同的段序列）
+    /// 就投给合成循环。段队列**有界**：合成跟不上时 feed 阻塞（背压），
+    /// 阻塞期间会话被取消则抛 Cancelled。finish() 之后调用抛
+    /// InvalidArgument；空文本是 no-op。feed 的调用方应自行串行化
+    /// （引擎本身不是线程安全的）。
+    void feed(std::string_view text);
+
+    /// 输入结束：缓冲里的残余文本作为最后一个句段冲刷（线程安全）。
+    ///
+    /// 只标记"没有更多输入"，**不等待**合成完成 —— 完成信号仍是通道
+    /// 关闭。重复调用是 no-op；之后 feed 抛 InvalidArgument。
+    void finish();
+
+    /// 协作式取消：停止合成、关闭通道（线程安全）。重复调用安全。
+    ///
+    /// 取消**不算错误** —— footer 不带 error，通道关闭本身就是信号；
+    /// 已排队未合成的段与缓冲残余一并丢弃。
+    void cancel();
+
+    /// 会话是否已终结（合成完成 / 出错 / 被取消）。终结后即可开始
+    /// 下一条流 —— Engine 的单流限制以它为准。
+    [[nodiscard]] bool finished() const noexcept;
+
+private:
+    friend class Engine;
+    struct Impl;
+
+    /// Engine 专用构造。
+    explicit StreamingSynthesis(std::shared_ptr<Impl> impl);
+
+    /// 预设整条流的合成语言（一次性封装在检测后调用；增量喂入不预设时，
+    /// 以**第一个句段**检测为准，全流固定）。
+    void pin_language(Language language);
+
+    std::shared_ptr<Impl> impl_;
+};
+
 /// 合成引擎。
 ///
 /// 构造时加载音色包与模型；析构时释放。
@@ -160,7 +226,20 @@ public:
         std::string_view text, const SynthesisOptions& options = {},
         const StreamOptions& stream = {});
 
-    /// 取消最近一次流式合成。
+    /// 开启一条增量流式会话（M6）。
+    ///
+    /// 文本经 session->feed() 分多次喂入；已存在**未终结**的会话时抛
+    /// Busy（模型会话不是线程安全的，一个 Engine 同时只跑一条流）。
+    /// Engine 持有会话的一份内部引用（单流记账）；调用方放手会话对象
+    /// 即视为放弃这条流（析构请求取消）。
+    ///
+    /// @param options 合成参数
+    /// @param stream  分段参数（分句上限、句间静音）
+    /// @throws genie::Error Busy —— 已有活跃会话
+    [[nodiscard]] std::shared_ptr<StreamingSynthesis> start_streaming(
+        const SynthesisOptions& options = {}, const StreamOptions& stream = {});
+
+    /// 取消当前流式合成（一次性接口或增量会话）。
     ///
     /// @return 是否命中了一个仍在运行的合成任务
     bool cancel_streaming();
@@ -198,11 +277,13 @@ private:
         const std::string& prepared_text, Language language, const text::TextFrontend& frontend,
         const SynthesisOptions& options, const CancellationToken* cancelled, TimingReport& report);
 
-    /// 流式合成的任务体：分段 → 逐段 synthesize_one → 逐段推通道。
-    /// 所有失败都收敛为"footer.error + 关闭通道"，不会向调度器抛异常。
-    void synthesize_streamed(const std::string& text, const SynthesisOptions& options,
-                             const StreamOptions& stream, const CancellationToken* cancelled,
-                             AudioChunkChannel& channel);
+    /// 流式会话的任务体：取段 → 逐段 synthesize_one → 逐段推通道 →
+    /// eof 残余冲刷 → footer + 关闭通道。所有失败收敛为
+    /// "footer.error + 关闭通道"，不向调度器抛异常。
+    /// 逻辑放在 Engine（而不是会话类）上：它要碰会话选择器、前端工厂
+    /// 与单段核心 —— 全是引擎私有件。
+    void run_stream_session(std::shared_ptr<StreamingSynthesis::Impl> session,
+                            const CancellationToken& token);
 };
 
 }  // namespace genie

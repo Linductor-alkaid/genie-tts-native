@@ -74,6 +74,7 @@ static_assert(static_cast<int>(ErrorCode::Cancelled) == GENIE_ERROR_CANCELLED);
 static_assert(static_cast<int>(ErrorCode::Timeout) == GENIE_ERROR_TIMEOUT);
 static_assert(static_cast<int>(ErrorCode::BackendUnavailable) == GENIE_ERROR_BACKEND_UNAVAILABLE);
 static_assert(static_cast<int>(ErrorCode::Internal) == GENIE_ERROR_INTERNAL);
+static_assert(static_cast<int>(ErrorCode::Busy) == GENIE_ERROR_BUSY);
 
 extern "C" {
 

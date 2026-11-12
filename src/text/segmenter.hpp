@@ -42,6 +42,29 @@ namespace genie::text {
 [[nodiscard]] std::vector<std::string> split_for_synthesis(std::string_view text,
                                                            std::size_t max_chars);
 
+/// 增量喂入的一个可成段前缀（complete_prefix 的返回值）。
+struct SegmentPrefix {
+    /// 开头应**丢弃**的字节数 —— 纯终止符构成的前缀（如 `……你好` 的
+    /// `……`），与 split 的"纯标点前缀丢弃"规则一致。
+    std::size_t skip = 0;
+    /// 段在原串中结束的字节偏移。段文本为 [skip, end)；
+    /// skip ≤ end；end == 0 表示还没有完整段（调用方继续攒文本）。
+    std::size_t end = 0;
+};
+
+/// 增量喂入：text 的开头有没有"已经完整"的句段？
+///
+/// 规则与 split_for_synthesis 严格同源（同一套终止符集合、同一条
+/// "软终止符仅超长回退、超限遇边界推迟落刀"的规则），喂入侧反复调用
+/// 它抽取完整段、把残余留在缓冲里，产出与"整段一次 split"相同的段序列
+/// —— 增量喂入与一次性喂入的可观测行为必须一致，这条由引擎测试锁定。
+/// 两处与 split 的**有意差异**（增量场景的本质）：
+///   - split 会对段的收尾空白做修剪，这里返回原始切点（空白交给前端
+///     的规范化吃掉，音频等价）；
+///   - split 在文本末尾对残余做收尾交付，这里由调用方的 finish/冲刷
+///     逻辑负责 —— 文本还没喂完就不能把残余当成段。
+[[nodiscard]] SegmentPrefix complete_prefix(std::string_view text, std::size_t max_chars);
+
 }  // namespace genie::text
 
 #endif  // GENIE_SRC_TEXT_SEGMENTER_HPP

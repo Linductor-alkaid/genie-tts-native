@@ -7,6 +7,16 @@
 
 ### Added
 
+- **M6 增量流式会话 `StreamingSynthesis`**（2026-11-12）：`Engine::start_streaming()`
+  返回会话对象，`feed()` 分多次喂入文本（ASR 中间结果场景）、`finish()` 冲刷
+  残余、`cancel()` 随时取消；每凑齐一个完整句段（句末终止符；超长软/硬切，
+  `genie::text::complete_prefix` 与整段切分严格同源 —— 逐字节喂入与一次性
+  喂入产出相同段序列，测试锁定）即开始合成。段队列有界（feed 阻塞背压），
+  单流限制以 `finished()` 为准、活跃期再开流抛新增错误码 `Busy`（C ABI
+  同步 `GENIE_ERROR_BUSY = 11`）。一次性 `synthesize_streaming(text)` 重写为
+  `start + pin_language + feed + finish` 封装 —— 两条入口一份 worker 逻辑；
+  修复会话所有权缺陷（封装返回即析构会话 → worker 队列中被取消扼杀，
+  Engine 改持公开对象保活）。决策记录 `docs/architecture.md` §2.19。
 - **M6 流式合成分段与真分块输出**（2026-11-12）：`synthesize_streaming()`
   按合成级规则分句（`src/text/segmenter`：句末终止符落刀、软终止符仅
   超长回退、ASCII `.` 不切 —— 小数/时间安全），逐段走完
