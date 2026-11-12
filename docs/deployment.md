@@ -339,7 +339,12 @@ python3 tools/deploy/quantize_package.py \
 - manifest 包级 `weight_format: "int8"` 只描述默认值；加载行为按逐模型
   覆盖裁决（`include/genie/voice_package.hpp` 的 `ModelEntry::weight_format`）。
 
-### 5.5.1 可选：静态 INT8（QDQ，Conv 参与量化）
+### 5.5.1 可选：静态 INT8（QDQ，Conv 参与量化）—— opt-in 第二档
+
+> **定位（2026-11-12）**：推荐定版是 §5.5 的**动态档 + bin 去重**。
+> 静态档实测净收益收窄到 vits 一个角色（-47 MB 常驻换 +0.9 s 冷加载，
+> 合成不快反慢），只在前述交换可接受的部署上使用；实测数据与听测
+> 记录见 `docs/performance.md` §静态 INT8。
 
 动态档只量化 MatMul/Gemm 的常量权重侧；要量化 **Conv**（第二档，M5）用
 静态档 —— `quantize_static` + QDQ 在图内插 QuantizeLinear/DequantizeLinear。
@@ -365,7 +370,12 @@ python3 tools/deploy/quantize_package.py --static \
 - 量化 bin 内容相同的角色自动去重（t2s 双解码器共享权重，包体
   -288 MB；注意 QDQ 图的初始化器布局不同，去重只在动态档自动生效）。
 
-### 5.6 可选：ORT Format 包（离线图优化，压冷启动）
+### 5.6 可选：ORT Format 包（离线图优化，压冷启动）—— opt-in
+
+> **定位（2026-11-12）**：主要动机（摊薄静态 vits 档的 QDQ 冷加载）随
+> 推荐形态改回动态档而弱化（§5.5.1）。现在只推荐给"本地磁盘、启动敏感"
+> 的部署：冷加载 -23% 换包体 +13% 与版本绑定（见下）。磁盘受限或需要
+> 跨环境分发用 .onnx 形态。
 
 在量化之后的最后一环：把每个角色的 .onnx 用 ORT **离线**图优化后
 序列化为自包含 `.ort`。图融合 / 常量折叠在离线完成，运行期只做执行

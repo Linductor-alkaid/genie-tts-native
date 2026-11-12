@@ -7,6 +7,14 @@
 
 ### Added
 
+- **M7 文档收口**（2026-11-12）：`docs/troubleshooting.md`（按症状组织的
+  故障排查：构建/加载、合成行为、内存与性能、打包分发、音色包与量化，
+  每条附 audit / performance.md 依据）；`docs/performance.md` 新增
+  §优化指南（按目标——低延迟/小内存/小磁盘/快启动——给实测旋钮矩阵，
+  标注"不可再省"的三件事）；推荐形态措辞修订（2026-11-12 定版改回
+  **动态 INT8 + bin 去重**，静态 vits 档与 ORT Format 转 opt-in，
+  deployment.md §5.5.1/§5.6 同步标注；历史实测数据不动）。
+
 - **二进制发布流水线**（2026-11-12）：`.github/workflows/release.yml` ——
   tag 推送（`v*`）触发三平台构建（linux-x64 全量 ctest、linux-aarch64
   交叉编译、windows-x64 **首次在发布链启用 ORT**），各自产出运行时
