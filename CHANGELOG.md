@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-11-12
+
+本版本是**端侧与发布工程化专版**：M6 低延迟流式（分句分块、增量会话，
+TTFA 2.3 s 起）、M7 发布链（ARM64 交叉编译 CI、运行时 bundle 打包、
+tag 触发的三平台自动发布）、端侧最小包 `--preset` 与动态 INT8 混合精度
+定版；另修复一个此前所有版本都携带的 C ABI 缺陷（`libgenie_tts.so`
+对真实推理必然抛 `BackendUnavailable` —— 见 Fixed 首条）。
+发布产物捆绑 ONNX Runtime 1.31.0（linux-x64 / linux-aarch64 /
+windows-x64，见 GitHub Release）。
+
 ### Added
 
 - **M7 文档收口**（2026-11-12）：`docs/troubleshooting.md`（按症状组织的
@@ -163,6 +173,19 @@
 
 ### Fixed
 
+- **增量流式会话的一次性路径死锁**（2026-11-12，#62 引入）：一次性封装在同
+  线程 feed，消费者还没拿到通道就开始抽 —— 段队列（8）与音频通道（64）
+  双双打满时，feed 等 worker 取段、worker 等 audio 背压缓解、消费者等封装
+  返回，三方互等且喂入侧无法自救。修复：一次性文本以 `initial_text` 预置
+  给 worker，worker 侧用 `split_for_synthesis` 预切段、绕过段队列 —— 同时
+  恢复 PR1 的入口检查序（空文本先于语言检测报 InvalidArgument、纯空白
+  文本报"缺前端"而非"没切段"）。PR1 全部测试原样通过。
+- **回归测试的会话登记竞态**（2026-11-12，master tsan CI 偶发"黄金快照
+  缺 stage/vits"的根因）：M5 的跨会话并行加载（§2.14）让 `SessionFactory`
+  在 Engine 构造期被多线程并发调用，`Regression.ModelIoTraceMatchesGolden`
+  的测试工厂不加锁往 `std::map` 里登记会话 —— 丢失更新随机吞掉尾部模型
+  的记录（实测约 1/40）。工厂加锁修复；`SessionFactory` 的公开文档补上
+  "可能被并发调用、实现必须线程安全"的契约说明。
 - **C ABI 共享库（libgenie_tts.so）链接序错误 —— 真实推理必然抛
   BackendUnavailable**（2026-11-12）：`genie_core` 的 session_factory.cpp（桩）
   与 `genie_ort` 的 ort_backend.cpp（真实现）按"两种构建同名配对"约定定义同名
@@ -194,22 +217,6 @@
 数字只在同硬件 + 同 ORT 版本上可比；跨轮次的绝对值有几百毫秒的漂移
 （本机就出现过同配置 3766 / 3952 ms 两轮读数），测量环境由 bench 的 JSON
 自证，原始记录在 `docs/benchmarks/`。
-
-### Fixed
-
-- **回归测试的会话登记竞态**（2026-11-12，master tsan CI 偶发"黄金快照
-  缺 stage/vits"的根因）：M5 的跨会话并行加载（§2.14）让 `SessionFactory`
-  在 Engine 构造期被多线程并发调用，`Regression.ModelIoTraceMatchesGolden`
-  的测试工厂不加锁往 `std::map` 里登记会话 —— 丢失更新随机吞掉尾部模型
-  的记录（实测约 1/40）。工厂加锁修复；`SessionFactory` 的公开文档补上
-  "可能被并发调用、实现必须线程安全"的契约说明。
-- **增量流式会话的一次性路径死锁**（2026-11-12，#62 引入）：一次性封装在同
-  线程 feed，消费者还没拿到通道就开始抽 —— 段队列（8）与音频通道（64）
-  双双打满时，feed 等 worker 取段、worker 等 audio 背压缓解、消费者等封装
-  返回，三方互等且喂入侧无法自救。修复：一次性文本以 `initial_text` 预置
-  给 worker，worker 侧用 `split_for_synthesis` 预切段、绕过段队列 —— 同时
-  恢复 PR1 的入口检查序（空文本先于语言检测报 InvalidArgument、纯空白
-  文本报"缺前端"而非"没切段"）。PR1 全部测试原样通过。
 
 ### Added
 
@@ -809,7 +816,8 @@
   ONNX Runtime 的全局随机种子。
 - 重采样使用自带的窗函数法带限 sinc 实现，非上游的 `soxr 'hq'`。
   量化差异见 `docs/architecture.md`。
-[Unreleased]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.3.1...v0.4.0
 [v0.3.1]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.3.0...v0.3.1
 [v0.3.0]: https://github.com/Linductor-alkaid/genie-tts-native/compare/v0.2.0...v0.3.0
