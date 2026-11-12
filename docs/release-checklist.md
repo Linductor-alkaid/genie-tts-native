@@ -30,15 +30,29 @@
 
 ## 发版
 
+二进制产物与 Release 由 `.github/workflows/release.yml` 自动完成
+（tag 推送触发；三平台 bundle：linux-x64 / linux-aarch64 / windows-x64，
+捆绑的 ONNX Runtime 版本写在 workflow 的
+`ONNXRUNTIME_RELEASE_VERSION`，当前 1.31.0 —— 与 `docs/performance.md`
+的实测口径一致；ci.yml 的 1.22.0 是编译验证口径，两者刻意不同）：
+
+- [ ] 首次或改动后先 **dry run**：master 上手动触发
+      `Release` workflow（`workflow_dispatch`，勾选 dry_run）——
+      只构建三平台产物，不建 Release；全部绿再进下一步
 - [ ] 从 `master` 打 tag（**不要**从分支打）：
 
   ```bash
-  git tag -a v0.4.0 -m "v0.4.0"
-  git push origin v0.4.0
+  git tag -a v0.5.0 -m "v0.5.0"
+  git push origin v0.5.0
   ```
 
-- [ ] 建 GitHub Release，把 `CHANGELOG.md` 里对应段落贴进去
-- [ ] Release 里写清楚**已知限制**（不要只写好消息）
+- [ ] `publish` job 自动完成：版本一致性检查（产物 `genie-tts version`
+      == tag，历史上两次漏 bump 的自动化防线）→ 从 CHANGELOG 提取
+      对应段作 Release 说明 → 挂产物与 sha256
+- [ ] Release 页面人工补一段**已知限制**（不要只写好消息；可从下面的
+      "已知限制"分类里挑适用项）
+- [ ] dry run 是验证新平台/新 ORT 版本的途径：改了
+      `release.yml` 或 `make_runtime_bundle.py` 之后必须重跑一次
 
 ## 发版后
 
@@ -50,6 +64,9 @@
   ```
 
 - [ ] 确认导出的符号集干净（`nm -D` 只应有 `genie_*`）
+- [ ] 下载 Release 的 bundle，解包直跑（无 LD_LIBRARY_PATH）：
+      `genie-tts version`、用 §4.1 的 min 音色包合成一句话
+- [ ] Windows 产物需要目标机装 VC 运行时（/MD 链接）—— Release 说明里写明
 
 ## v0.4.0 的已知限制
 

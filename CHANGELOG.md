@@ -7,6 +7,17 @@
 
 ### Added
 
+- **二进制发布流水线**（2026-11-12）：`.github/workflows/release.yml` ——
+  tag 推送（`v*`）触发三平台构建（linux-x64 全量 ctest、linux-aarch64
+  交叉编译、windows-x64 **首次在发布链启用 ORT**），各自产出运行时
+  bundle；`publish` job 做版本一致性检查（产物 `genie-tts version` ==
+  tag —— 历史上两次漏 bump 版本号的自动化防线）、从 CHANGELOG 提取
+  对应段、`gh release create` 挂产物与 sha256。产物捆绑 ONNX Runtime
+  **1.31.0**（与 M5 性能实测口径一致；ci.yml 的 1.22.0 是编译验证口径，
+  两者刻意不同，workflow 注释写明）。支持 `workflow_dispatch` + dry_run
+  （只构建不发布）作为无 tag 的验证路径；`docs/release-checklist.md`
+  发版段同步改为自动化流程。
+
 - **音色包预设 `--preset {full,min-zh,min-zh-roberta}`（端侧最小包）**
   （2026-11-12）：`make_voice_package.py` 把"选哪些角色"固化成预设 ——
   min-zh（核心 4 角色 + 自动带仓库 g2pm/jieba，默认 fp16，磁盘 ~270/~450 MB）
