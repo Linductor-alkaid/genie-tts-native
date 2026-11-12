@@ -56,6 +56,16 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake")
 # --------------------------------------------------------------------------------------
 # 目标
 # --------------------------------------------------------------------------------------
+# 安装后的二进制在 lib/ 里找 libonnxruntime.so：bundle / `cmake --install` 的
+# 布局都是 bin/ 与 lib/ 平级（Windows 的 DLL 装进 bindir 与 exe 同目录，
+# 不需要 rpath）。不设这个的话，装出来的 genie-tts 只能靠构建期 rpath
+# （指向构建机上的 ORT 目录）活着，换台机器就断。
+# 注意必须在 add_subdirectory 之前：CMAKE_INSTALL_RPATH 只在 target 创建
+# 时刻初始化 INSTALL_RPATH 属性，对已创建的 target 不生效。
+if(UNIX)
+    set(CMAKE_INSTALL_RPATH "\$ORIGIN/../lib")
+endif()
+
 # OpenJTalk（日语音素转换）：**内置**的第三方 C++ 代码（BSD ✓），
 # 源码在 third_party/openjtalk/ —— 词典不在仓库里（103 MB ✓），
 # 运行时由音色包给出路径 ✓。

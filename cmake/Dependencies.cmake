@@ -60,17 +60,16 @@ if(NOT onnxruntime_FOUND AND GENIE_ONNXRUNTIME_ROOT)
         HINTS "${GENIE_ONNXRUNTIME_ROOT}/lib" "${GENIE_ONNXRUNTIME_ROOT}/lib64"
         NO_DEFAULT_PATH)
     if(ORT_INCLUDE_DIR AND ORT_LIBRARY)
-        get_filename_component(ORT_LIBDIR "${ORT_LIBRARY}" DIRECTORY)
         add_library(onnxruntime::onnxruntime SHARED IMPORTED)
         set_target_properties(onnxruntime::onnxruntime PROPERTIES
             IMPORTED_LOCATION "${ORT_LIBRARY}"
             INTERFACE_INCLUDE_DIRECTORIES "${ORT_INCLUDE_DIR}")
-        # 运行时需要能找到版本化的 .so —— 预编译包里的 libonnxruntime.so 通常是
-        # 指向 libonnxruntime.so.<ver> 的相对软链，rpath 指到 lib 目录即可。
-        set_property(TARGET onnxruntime::onnxruntime APPEND PROPERTY
-            INTERFACE_LINK_OPTIONS
-                "LINKER:-rpath,${ORT_LIBDIR}"
-                "LINKER:-rpath-link,${ORT_LIBDIR}")
+        # 构建树里运行需要能找到版本化的 .so（预编译包的 libonnxruntime.so
+        # 是指向 libonnxruntime.so.<ver> 的软链）。这里**刻意不**用裸的
+        # `LINKER:-rpath` 链接旗标：CMake 对它无感知，install 期的 RPATH_CHANGE
+        # 剥不掉，装出来的产物会永久带着构建机路径。交给 CMake 的自动机制
+        # —— 非系统目录的 IMPORTED 共享库会自动进构建期 RPATH，install 时
+        # 被 CMAKE_INSTALL_RPATH（顶层 CMakeLists，$ORIGIN/../lib）整体替换。
         set(onnxruntime_FOUND TRUE)
         message(STATUS "ONNX Runtime found at ${GENIE_ONNXRUNTIME_ROOT}")
     endif()

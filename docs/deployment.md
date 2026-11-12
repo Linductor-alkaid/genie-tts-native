@@ -389,6 +389,38 @@ python3 tools/deploy/convert_package_to_ort.py \
 - manifest 顶层 `model_format: "ort"` 是给部署侧的标记（引擎忽略未知
   字段）；`weight_format` 语义不变。
 
+### 5.7 运行时 bundle（分发包）
+
+把引擎 + ONNX Runtime 组装成一个解包即用的 tar.gz（Windows 为 zip），
+带逐文件 sha256 的体积清单：
+
+```bash
+cmake --preset release -DGENIE_ONNXRUNTIME_ROOT=~/tools/onnxruntime
+cmake --build --preset release
+
+python3 tools/deploy/make_runtime_bundle.py \
+    --build-dir build/release \
+    --ort-root ~/tools/onnxruntime \
+    --tag linux-x64 --ort-version 1.31.0 \
+    --output-dir dist/
+# → dist/genie-tts-runtime-<版本>-linux-x64.tar.gz（~17 MB）
+#   dist/….sha256
+```
+
+- **布局**：`bin/`（genie-tts / genie-bench / genie-gate）+ `lib/`
+  （libgenie_tts.so + libonnxruntime.so*，软链结构原样保留）+ SDK 部分
+  （`include/`、`lib/cmake/genie`，照 install 规则安装）+
+  `BUNDLE_MANIFEST.txt`。装什么由既有 install 规则说了算，脚本只补
+  ORT 共享库、strip、清单与压缩三件事。
+- **rpath**：安装产物用 `$ORIGIN/../lib`（顶层 `CMAKE_INSTALL_RPATH`）——
+  解包后不设 `LD_LIBRARY_PATH` 也能跑；bundle 内的 `genie-tts version`
+  冒烟由脚本自动执行，交叉构建（aarch64）跳过运行冒烟、走 `file`
+  架构校验，版本号从安装树的 `include/genie/version.hpp` 解析。
+- **嵌入音色包**（本地端侧交付可选）：`--voice-package ~/voice-packages/feibi-min`
+  会把包复制进 bundle 的 `packages/`。
+- **交叉构建**：`cmake --preset arm64-release`（见 §2 与 CI 的 arm64 job）
+  构建后同一条命令，`--tag linux-aarch64`。
+
 ---
 
 ## 6. 部署注意事项
