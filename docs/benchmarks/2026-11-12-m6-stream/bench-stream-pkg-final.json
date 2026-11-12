@@ -1,0 +1,22 @@
+{
+  "mode": "stream",
+  "model": "/home/ybt/genie-assets/quant-exp/pkg-final",
+  "version": "0.4.0",
+  "environment": {"ort": "1.31.0", "os": "Linux 6.8.0-124-generic x86_64", "cpu": "13th Gen Intel(R) Core(TM) i9-13900KF"},
+  "threads": 8, "spinning": 0, "graph_opt": 3, "arena": 1, "mem_pattern": 1, "parallel_prepack": 0, "io_binding": 0, "runs": 5, "warmup": 1, "max_segment_chars": 100, "sentence_silence_ms": 150,
+  "peak_rss_kb": 2578200,
+  "rss_after_load_kb": 1190592,
+  "rss_end_kb": 2578200,
+  "errors": 0,
+  "verify_voice_package": false,
+  "load": {"total_ms":2439.311,"stages":[{"name":"load/voice_package","ms":0.202,"count":1},{"name":"load/sessions","ms":1904.875,"count":1},{"name":"load/t2s_encoder","ms":22.951,"count":1},{"name":"load/t2s_first_stage_decoder","ms":490.159,"count":1},{"name":"load/t2s_stage_decoder","ms":461.831,"count":1},{"name":"load/vits","ms":1904.247,"count":1},{"name":"load/prompt_encoder","ms":42.260,"count":1},{"name":"load/speaker_verification","ms":433.860,"count":1},{"name":"load/roberta","ms":281.570,"count":1},{"name":"load/chinese_hubert","ms":149.247,"count":1},{"name":"load/jieba","ms":72.152,"count":1},{"name":"load/english_frontend","ms":25.900,"count":1},{"name":"load/g2pm","ms":12.698,"count":1},{"name":"load/roberta_tokenizer","ms":0.371,"count":1},{"name":"load/reference","ms":97.817,"count":1},{"name":"load/reference_ssl","ms":77.359,"count":1},{"name":"load/reference_bert","ms":18.763,"count":1},{"name":"load/global_embeddings","ms":192.005,"count":1},{"name":"load/release_load_only_models","ms":37.151,"count":1}]},
+  "texts": [
+    {"text": "今天早上我在地铁上刷到了一个特别有意思的视频，讲的是为什么深夜的地铁总是比白天更安静。后来我想了想，大概是因为深夜赶路的人心里都有各自的目的地，不需要再和这个世界解释什么。到站之后我沿着平时不走的那条小路回家，路灯把影子拉得很长，风里已经有了秋天的味道。", "ttfa_ms": {"mean": 4731.06, "min": 4547.83, "median": 4778.05, "max": 4806.43}, "total_ms": {"mean": 14646.3, "min": 14157.7, "median": 14567.5, "max": 15023.8}, "rtf": {"mean": 0.5432, "min": 0.5295, "median": 0.5442, "max": 0.5577}, "chunks": {"mean": 3.0, "min": 3.0, "median": 3.0, "max": 3.0}, "max_gap_ms": {"mean": 5136.28, "min": 4932.25, "median": 5120.13, "max": 5431.12}, "audio_seconds": {"mean": 26.964, "min": 26.460, "median": 26.940, "max": 27.500}, "iterations": {"mean": 669.6, "min": 657.0, "median": 669.0, "max": 683.0}, "samples": [
+      {"ttfa_ms": 4547.83, "total_ms": 14157.7, "rtf": 0.5295, "chunks": 3, "max_gap_ms": 5120.13, "audio_seconds": 26.740, "iterations": 664},
+      {"ttfa_ms": 4778.05, "total_ms": 14567.5, "rtf": 0.5505, "chunks": 3, "max_gap_ms": 4943.08, "audio_seconds": 26.460, "iterations": 657},
+      {"ttfa_ms": 4738.14, "total_ms": 14517.6, "rtf": 0.5341, "chunks": 3, "max_gap_ms": 4932.25, "audio_seconds": 27.180, "iterations": 675},
+      {"ttfa_ms": 4806.43, "total_ms": 15023.8, "rtf": 0.5577, "chunks": 3, "max_gap_ms": 5431.12, "audio_seconds": 26.940, "iterations": 669},
+      {"ttfa_ms": 4784.83, "total_ms": 14964.9, "rtf": 0.5442, "chunks": 3, "max_gap_ms": 5254.83, "audio_seconds": 27.500, "iterations": 683}
+    ]}
+  ]
+}

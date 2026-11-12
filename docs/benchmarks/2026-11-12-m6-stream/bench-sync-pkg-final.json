@@ -1,0 +1,32 @@
+{
+  "model": "/home/ybt/genie-assets/quant-exp/pkg-final",
+  "version": "0.4.0",
+  "environment": {"ort": "1.31.0", "os": "Linux 6.8.0-124-generic x86_64", "cpu": "13th Gen Intel(R) Core(TM) i9-13900KF"},
+  "threads": 8, "spinning": 0, "graph_opt": 3, "arena": 1, "mem_pattern": 1, "parallel_prepack": 0, "io_binding": 0, "runs": 5, "warmup": 1,
+  "peak_rss_kb": 2633556,
+  "rss_after_load_kb": 1232024,
+  "rss_end_kb": 2374492,
+  "errors": 0,
+  "verify_voice_package": false,
+  "profile_output_dir": "",
+  "load": {"total_ms":2477.513,"stages":[{"name":"load/voice_package","ms":0.208,"count":1},{"name":"load/sessions","ms":1918.243,"count":1},{"name":"load/t2s_encoder","ms":23.273,"count":1},{"name":"load/t2s_first_stage_decoder","ms":486.417,"count":1},{"name":"load/t2s_stage_decoder","ms":471.593,"count":1},{"name":"load/vits","ms":1917.541,"count":1},{"name":"load/prompt_encoder","ms":41.197,"count":1},{"name":"load/speaker_verification","ms":413.424,"count":1},{"name":"load/roberta","ms":269.811,"count":1},{"name":"load/chinese_hubert","ms":129.043,"count":1},{"name":"load/jieba","ms":73.043,"count":1},{"name":"load/english_frontend","ms":25.447,"count":1},{"name":"load/g2pm","ms":12.503,"count":1},{"name":"load/roberta_tokenizer","ms":0.380,"count":1},{"name":"load/reference","ms":97.732,"count":1},{"name":"load/reference_ssl","ms":84.842,"count":1},{"name":"load/reference_bert","ms":18.618,"count":1},{"name":"load/global_embeddings","ms":211.735,"count":1},{"name":"load/release_load_only_models","ms":34.741,"count":1}]},
+  "texts": [
+    {"text": "今天早上我在地铁上刷到了一个特别有意思的视频，讲的是为什么深夜的地铁总是比白天更安静。后来我想了想，大概是因为深夜赶路的人心里都有各自的目的地，不需要再和这个世界解释什么。到站之后我沿着平时不走的那条小路回家，路灯把影子拉得很长，风里已经有了秋天的味道。", "rtf": {"mean": 0.752, "min": 0.747, "median": 0.753, "max": 0.754}, "audio_seconds": {"mean": 19.960}, "total_wall_ms": {"mean": 15005.9, "min": 14901.7, "max": 15053.3}, "cpu_cores": {"mean": 3.56}, "iterations": {"mean": 500.0, "min": 500, "max": 500}, "stages": [
+      {"name": "language_detect", "ms": {"mean": 0.001, "min": 0.001, "max": 0.001, "median": 0.001}},
+      {"name": "frontend", "ms": {"mean": 1.618, "min": 1.587, "max": 1.679, "median": 1.601}},
+      {"name": "text_bert", "ms": {"mean": 35.405, "min": 33.655, "max": 36.950, "median": 35.588}},
+      {"name": "t2s/encoder", "ms": {"mean": 1.972, "min": 1.764, "max": 2.297, "median": 1.920}},
+      {"name": "t2s/first_stage", "ms": {"mean": 92.903, "min": 85.176, "max": 103.170, "median": 88.989}},
+      {"name": "t2s/stage_decoder", "ms": {"mean": 12207.681, "min": 12149.354, "max": 12248.302, "median": 12210.590}},
+      {"name": "t2s", "ms": {"mean": 12318.337, "min": 12252.218, "max": 12355.247, "median": 12326.531}},
+      {"name": "vocoder", "ms": {"mean": 2650.169, "min": 2613.864, "max": 2666.689, "median": 2658.061}}
+    ],
+    "samples": [
+      {"wall_ms": 15053.3, "rtf": 0.7542, "cpu_cores": 3.55, "iterations": 500, "stages": {"language_detect": 0.001, "frontend": 1.590, "text_bert": 35.588, "t2s/encoder": 2.297, "t2s/first_stage": 103.170, "t2s/stage_decoder": 12227.791, "t2s": 12349.104, "vocoder": 2666.689}},
+      {"wall_ms": 15029.1, "rtf": 0.7530, "cpu_cores": 3.56, "iterations": 500, "stages": {"language_detect": 0.001, "frontend": 1.587, "text_bert": 36.813, "t2s/encoder": 1.806, "t2s/first_stage": 98.495, "t2s/stage_decoder": 12210.590, "t2s": 12326.531, "vocoder": 2663.836}},
+      {"wall_ms": 14901.7, "rtf": 0.7466, "cpu_cores": 3.56, "iterations": 500, "stages": {"language_detect": 0.001, "frontend": 1.635, "text_bert": 33.655, "t2s/encoder": 1.920, "t2s/first_stage": 85.176, "t2s/stage_decoder": 12149.354, "t2s": 12252.218, "vocoder": 2613.864}},
+      {"wall_ms": 15039.6, "rtf": 0.7535, "cpu_cores": 3.57, "iterations": 500, "stages": {"language_detect": 0.001, "frontend": 1.601, "text_bert": 34.016, "t2s/encoder": 2.074, "t2s/first_stage": 88.989, "t2s/stage_decoder": 12248.302, "t2s": 12355.247, "vocoder": 2648.393}},
+      {"wall_ms": 15005.6, "rtf": 0.7518, "cpu_cores": 3.56, "iterations": 500, "stages": {"language_detect": 0.001, "frontend": 1.679, "text_bert": 36.950, "t2s/encoder": 1.764, "t2s/first_stage": 88.685, "t2s/stage_decoder": 12202.367, "t2s": 12308.586, "vocoder": 2658.061}}
+    ]}
+  ]
+}
