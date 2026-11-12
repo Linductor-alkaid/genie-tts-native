@@ -124,7 +124,15 @@ def main() -> None:
 
     ort_root = args.ort_root.resolve()
     is_windows = args.tag.startswith("windows")
-    ort_libdir = ort_root / "bin" if is_windows else ort_root / "lib"
+    if is_windows:
+        # win-x64 预编译包把 DLL 与 .lib 一起放在 lib\（没有 bin\）；老布局
+        # 可能拆在 bin\ —— 两处都找，取真有 DLL 的那份。
+        candidates = [ort_root / "lib", ort_root / "bin"]
+        ort_libdir = next((d for d in candidates
+                           if d.is_dir() and any(d.glob("onnxruntime*.dll"))),
+                          ort_root / "lib")
+    else:
+        ort_libdir = ort_root / "lib"
 
     stage = args.output_dir.resolve() / "stage"
     if stage.exists():

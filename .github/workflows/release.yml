@@ -207,7 +207,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          "$env:GENIE_ONNXRUNTIME_ROOT\bin" | Out-File -Append -FilePath $env:GITHUB_PATH
+          # win-x64 预编译包的 DLL 与 .lib 一起在 lib\（没有 bin\ 目录）——
+          # PATH 加错目录时测试会从 runner 预装路径捞到一个旧版 onnxruntime.dll
+          # （实测捞到 1.17.1：API 版本不符直接段错误）。
+          "$env:GENIE_ONNXRUNTIME_ROOT\lib" | Out-File -Append -FilePath $env:GITHUB_PATH
 
       - name: Configure
         run: >
