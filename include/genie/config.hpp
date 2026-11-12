@@ -69,6 +69,24 @@ struct SynthesisOptions {
     bool normalize_output = false;
 };
 
+/// 流式合成的分段参数（M6 低延迟流式）。
+///
+/// 分段只在**流式**路径生效：同步 `synthesize()` 不分句（上游一致性优先，
+/// 整段文本仍是一次解码）；流式路径把文本切成句段、逐段合成后立刻
+/// 推送音频 —— 等价于上游"长文本调用方自己分句多次合成再拼音频"
+/// 的用法（docs/upstream-audit.md §24.1/§24.3）。
+struct StreamOptions {
+    /// 单段字符数上限（按码点计，非字节）。0 = 不分句（整段一个块，
+    /// 即 M6 之前的旧行为）。默认 100：一段 100 字的语义 token 约
+    /// 100~200 个，离解码上限（500 次）还有安全余量。
+    std::size_t max_segment_chars = 100;
+
+    /// 句间静音时长（毫秒）。插在**前一段**音频的尾部（除最后一段），
+    /// 模拟自然句间停顿；0 = 不插。静音按引擎的实际采样率折算样本数
+    /// （不是 `output_sample_rate` 的标称值 —— 后者目前只是改标）。
+    int sentence_silence_ms = 150;
+};
+
 /// ONNX Runtime 会话级配置。用于 CPU 线程与图优化调优（M5.3）。
 struct SessionConfig {
     /// intra-op 线程数。0 = 由 ORT 自行决定。

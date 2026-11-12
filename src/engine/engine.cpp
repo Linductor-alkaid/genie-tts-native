@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -27,6 +28,7 @@
 #include "genie/reference.hpp"
 #include "genie/symbols.hpp"
 #include "text/frontend_factory_internal.hpp"
+#include "text/segmenter.hpp"
 
 namespace genie {
 namespace {
@@ -557,11 +559,26 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
                     "no text frontend for language: " + language_to_string(language) + " —— " +
                         missing_frontend_hint(language));
     }
-    const std::string prepared = std::string(kUpstreamTextPrefix) + std::string(text);
+
+    auto result = synthesize_one(std::string(kUpstreamTextPrefix) + std::string(text), language,
+                                 *frontend, options, cancelled, report);
+    report.set_total_ms(
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - synth_start)
+            .count());
+    result.timing = std::move(report);
+    return result;
+}
+
+SynthesisResult Engine::synthesize_one(const std::string& prepared_text, Language language,
+                                       const text::TextFrontend& frontend,
+                                       const SynthesisOptions& options,
+                                       const CancellationToken* cancelled, TimingReport& report) {
+    // 前置检查（取消 / 空文本 / 前端兜底）和语言检测都归调用方 ——
+    // 语言是"整条请求一次"的开销，分段流式不该逐段重付。
     text::PhonemeSequence phonemes;
     {
         detail::ScopedStageTimer timer(report, "frontend");
-        phonemes = frontend->convert(prepared);
+        phonemes = frontend.convert(prepared_text);
     }
 
     SynthesisResult result;
@@ -591,7 +608,7 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
         detail::ScopedStageTimer timer(report, "text_bert");
         // 混读序列按语言块逐块编码（前端在 bert_chunks 里给出分块与对齐），
         // 单块（纯中文）路径用整段规范化文本 —— 两者与上游逐块 / 单块一致。
-        const auto normalized = text::normalize(prepared, language);
+        const auto normalized = text::normalize(prepared_text, language);
         text_bert = roberta::compute_text_bert(*impl_->roberta_tokenizer, *impl_->roberta, phonemes,
                                                normalized);
     }
@@ -649,17 +666,15 @@ SynthesisResult Engine::synthesize_impl(std::string_view text, const SynthesisOp
     result.audio.samples.assign(samples.begin(), samples.end());
     result.audio.sample_rate =
         options.output_sample_rate > 0 ? options.output_sample_rate : impl_->sample_rate;
-
-    report.set_total_ms(
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - synth_start)
-            .count());
-    result.timing = std::move(report);
     return result;
 }
 
 std::shared_ptr<AudioChunkChannel> Engine::synthesize_streaming(std::string_view text,
-                                                                const SynthesisOptions& options) {
-    auto channel = std::make_shared<AudioChunkChannel>();
+                                                                const SynthesisOptions& options,
+                                                                const StreamOptions& stream) {
+    // 通道容量来自调度器配置（SchedulerConfig::stream_capacity ——
+    // 这个字段 M6 之前一直没人消费，现在是它的正式出口）。
+    auto channel = std::make_shared<AudioChunkChannel>(Scheduler::instance().stream_capacity());
 
     // 调度器是进程级单例，initialize() 幂等 —— 这里保证它已经就绪，
     // 让调用方不必自己初始化。
@@ -675,20 +690,145 @@ std::shared_ptr<AudioChunkChannel> Engine::synthesize_streaming(std::string_view
     auto* target = this;
     // 任务持有通道的 shared_ptr：调用方先放手也不会让通道在任务还在写的时候析构。
     const auto task_id = Scheduler::instance().submit(
-        [target, owned_text, options, channel](const CancellationToken& token) {
-            try {
-                const auto result = target->synthesize_impl(owned_text, options, &token);
-                // 各阶段耗时报告随 result 析构丢弃 —— 通道目前只传音频块。
-                // M6 真分块流式时，报告应挂在最后一个分块上交给消费者。
-                channel->try_push(result.audio);
-            } catch (...) {
-                // 错误通过"通道提前关闭"传达给消费者。
-            }
-            channel->close();
+        [target, owned_text, options, stream, channel](const CancellationToken& token) {
+            target->synthesize_streamed(owned_text, options, stream, &token, *channel);
         });
+
+    // 守护任务：合成任务**落定**之后兜底关通道。
+    //
+    // 没有它，"取消"有一个永远漏收口的洞：任务还在队列里没开跑就被取消时，
+    // kairo 走 RequestedBeforeStart —— 任务体**根本不会执行**，也就没有人去
+    // close 通道，消费者的"读到关闭为止"循环会永远等下去（M6 之前这个
+    // 洞就存在，只是旧测试从不验证通道关闭）。正常路径下合成任务自己
+    // 会 close，守护任务只是空转一次；等待挂在 future 上，不烧 CPU。
+    (void)Scheduler::instance().submit([channel, task_id](const CancellationToken&) {
+        (void)Scheduler::instance().wait(task_id, std::chrono::seconds(60));
+        if (!channel->closed()) {
+            // 走到这里说明合成任务体没执行过（排队即被终止）——
+            // 它没机会设 footer。守住"关闭 ⇒ footer 可读"的消费者契约：
+            // 空报告 + 无错误 = "这条流什么都没合成"。
+            channel->set_footer(StreamFooter{});
+            channel->close();
+        }
+    });
 
     impl_->streaming_task.store(task_id);
     return channel;
+}
+
+void Engine::synthesize_streamed(const std::string& text, const SynthesisOptions& options,
+                                 const StreamOptions& stream, const CancellationToken* cancelled,
+                                 AudioChunkChannel& channel) {
+    // 所有失败都收敛到 footer（错误原因 + 各段累计耗时），绝不向调度器抛
+    // —— 抛上去只会变成 Scheduler 的失败计数，消费者根本看不到原因。
+    // 通道的"排空且已关闭"是唯一的结束信号，footer 是它的注释。
+    StreamFooter footer;
+
+    // 满通道时的投递：短轮询（非阻塞 try_push + 小睡）。通道是**有界**的，
+    // 消费者不腾位就得等 —— 这就是背压；轮询间隙随时响应取消。
+    // 不用 push(timeout) 阻塞版：它的参数按值收、超时返回时实参已被移走，
+    // 重试反而要保底稿拷贝，不如让 try_push 每轮自己拷一次（每段音频
+    // 只在满通道的重试轮次里拷，常态零成本）。
+    const auto push_chunk = [&](const AudioBuffer& chunk) {
+        while (!channel.try_push(chunk)) {
+            if (cancelled != nullptr && cancelled->cancelled()) {
+                return false;
+            }
+            if (channel.closed()) {
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return true;
+    };
+
+    const auto run = [&]() {
+        try {
+            if (cancelled != nullptr && cancelled->cancelled()) {
+                throw_error(ErrorCode::Cancelled, "streaming cancelled before it started");
+            }
+            if (text.empty()) {
+                throw_error(ErrorCode::InvalidArgument, "streaming text is empty");
+            }
+            if (impl_->frontend == nullptr) {
+                throw_error(ErrorCode::BackendUnavailable,
+                            "no text frontend for language: " +
+                                language_to_string(impl_->manifest.language));
+            }
+
+            TimingReport& report = footer.timing;
+            const auto stream_start = std::chrono::steady_clock::now();
+
+            // 语言与前端：整条流只做一次，全段共用（与同步路径同口径 ——
+            // 上游也是一次 get_phones_and_bert 定语言，不逐句重判）。
+            Language language;
+            {
+                detail::ScopedStageTimer timer(report, "language_detect");
+                language = detect_language(text, options.language);
+            }
+            const text::TextFrontend* frontend = impl_->frontend_for(language);
+            if (frontend == nullptr) {
+                throw_error(ErrorCode::BackendUnavailable,
+                            "no text frontend for language: " + language_to_string(language) +
+                                " —— " + missing_frontend_hint(language));
+            }
+
+            // 分段。max_segment_chars == 0 = 不分句（整段一次解码，M6 之前的旧行为）。
+            const std::vector<std::string> segments =
+                stream.max_segment_chars == 0
+                    ? std::vector<std::string>{text}
+                    : text::split_for_synthesis(text, stream.max_segment_chars);
+            if (segments.empty()) {
+                throw_error(ErrorCode::InvalidArgument, "streaming text produced no segments");
+            }
+
+            for (std::size_t i = 0; i < segments.size(); ++i) {
+                if (cancelled != nullptr && cancelled->cancelled()) {
+                    // 段间取消：安静收尾 —— 取消是调用方自己发起的，
+                    // 不算错误，通道关闭本身就是信号。
+                    return;
+                }
+
+                // 上游的 "。" 前缀逐段加（audit §4.3）：每段是一次独立合成，
+                // 单段口径与"调用方自己分句逐句喂"完全一致（audit §24.3）。
+                auto result = synthesize_one(std::string(kUpstreamTextPrefix) + segments[i],
+                                             language, *frontend, options, cancelled, report);
+
+                // 句间静音：追加在前一段尾部（最后一段不加）。按引擎的
+                // **实际**采样率折算 —— output_sample_rate 目前只是改标称值，
+                // 静音时长必须跟波形本身的节奏对齐。
+                if (stream.sentence_silence_ms > 0 && i + 1 < segments.size()) {
+                    const auto silence =
+                        static_cast<std::size_t>(static_cast<long long>(impl_->sample_rate) *
+                                                 stream.sentence_silence_ms / 1000);
+                    result.audio.samples.resize(result.audio.samples.size() + silence, 0.0F);
+                }
+
+                if (!push_chunk(result.audio)) {
+                    return;  // 段间取消或通道被关闭：安静收尾
+                }
+            }
+
+            report.set_total_ms(std::chrono::duration<double, std::milli>(
+                                    std::chrono::steady_clock::now() - stream_start)
+                                    .count());
+        } catch (const Error& e) {
+            // 取消引发的报错（decode 循环取消后返回空 token，会以
+            // "no semantic tokens" 之类冒出来）不算失败。
+            if (cancelled == nullptr || !cancelled->cancelled()) {
+                footer.error = e;
+            }
+        } catch (...) {
+            if (cancelled == nullptr || !cancelled->cancelled()) {
+                footer.error =
+                    Error(ErrorCode::Internal, "streaming synthesis failed with unknown error");
+            }
+        }
+    };
+    run();
+
+    channel.set_footer(std::move(footer));
+    channel.close();
 }
 
 bool Engine::cancel_streaming() {

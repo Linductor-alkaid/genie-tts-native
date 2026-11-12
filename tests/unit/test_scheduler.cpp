@@ -102,6 +102,13 @@ TEST_F(SchedulerTest, ManyTasksAllComplete) {
     EXPECT_EQ(completed.load(), kCount);
 }
 
+TEST_F(SchedulerTest, StreamCapacityReflectsSchedulerConfig) {
+    // SchedulerConfig::stream_capacity 在 M6 之前是个没人消费的字段；
+    // 现在它是流式音频通道容量的正式出口。单例按先到先得初始化，
+    // 测试里其它用例都用的默认配置 → 64。
+    EXPECT_EQ(Scheduler::instance().stream_capacity(), 64U);
+}
+
 TEST(AudioChunkChannelTest, PushAndPop) {
     AudioChunkChannel channel(4);
     AudioBuffer chunk;
@@ -136,6 +143,33 @@ TEST(AudioChunkChannelTest, CloseMarksChannelClosed) {
     channel.close();
     EXPECT_TRUE(channel.closed());
     EXPECT_TRUE(channel.drained());
+}
+
+TEST(AudioChunkChannelTest, FooterCarriesEndOfStreamMetadata) {
+    // 流尾元数据（M6）：未设置时是 nullptr；设置后随通道存活，
+    // 重复设置以最后一次为准。
+    AudioChunkChannel channel(2);
+    EXPECT_EQ(channel.footer(), nullptr);
+
+    StreamFooter first;
+    first.timing.record("frontend", 1.0);
+    first.error = Error(ErrorCode::InferenceError, "boom");
+    channel.set_footer(std::move(first));
+
+    const auto* footer = channel.footer();
+    ASSERT_NE(footer, nullptr);
+    ASSERT_NE(footer->error, std::nullopt);
+    EXPECT_EQ(footer->error->code(), ErrorCode::InferenceError);
+    EXPECT_EQ(footer->timing.stages().size(), 1U);
+
+    // close 之后的语义：footer 仍可读（单消费者约定：close 后不再有写入）。
+    channel.close();
+    EXPECT_EQ(channel.footer(), footer);
+
+    // 最后一次设置生效。
+    StreamFooter last;
+    channel.set_footer(std::move(last));
+    EXPECT_EQ(channel.footer()->error, std::nullopt);
 }
 
 TEST(AudioChunkChannelTest, PopWithTimeoutReturnsFalseWhenEmpty) {

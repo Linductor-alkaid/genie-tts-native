@@ -43,6 +43,7 @@ set(GENIE_CORE_SOURCES
     text/opencpop_table.cpp
     text/roberta_tokenizer.cpp
     text/normalizer.cpp
+    text/segmenter.cpp
     text/char_convert_table.cpp
     text/tone_sandhi.cpp
     text/sandhi_table.cpp
