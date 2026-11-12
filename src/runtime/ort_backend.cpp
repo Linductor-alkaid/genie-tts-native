@@ -77,7 +77,12 @@ public:
             if (!external_weights.empty()) {
                 add_external_weights(options, external_weights);
             }
-            session_ = std::make_unique<Ort::Session>(shared_env(), model_path.c_str(), options);
+            // 模型路径经 std::filesystem::path 中转：其 c_str() 在 Windows 上是
+            // const wchar_t*、POSIX 上是 const char*，恰好都等于 ORTCHAR_T。
+            // 直接传 std::string::c_str() 在 Windows 编不过（首个 Windows 发布
+            // 构建实测 —— ORTCHAR_T 在 Windows 是 wchar_t）。
+            const std::filesystem::path model_fs(model_path);
+            session_ = std::make_unique<Ort::Session>(shared_env(), model_fs.c_str(), options);
         } catch (const Ort::Exception& e) {
             throw_error(ErrorCode::ModelLoadError,
                         "failed to load ONNX model '" + model_path + "': " + e.what());
