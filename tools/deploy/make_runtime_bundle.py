@@ -96,6 +96,10 @@ def version_from_install_tree(stage: pathlib.Path) -> str:
 
 
 def main() -> None:
+    # 进度输出带中文；Windows 控制台默认 cp1252，print 直接 UnicodeEncodeError
+    # （与 make_synthetic_model.py 同款问题 —— 本脚本要在 Windows runner 上跑）。
+    if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--build-dir", required=True, type=pathlib.Path,
