@@ -44,6 +44,11 @@ namespace genie {
 /// 默认用 ONNX Runtime。留这个扩展点有两个原因：
 ///   - 换一个推理后端时不用改 Engine；
 ///   - 测试可以注入假会话，在没有权重、没有 ORT 的环境里跑完整流水线。
+///
+/// ⚠️ **可能被多线程并发调用**：加载期并行建会话（architecture.md
+/// §2.14）把各模型的工厂调用摊到并行池上 —— 实现必须线程安全，不得
+/// 共享未同步的可变状态（测试里往容器里登记会话的工厂请加锁）。
+/// 契约的其余部分（路径、配置、返回所有权）不变。
 using SessionFactory = std::function<std::unique_ptr<ModelSession>(const std::string& path,
                                                                    const SessionConfig& config)>;
 

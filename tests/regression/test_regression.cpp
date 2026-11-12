@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -163,8 +164,14 @@ Trace run_trace(const std::string& case_name, const std::string& text) {
     TempPackage package;
 
     // 每个模型一个假会话；引擎还没析构时这些指针是有效的。
+    //
+    // ⚠️ 工厂会被**多线程并发调用**（M5 的跨会话并行加载，
+    // architecture.md §2.14）：这里曾经不加锁往 map 里塞 —— 丢失更新
+    // 随机吞掉尾部模型的记录（tsan CI 偶发的"黄金快照缺 stage/vits"
+    // 就是它），约 1/40 的概率。map 插入必须持锁。
     std::map<std::string, FakeSession*> sessions;
-    const auto factory = [&sessions](const std::string& path, const SessionConfig&) {
+    std::mutex sessions_mutex;
+    const auto factory = [&](const std::string& path, const SessionConfig&) {
         std::unique_ptr<ModelSession> session;
         std::string key;
         if (path.find("t2s_encoder") != std::string::npos) {
@@ -182,7 +189,10 @@ Trace run_trace(const std::string& case_name, const std::string& text) {
         } else {
             return session;
         }
-        sessions[key] = static_cast<FakeSession*>(session.get());
+        {
+            std::lock_guard lock(sessions_mutex);
+            sessions[key] = static_cast<FakeSession*>(session.get());
+        }
         return session;
     };
 
