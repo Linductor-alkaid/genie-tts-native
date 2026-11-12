@@ -216,6 +216,63 @@ g2pM 自己也会判错（例如"银行分行"里它给"分行"读 xíng、"行�
     └── text.txt                  # 参考文本（可选；有了才有 ref_seq）
 ```
 
+### 4.1 预设（preset）：端侧最小包
+
+全量包对端侧太重。`--preset` 把"选哪些角色"固化成三条预设 —— 只做角色
+集合的裁剪与校验，manifest schema 与引擎行为不变：
+
+| preset | 角色 | 默认权重 | 适用 |
+|---|---|---|---|
+| `min-zh` | 核心 4 角色 + g2pm + jieba（自动带） | **fp16** | 端侧中文，磁盘最小 |
+| `min-zh-roberta` | min-zh + RoBERTa（必须 `--roberta`） | **fp16** | 在意中文韵律的端侧 |
+| `full` | 不裁剪（等价不传 `--preset`） | fp32 | 服务端 / 全功能 |
+
+```bash
+# 端侧最小包（V2ProPlus 音色目录；V2 目录则去掉 --speaker-encoder）
+python3 tools/deploy/make_voice_package.py --preset min-zh \
+    --name feibi-min --tts-models $DL/tts_models \
+    --speaker-encoder $DL/speaker_encoder.onnx \
+    --reference $DL/reference.wav --output ~/voice-packages/feibi-min
+
+# 端侧 + 中文韵律（RoBERTa 建议再走 int8 量化，见 §5.5）
+python3 tools/deploy/make_voice_package.py --preset min-zh-roberta \
+    --name feibi-min --tts-models $DL/tts_models \
+    --speaker-encoder $DL/speaker_encoder.onnx \
+    --roberta $DL/roberta \
+    --reference $DL/reference.wav --output ~/voice-packages/feibi-min
+```
+
+**体积预算**（feibi 音色，fp16 权重口径）：
+
+| 包 | 磁盘 | 说什么 |
+|---|---|---|
+| min-zh（V2ProPlus） | **~450 MB** | t2s 165 + vits 124 + prompt_encoder 44 + SV 93 + 前端数据 23 |
+| min-zh（V2 音色） | **~270 MB** | t2s 165 + vits 81 + 前端数据 23 |
+| min-zh-roberta | +368 MB（int8） / +599 MB（fp32） | 韵律特征从全零降级变为真跑 |
+| 全量（§4 的完整流程） | ~1.9 GB（fp16）/ 2.4 GB（fp32） | 多语言 + HuBERT + RoBERTa |
+
+与上游 README「Model size ~230MB」的口径对照：那个数字 = **单音色 V2 的
+核心两模型 fp16 权重**（t2s 153 + vits 81 ≈ 234 MB），RoBERTa / HuBERT /
+说话人验证都是可选资源不进标题数字（首次运行还要另下 ~391 MB）。
+本仓库的 min-zh V2 包（~270 MB）与同一口径相当，且打包时就定死了
+角色集合；核心权重 fp16 是体积地板 —— t2s/vits 以 Conv 为主，动态
+INT8 收益趋零、静态 INT8 被精度门控拒绝（`docs/performance.md` §量化）。
+
+**min 包的降级行为**（与上游同款，不是缺陷）：
+
+- 缺 RoBERTa → `text_bert` 全零（上游 `GetPhonesAndBert.py` 同款降级），
+  中文韵律变平但读音与音色不受影响；
+- 缺 HuBERT → `ssl_content` 全零，参考音频的内容跟随弱化；
+- 缺英日资源 → 英/日文本**明确报错**（不会静默退回中文前端）；
+- g2pm / jieba 自动带上（仓库自带 ~11 MB）—— 多音字与变调边界是
+  中文读音质量的核心，不值得省。
+
+**变体由目录内容决定**：`tts_models` 目录里有没有
+`prompt_encoder_fp32.onnx` 决定包是 V2 还是 V2ProPlus —— ProPlus 的
+vits 图吃 `ge`/`ge_advanced`，说话人验证是引擎硬依赖（audit §12），
+所以 ProPlus 目录**必须**给 `--speaker-encoder`；V2 目录给了反而会
+被拒绝。脚本在打包期就拦住这两种不匹配，不再等到推理时炸。
+
 ---
 
 ## 5. 校验与第一次合成
