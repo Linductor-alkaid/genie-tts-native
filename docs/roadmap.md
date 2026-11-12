@@ -261,7 +261,8 @@
 - ✅ ASan / UBSan / TSan 常态化
 - ✅ 模型转换与模型包校验工具（`tools/deploy/`）
 - ✅ 部署与 API 文档（`docs/deployment.md`、`docs/usage.md`）
-- ⏳ 故障排查文档、性能优化文档
+- ✅ 故障排查文档（`docs/troubleshooting.md`，2026-11-12）与性能优化
+  指南（`docs/performance.md` §优化指南：按目标给实测旋钮矩阵）
 - ✅ CPU Benchmark 工具与首份报告 —— `tools/bench/`（genie-bench）+
   `docs/performance.md`（M0.3 基线；换硬件 / 换 ORT 重测后更新该文档）
 - 🚧 **v0.2.0 发布** ✅ → **v0.3.0 发布**（文档同步 + jieba 生产路径）✅ →

@@ -34,7 +34,7 @@
 | M4 原生 SDK | ✅ C++ SDK + C ABI 共享库 + CLI；Linux / Windows / ARM64 交叉编译 CI；Golden Dataset（模型 I/O 契约快照）|
 | M5 性能优化 | 🚧 三轮优化已落地：解码热路径宿主拷贝消除、ORT 会话参数调优（自旋关 / 8 线程）、加载期会话释放 + 并行加载。冷启动 3.8 → **1.8 s**、常驻 −1.2 GB、RTF 0.72 → **0.47**（信任模式口径，见 [`docs/performance.md`](docs/performance.md)）；⏳ 量化与 CPU 微架构优化 |
 | M6 低延迟流式 | ✅ 分句分块输出、增量会话、TTFA 2.3 s 起（i9-13900KF 实测） |
-| M7 工程化 | 🚧 发布链（打包 / release 流水线）、故障排查文档 |
+| M7 工程化 | 🚧 发布链（打包 / release 流水线）；[故障排查](docs/troubleshooting.md) 与 [性能优化指南](docs/performance.md) 已就位 |
 
 已发布版本：**v0.1.0**、**v0.2.0**、**v0.3.0**、**v0.3.1**、**v0.4.0**（当前）。
 

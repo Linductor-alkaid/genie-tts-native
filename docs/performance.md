@@ -372,11 +372,19 @@ aggressive 策略包 —— t2s 双解码器的逐字节相同 int8 bin 自动�
 两解码器不同（激活 scale 内联位置不同），bin 不再逐字节相同，属机会性
 特性，不误伤。
 
-**听测裁决（2026-11-11，已定版）**：A/B 听测（aggressive × static-vits，
-4 文本）**通过** —— vits 静态入包，定版形态 = aggressive 策略 + vits 静态
+**听测裁决（2026-11-11）**：A/B 听测（aggressive × static-vits，
+4 文本）**通过** —— vits 静态入包，当日定版 = aggressive 策略 + vits 静态
 + bin 去重（`pkg-final`，1384 MB 基础上再 -47 MB ≈ **1.34 GB 包**）。
 -47 MB 常驻换 +0.9 s 冷加载的交换获用户认可；vocoder 渲染层的
 静态量化伪影在听阈之下（与 e2e token 一致率 1.0 的隔离结论互证）。
+
+> **推荐形态修订（2026-11-12）**：定版改回 **aggressive（动态档）+ bin
+> 去重**（1384 MB / 常驻 1.23 GB / 冷加载 ~1.7 s）—— 静态 vits 档的
+> -47 MB 常驻抵不过 +0.9 s 冷加载与校准捕获 / 串行量化 / ORT Format
+> 一整条附属工具链依赖，且合成不快反慢（QDQ 的 DequantizeLinear 开销）。
+> 静态档保留为 **opt-in**（`quantize_package.py --static`，工具与门控
+> 都在），上一段的实测数据与听测记录继续有效。ORT Format 同理降为
+> "启动敏感部署的 opt-in"（§ORT Format）。
 
 原始记录 `benchmarks/2026-11-11-quant/`（gate-static / gate-static-vits /
 gate-aggressive-control / floor-s8-1,2 / bench-static-* / staticvits.json）。
@@ -560,6 +568,33 @@ M5 结题时挂账"图内 KV concat/Transpose ≈21% 需改模型导出，归 M6
 | CPU 利用率时间线 | ⏳ | 目前只有进程级均值；逐阶段利用率需要采样线程，M5 评估 |
 | 首个可播放音频块时间（TTFA） | ✅ | M6 真分块落地，`genie-bench --stream` 采集，见下方 M6 一节 |
 | 算子级耗时 | ✅ | M5.1 落地（`--profile` + summarize_profile.py），M5/M6 各有一节 |
+
+## 优化指南（按目标选旋钮，2026-11-12）
+
+全部是 M5/M6 实测过的杠杆；数字出处见上文各节。原则：**一次只动一个**，
+用 `genie-bench` 的 ms/token 与 RSS 时间线对比（跨进程 RTF 不可比，
+采样路径不同）。
+
+| 目标 | 动作 | 实测收益 | 代价 |
+|---|---|---|---|
+| **低延迟（长文本）** | IOBinding 输出缓冲池（默认已开） | ms/token -12% | 无 |
+| | 会话线程 8 + 自旋关（默认） | 已是实测最优区 | 12/16 线程 × 自旋开是已知不稳定区 |
+| **低延迟（首包）** | 流式合成（M6） | TTFA = 端到端的 15%（40 字段） | 多段文本语义路径与整段解码不同（上游两种用法本就并存） |
+| **小常驻内存** | 动态 INT8 混合精度包（roberta + prompt_encoder，**推荐定版**） | 常驻 2.2 → 1.25 GB，短文本 RTF -35% | 门控 + 听测流程；t2s/vits 收益趋零 |
+| | min 音色包（§deployment 4.1，裁 RoBERTa/HuBERT） | 常驻 ~0.9 GB | 韵律走全零降级（上游同款） |
+| | 加载期会话释放（默认已开） | -1.2 GB | 换参考音频需重加载（引擎暂无此 API） |
+| **小磁盘 / 分发包** | fp16 分发（组包 `--weights fp16`） | 包体 -21% | 冷启动 +0.7 s |
+| | bin 去重（动态档自动） | 再 -288 MB | 仅动态档生效 |
+| | **下限** | t2s+vits fp16 ≈ 234 MB（V2） | Conv 为主，int8 无收益；静态档被门控拒绝 |
+| **快冷启动** | `--no-verify`（信任模式） | -51.5% | 不再校验模型完整性 |
+| | 跨会话并行加载（默认已开） | 会话段 ~2.9× | — |
+| | 动态 INT8 包 | 加载 -26% | 门控流程 |
+| | ORT Format（**opt-in**） | 冷加载再 -23% | 包体 +13%、与转换侧 ORT 版本/硬件绑定、跨环境分发要重转 |
+| **Windows** | OpenJTalk 默认关 | 编译简单 | 日文需要显式 `GENIE_ENABLE_OPENJTALK=ON` |
+
+不可再省的三件事：采样在图内（宿主侧无采样器可调）；KV cache 的图内
+管理（Transpose+Concat ≈ 21% 耗时）是上游图结构，动它要重新导出模型；
+fp16 上转 +0.7 s 冷启动是"磁盘最小"换来的固定成本。
 
 ## 历史
 
