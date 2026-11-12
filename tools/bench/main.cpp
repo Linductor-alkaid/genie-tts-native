@@ -22,6 +22,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -37,6 +38,7 @@
 #include <sys/utsname.h>
 #endif
 
+#include "genie/audio.hpp"
 #include "genie/config.hpp"
 #include "genie/engine.hpp"
 #include "genie/errors.hpp"
@@ -91,6 +93,15 @@ Options:
                     traces into <dir> (summarize with
                     tools/bench/summarize_profile.py). Timings under
                     profiling are NOT a baseline — analysis only.
+  --stream          Streaming benchmark (M6): measures TTFA (time to first
+                    audio chunk), chunk pacing and total drain time instead
+                    of per-stage sync timings.
+  --segment-chars <n>  StreamOptions.max_segment_chars (default 100; 0 =
+                    no segmentation — one chunk, legacy behavior)
+  --silence-ms <n>  Silence appended to non-final chunks (default 150;
+                    0 = none)
+  --save <file>     (with --stream) write the first measured run's audio
+                    as 16-bit PCM WAV (listening check for chunk joins)
   -h, --help        Show this help
 
 Notes:
@@ -117,6 +128,11 @@ struct Options {
     int runs = 5;
     bool no_verify = false;
     bool help = false;
+    // 流式模式（M6）
+    bool stream = false;
+    int segment_chars = 100;
+    int silence_ms = 150;
+    std::string save_wav;
 };
 
 bool parse_options(int argc, char** argv, Options& options) {
@@ -177,6 +193,27 @@ bool parse_options(int argc, char** argv, Options& options) {
             }
         } else if (arg == "--no-verify") {
             options.no_verify = true;
+        } else if (arg == "--stream") {
+            options.stream = true;
+        } else if (arg == "--segment-chars" || arg == "--silence-ms") {
+            std::string value;
+            if (!next(value)) {
+                return false;
+            }
+            const int parsed = std::atoi(value.c_str());
+            if (parsed < 0) {
+                std::cerr << "--segment-chars/--silence-ms must be >= 0\n";
+                return false;
+            }
+            if (arg == "--segment-chars") {
+                options.segment_chars = parsed;
+            } else {
+                options.silence_ms = parsed;
+            }
+        } else if (arg == "--save") {
+            if (!next(options.save_wav)) {
+                return false;
+            }
         } else if (arg == "--json") {
             if (!next(options.json_path)) {
                 return false;
@@ -649,6 +686,268 @@ std::string to_json(const std::vector<TextAggregate>& aggregates, const Options&
     return out;
 }
 
+// ------------------------------------------------------------------------------------------
+// 流式基准（M6：--stream）。
+//
+// 与同步模式分开统计：流式的核心指标不是"总耗时"，而是首块延迟（TTFA）
+// 与块到达节奏（最大间隔 = 欠载风险的观察窗口）。计时从
+// synthesize_streaming() 调用前一刻起算 —— 提交进调度器的排队时间也算在
+// 内，那是消费者视角的真实首块延迟。
+// ------------------------------------------------------------------------------------------
+
+struct StreamRunSample {
+    double ttfa_ms = 0.0;   // 首块到达（含排队）
+    double total_ms = 0.0;  // 提交 → 排空关闭
+    double rtf = 0.0;       // (total_ms / 1000) / audio_seconds
+    double audio_seconds = 0.0;
+    int chunks = 0;
+    double max_gap_ms = 0.0;       // 相邻块到达间隔的最大值；单块流为 0
+    std::uint32_t iterations = 0;  // 全流 t2s/stage_decoder 步数（footer）
+};
+
+struct StreamAggregate {
+    std::string text;
+    std::vector<StreamRunSample> samples;
+    std::string error;
+};
+
+/// 排空一条流并按到达时刻采样。返回 (ttfa_ms, arrivals, audio)。
+struct StreamDrain {
+    double ttfa_ms = -1.0;
+    double total_ms = 0.0;
+    double audio_seconds = 0.0;
+    std::vector<double> arrivals_ms;
+    std::vector<float> recorded;  // --save 时收集波形；nullptr 时不收集
+};
+
+StreamDrain drain_stream_channel(const std::shared_ptr<genie::AudioChunkChannel>& channel,
+                                 const std::chrono::steady_clock::time_point submit_start,
+                                 std::vector<float>* recorded) {
+    StreamDrain drain;
+    genie::AudioBuffer chunk;
+    for (;;) {
+        bool got = channel->try_pop(chunk);
+        if (!got && channel->closed()) {
+            // 关闭之后队列里可能还有残余块 —— 排空为止。
+            got = channel->try_pop(chunk);
+            if (!got) {
+                break;
+            }
+        }
+        if (!got) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            continue;
+        }
+        const double ms = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - submit_start)
+                              .count();
+        if (drain.ttfa_ms < 0.0) {
+            drain.ttfa_ms = ms;
+        }
+        drain.arrivals_ms.push_back(ms);
+        drain.audio_seconds += chunk.duration_seconds();
+        if (recorded != nullptr) {
+            recorded->insert(recorded->end(), chunk.samples.begin(), chunk.samples.end());
+        }
+    }
+    drain.total_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submit_start)
+            .count();
+    return drain;
+}
+
+/// 跑一次流式合成并采样。footer 里的错误以异常上抛（与同步路径的
+/// catch 汇合）。
+StreamRunSample run_stream_once(genie::Engine& engine, const std::string& text,
+                                const genie::SynthesisOptions& synthesis,
+                                const genie::StreamOptions& stream_options,
+                                std::vector<float>* recorded) {
+    StreamRunSample sample;
+    const auto submit_start = std::chrono::steady_clock::now();
+    const auto channel = engine.synthesize_streaming(text, synthesis, stream_options);
+    const auto drain = drain_stream_channel(channel, submit_start, recorded);
+
+    if (const auto* footer = channel->footer()) {
+        if (footer->error.has_value()) {
+            throw *footer->error;
+        }
+        for (const auto& stage : footer->timing.stages()) {
+            if (stage.name == "t2s/stage_decoder") {
+                sample.iterations = stage.count;
+            }
+        }
+    }
+
+    sample.ttfa_ms = drain.ttfa_ms;
+    sample.total_ms = drain.total_ms;
+    sample.audio_seconds = drain.audio_seconds;
+    sample.chunks = static_cast<int>(drain.arrivals_ms.size());
+    for (std::size_t i = 1; i < drain.arrivals_ms.size(); ++i) {
+        sample.max_gap_ms =
+            std::max(sample.max_gap_ms, drain.arrivals_ms[i] - drain.arrivals_ms[i - 1]);
+    }
+    sample.rtf = drain.audio_seconds > 0.0 ? (drain.total_ms / 1000.0) / drain.audio_seconds : 0.0;
+    return sample;
+}
+
+template <typename Member>
+std::vector<double> stream_sample_values(const std::vector<StreamRunSample>& samples,
+                                         Member member) {
+    std::vector<double> values;
+    values.reserve(samples.size());
+    for (const auto& sample : samples) {
+        values.push_back(sample.*member);
+    }
+    return values;
+}
+
+void print_stream_aggregate(const StreamAggregate& aggregate, const Options& options) {
+    std::cout << "  " << options.runs << " runs, warmup " << options.warmup
+              << " (stream, segment-chars " << options.segment_chars << ", silence-ms "
+              << options.silence_ms << ")\n";
+    char line[160];
+
+    const Stats ttfa = stats_of(stream_sample_values(aggregate.samples, &StreamRunSample::ttfa_ms));
+    std::snprintf(line, sizeof(line),
+                  "  TTFA (time to first chunk, ms): mean %8.2f  min %8.2f  median %8.2f  max "
+                  "%8.2f\n",
+                  ttfa.mean, ttfa.min, ttfa.median, ttfa.max);
+    std::cout << line;
+
+    const Stats total =
+        stats_of(stream_sample_values(aggregate.samples, &StreamRunSample::total_ms));
+    std::snprintf(line, sizeof(line),
+                  "  total (submit -> drained, ms):  mean %8.2f  min %8.2f  max %8.2f\n",
+                  total.mean, total.min, total.max);
+    std::cout << line;
+
+    const Stats rtf = stats_of(stream_sample_values(aggregate.samples, &StreamRunSample::rtf));
+    std::snprintf(line, sizeof(line),
+                  "  RTF (total / audio): mean %.3f  min %.3f  median %.3f  max %.3f\n", rtf.mean,
+                  rtf.min, rtf.median, rtf.max);
+    std::cout << line;
+
+    const Stats chunks =
+        stats_of(stream_sample_values(aggregate.samples, &StreamRunSample::chunks));
+    std::snprintf(line, sizeof(line), "  chunks per run: mean %.1f\n", chunks.mean);
+    std::cout << line;
+
+    const Stats gaps =
+        stats_of(stream_sample_values(aggregate.samples, &StreamRunSample::max_gap_ms));
+    std::snprintf(line, sizeof(line),
+                  "  max inter-chunk gap (ms): mean %.2f  max %.2f  (underrun-risk window)\n",
+                  gaps.mean, gaps.max);
+    std::cout << line;
+
+    const Stats audio =
+        stats_of(stream_sample_values(aggregate.samples, &StreamRunSample::audio_seconds));
+    std::snprintf(line, sizeof(line), "  audio: mean %.2f s\n", audio.mean);
+    std::cout << line;
+
+    const Stats iter =
+        stats_of(stream_sample_values(aggregate.samples, &StreamRunSample::iterations));
+    if (iter.mean > 0.0) {
+        std::snprintf(line, sizeof(line), "  decode iterations (whole stream): mean %.1f\n",
+                      iter.mean);
+        std::cout << line;
+    }
+}
+
+std::string to_stream_json(const std::vector<StreamAggregate>& aggregates, const Options& options,
+                           const MemorySnapshot& memory, const genie::TimingReport& load) {
+    static constexpr int kJsonBufSize = 512;
+    char number[kJsonBufSize];
+
+    std::size_t error_count = 0;
+    for (const auto& aggregate : aggregates) {
+        if (!aggregate.error.empty()) {
+            ++error_count;
+        }
+    }
+
+    std::string out;
+    out += "{\n";
+    out += "  \"mode\": \"stream\",\n";
+    out += "  \"model\": \"" + json_escape(options.model_dir) + "\",\n";
+    out += "  \"version\": \"" + std::string(genie::version_string()) + "\",\n";
+    out += "  \"environment\": {\"ort\": \"" + std::string(genie::onnxruntime_version_string()) +
+           "\", \"os\": \"" + json_escape(os_identifier()) + "\", \"cpu\": \"" +
+           json_escape(cpu_model()) + "\"},\n";
+    std::snprintf(number, sizeof(number),
+                  "  \"threads\": %d, \"spinning\": %d, \"graph_opt\": %d, \"arena\": %d, "
+                  "\"mem_pattern\": %d, \"parallel_prepack\": %d, \"io_binding\": %d, "
+                  "\"runs\": %d, \"warmup\": %d, \"max_segment_chars\": %d, "
+                  "\"sentence_silence_ms\": %d,\n",
+                  options.threads, options.spinning, options.graph_opt, options.arena,
+                  options.mem_pattern, options.parallel_prepack, options.io_binding, options.runs,
+                  options.warmup, options.segment_chars, options.silence_ms);
+    out += number;
+    const auto kb_field = [&out, &number](const char* name, const double kb) {
+        if (kb < 0.0) {
+            out += std::string("  \"") + name + "\": null,\n";
+        } else {
+            std::snprintf(number, sizeof(number), "  \"%s\": %.0f,\n", name, kb);
+            out += number;
+        }
+    };
+    kb_field("peak_rss_kb", memory.peak_kb);
+    kb_field("rss_after_load_kb", memory.after_load_kb);
+    kb_field("rss_end_kb", memory.end_kb);
+    out += "  \"errors\": " + std::to_string(error_count) + ",\n";
+    out += std::string("  \"verify_voice_package\": ") + (options.no_verify ? "false" : "true") +
+           ",\n";
+    out += "  \"load\": " + load.to_json() + ",\n";
+    out += "  \"texts\": [\n";
+    for (std::size_t i = 0; i < aggregates.size(); ++i) {
+        const auto& aggregate = aggregates[i];
+        out += "    {\"text\": \"" + json_escape(aggregate.text) + "\", ";
+        if (!aggregate.error.empty()) {
+            out += "\"error\": \"" + json_escape(aggregate.error) + "\"";
+        } else {
+            const auto field = [&](const char* name, auto member, const char* format) {
+                const Stats stats = stats_of(stream_sample_values(aggregate.samples, member));
+                std::snprintf(number, sizeof(number),
+                              "\"%s\": {\"mean\": %s, \"min\": %s, "
+                              "\"median\": %s, \"max\": %s}",
+                              name, json_number(stats.mean, format).c_str(),
+                              json_number(stats.min, format).c_str(),
+                              json_number(stats.median, format).c_str(),
+                              json_number(stats.max, format).c_str());
+                out += number;
+            };
+            field("ttfa_ms", &StreamRunSample::ttfa_ms, "%.2f");
+            out += ", ";
+            field("total_ms", &StreamRunSample::total_ms, "%.1f");
+            out += ", ";
+            field("rtf", &StreamRunSample::rtf, "%.4f");
+            out += ", ";
+            field("chunks", &StreamRunSample::chunks, "%.1f");
+            out += ", ";
+            field("max_gap_ms", &StreamRunSample::max_gap_ms, "%.2f");
+            out += ", ";
+            field("audio_seconds", &StreamRunSample::audio_seconds, "%.3f");
+            out += ", ";
+            field("iterations", &StreamRunSample::iterations, "%.1f");
+            out += ", \"samples\": [\n";
+            for (std::size_t s = 0; s < aggregate.samples.size(); ++s) {
+                const auto& sample = aggregate.samples[s];
+                std::snprintf(number, sizeof(number),
+                              "      {\"ttfa_ms\": %.2f, \"total_ms\": %.1f, \"rtf\": %.4f, "
+                              "\"chunks\": %d, \"max_gap_ms\": %.2f, \"audio_seconds\": %.3f, "
+                              "\"iterations\": %u}",
+                              sample.ttfa_ms, sample.total_ms, sample.rtf, sample.chunks,
+                              sample.max_gap_ms, sample.audio_seconds, sample.iterations);
+                out += number;
+                out += s + 1 < aggregate.samples.size() ? ",\n" : "\n";
+            }
+            out += "    ]";
+        }
+        out += i + 1 < aggregates.size() ? "},\n" : "}\n";
+    }
+    out += "  ]\n}\n";
+    return out;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -675,6 +974,10 @@ int main(int argc, char** argv) {
         std::cerr << "--runs/--threads must be >= 1, --warmup must be >= 0, "
                      "--spinning/--arena/--mem-pattern/--parallel-prepack must be 0 or 1, "
                      "--graph-opt must be 0-3\n";
+        return kExitUsage;
+    }
+    if (!options.save_wav.empty() && !options.stream) {
+        std::cerr << "--save requires --stream\n";
         return kExitUsage;
     }
     if (!genie::has_onnxruntime_backend()) {
@@ -738,6 +1041,10 @@ int main(int argc, char** argv) {
     }
 
     std::vector<TextAggregate> aggregates;
+    std::vector<StreamAggregate> stream_aggregates;
+    genie::StreamOptions stream_options;
+    stream_options.max_segment_chars = static_cast<std::size_t>(options.segment_chars);
+    stream_options.sentence_silence_ms = options.silence_ms;
     for (std::size_t i = 0; i < options.texts.size(); ++i) {
         const auto& text = options.texts[i];
         TextAggregate aggregate;
@@ -748,6 +1055,38 @@ int main(int argc, char** argv) {
         std::cout << "  " << text << "\n";
 
         try {
+            if (options.stream) {
+                // 预热（与同步同理由：磁盘缓存 / 首次执行路径抖动不计统计）。
+                for (int w = 0; w < options.warmup; ++w) {
+                    const auto warm_start = std::chrono::steady_clock::now();
+                    (void)drain_stream_channel(
+                        engine.synthesize_streaming(text, synthesis, stream_options), warm_start,
+                        nullptr);
+                }
+
+                StreamAggregate aggregate;
+                aggregate.text = text;
+                for (int r = 0; r < options.runs; ++r) {
+                    // --save：第一轮实测的波形落盘（听测分块拼接的边界）。
+                    std::vector<float> recorded;
+                    std::vector<float>* collect =
+                        (r == 0 && !options.save_wav.empty()) ? &recorded : nullptr;
+                    aggregate.samples.push_back(
+                        run_stream_once(engine, text, synthesis, stream_options, collect));
+                    if (collect != nullptr && !collect->empty()) {
+                        genie::AudioBuffer wav;
+                        wav.samples = std::move(recorded);
+                        wav.sample_rate = engine.sample_rate();
+                        genie::WavCodec::write_pcm16(options.save_wav, wav);
+                        std::cout << "  first-run audio written to " << options.save_wav << "\n";
+                    }
+                }
+                print_stream_aggregate(aggregate, options);
+                stream_aggregates.push_back(std::move(aggregate));
+                aggregates.push_back(TextAggregate{.text = text});
+                continue;
+            }
+
             // 预热：磁盘缓存 / ORT 首次执行路径抖动很大，不计进统计。
             // 预热失败没有继续测的意义，异常直接传出。
             for (int w = 0; w < options.warmup; ++w) {
@@ -784,6 +1123,11 @@ int main(int argc, char** argv) {
             ++error_count;
         }
     }
+    for (const auto& aggregate : stream_aggregates) {
+        if (!aggregate.error.empty()) {
+            ++error_count;
+        }
+    }
     if (error_count > 0) {
         // 退出码保持 0（单条文本失败不影响其他条的测量）—— 但失败必须
         // 在终端上可见，不能只藏在 JSON 的 error 字段里。
@@ -806,7 +1150,9 @@ int main(int argc, char** argv) {
             std::cerr << "cannot write " << options.json_path << "\n";
             return kExitError;
         }
-        json << to_json(aggregates, options, memory, engine.load_timing());
+        json << (options.stream
+                     ? to_stream_json(stream_aggregates, options, memory, engine.load_timing())
+                     : to_json(aggregates, options, memory, engine.load_timing()));
         std::cout << "aggregate written to " << options.json_path << "\n";
     }
 

@@ -137,10 +137,6 @@ private:
     /// Engine 专用构造。
     explicit StreamingSynthesis(std::shared_ptr<Impl> impl);
 
-    /// 预设整条流的合成语言（一次性封装在检测后调用；增量喂入不预设时，
-    /// 以**第一个句段**检测为准，全流固定）。
-    void pin_language(Language language);
-
     std::shared_ptr<Impl> impl_;
 };
 
@@ -276,6 +272,15 @@ private:
     [[nodiscard]] SynthesisResult synthesize_one(
         const std::string& prepared_text, Language language, const text::TextFrontend& frontend,
         const SynthesisOptions& options, const CancellationToken* cancelled, TimingReport& report);
+
+    /// start_streaming 的内部形态：一次性封装以 initial_text / pinned
+    /// **构造期注入**（worker 与它们的关系是"提交前写定、此后不可变"
+    /// —— 无锁读的合法性来自这里；曾把它们做成提交后加锁写，worker
+    /// 无锁读与 wrapper 的写在两线程竞态，Windows 的 optional 断言与
+    /// TSan 的错误码漂移都源自此）。
+    [[nodiscard]] std::shared_ptr<StreamingSynthesis> start_streaming_internal(
+        const SynthesisOptions& options, const StreamOptions& stream,
+        std::optional<Language> pinned, std::optional<std::string> initial_text);
 
     /// 流式会话的任务体：取段 → 逐段 synthesize_one → 逐段推通道 →
     /// eof 残余冲刷 → footer + 关闭通道。所有失败收敛为

@@ -14,7 +14,7 @@
 | M3 | GPT-SoVITS 完整推理迁移 | 语义生成、声学合成、Vocoder、端到端输出 | P0 | ✅ |
 | M4 | 正确性验证与原生 SDK | 一致性测试、C++ API、CLI、跨平台构建 | P0 | 🚧 |
 | M5 | CPU 推理性能优化 | 解码优化、线程调优、内存复用、量化 | P1 | ✅ |
-| M6 | 低延迟流式 TTS | 增量生成、异步流水线、取消机制 | P1 | 🚧 |
+| M6 | 低延迟流式 TTS | 增量生成、异步流水线、取消机制 | P1 | ✅ |
 | M7 | 发布与工程化 | C ABI、安装包、文档、CI、性能报告 | P1 | 🚧 |
 
 **阶段边界**：M4 完成即形成第一个可用版本；M5–M6 完成后形成面向实时交互的优化版本。
@@ -222,7 +222,13 @@
 > ⚠️ **采样器优化不在此列** —— 采样在 ONNX 图内，主机侧无可优化对象。
 > 详见 [upstream-audit.md §5](upstream-audit.md)。
 
-### M6 低延迟流式 TTS — 🚧
+### M6 低延迟流式 TTS — ✅
+
+> **收官注（2026-11-12）**：四项全部落地。流式性能的 CI 可测项
+> （取消响应上界、并发冒烟）进了 unit；TTFA / 块间隔 / RTF 实测
+> 进 performance.md M6 节（pkg-final 本机实测，TTFA 最低 2.26 s =
+> 端到端的 15%）；欠载与爆音属可听指标，样例 WAV 本地生成留人工
+> 听测。KV 重导出挂账结案 ⛔（performance.md 有裁决与数据）。
 
 - ✅ 异步合成流水线（`Engine::synthesize_streaming()`：任务跑在 kairo
   调度器上，调用线程只消费音频通道）
@@ -235,7 +241,10 @@
 - ✅ 增量文本输入（2026-11-12：`StreamingSynthesis` 会话 —— feed / finish /
   cancel，`complete_prefix` 增量抽取与整段切分同源等价；活跃期再开流抛
   `Busy`）
-- ⏳ 流式性能测试（TTFA、缓冲区欠载、分句静音、爆音、取消响应时间、并发延迟）
+- ✅ 流式性能测试（2026-11-12：`genie-bench --stream` 采 TTFA / 块间隔 /
+  RTF；unit 锁取消响应上界与双引擎并发；本机实测 TTFA 4.73 s（100 字段）
+  → 2.26 s（40 字段）vs 同步端到端 15.0 s；长文本流式不再受单次解码
+  500 步截断 —— performance.md M6 节）
 
 > 调度与并发基础设施由 kairo 提供，见 [architecture.md §2.4](architecture.md)。
 
