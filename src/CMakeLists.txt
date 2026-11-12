@@ -204,10 +204,17 @@ add_library(genie::genie ALIAS genie)
 add_library(genie_c SHARED
     c/c_api.cpp
 )
+# 链接顺序有语义：genie_core 里的 session_factory.cpp（桩）与 genie_ort 里的
+# ort_backend.cpp（真实现）定义同名符号 `create_session`（"两种构建同名配对"）。
+# 静态库按扫描顺序解析 —— 符号已被前面的档案定义，后面的成员就不会再拉。
+# 若 genie_core 排在 genie_ort 之前：genie_sched 的 engine.o 让
+# create_session 变为未定义后，紧随其后的桩先赢，真实现永远不入链，
+# 产物表面构建成功、一跑真模型就抛 BackendUnavailable
+# （genie-tts 可执行文件从未踩中纯属它的链接序恰好相反）。
+# 所以 genie_ort 必须排在 genie_core **之前**，genie_core 收尾。
 target_link_libraries(genie_c
     PRIVATE
         genie_sched
-        genie_core
 )
 target_compile_definitions(genie_c PRIVATE GENIE_SHARED=1)
 set_target_properties(genie_c PROPERTIES
@@ -219,6 +226,10 @@ if(GENIE_ENABLE_ORT)
     target_link_libraries(genie_c PRIVATE $<BUILD_INTERFACE:genie_ort>)
     target_compile_definitions(genie_c PRIVATE GENIE_HAVE_ONNXRUNTIME=1)
 endif()
+target_link_libraries(genie_c
+    PRIVATE
+        genie_core
+)
 if(GENIE_ENABLE_KAIRO)
     target_link_libraries(genie_c PRIVATE $<BUILD_INTERFACE:${GENIE_KAIRO_TARGET}>)
     target_compile_definitions(genie_c PRIVATE GENIE_HAVE_KAIRO=1)

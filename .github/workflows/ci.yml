@@ -103,6 +103,17 @@ jobs:
       - name: Build
         run: cmake --build --preset release --parallel
 
+      # C ABI 共享库的链接序回归锁：genie_core（stub create_session）与
+      # genie_ort（真实现）同名配对，静态库按扫描顺序二选一 —— genie_ort
+      # 必须先于 genie_core 入链。顺序错了产物照常构建、ctest 照常全绿
+      # （测试走桩后端），只有运行真模型才会抛 BackendUnavailable。
+      # 用 NEEDED 直接锁住：libgenie_tts.so 必须真引用 ONNX Runtime。
+      - name: libgenie_tts.so must link onnxruntime
+        run: |
+          set -euo pipefail
+          readelf -d build/release/src/libgenie_tts.so | grep -q "libonnxruntime.so.1" \
+            || { echo "libgenie_tts.so lost its onnxruntime link (stub won?)" >&2; exit 1; }
+
       # tests/models/ 被 .gitignore 排除（生成物不入库）。不生成的话，集成
       # 测试（含 fp16 上转加载路径）与 OnnxGraph 的合成模型用例会全部
       # GTEST_SKIP —— job 是绿的，但什么也没测。生成器显式写 ir_version=8 /

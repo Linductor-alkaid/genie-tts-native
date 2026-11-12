@@ -112,6 +112,18 @@
   相对、连续张量 rel-L2 + 余弦、音频 advisory）。`genie-gate e2e` 输出
   基线/变体语义 token 一致率与听测 WAV。见 `docs/regression.md` 精度门控一节。
 
+### Fixed
+
+- **C ABI 共享库（libgenie_tts.so）链接序错误 —— 真实推理必然抛
+  BackendUnavailable**（2026-11-12）：`genie_core` 的 session_factory.cpp（桩）
+  与 `genie_ort` 的 ort_backend.cpp（真实现）按"两种构建同名配对"约定定义同名
+  符号 `create_session`，静态库按扫描顺序二选一。`genie_c` 的链接序是
+  genie_sched → genie_core → genie_ort，桩先赢、真实现永远不入链 —— 产物
+  构建成功、CI 全绿（测试走桩后端），但对真音色包合成必然失败。`genie-tts`
+  可执行文件未踩中纯属其链接序恰好相反。修复：genie_ort 提到 genie_core
+  之前入链；ort job 增加 NEEDED 回归锁（`readelf` 断言 libgenie_tts.so 真引用
+  ONNX Runtime）。ARM64 交叉编译 job 首轮的同名断言即由此暴露此缺陷。
+
 ## [v0.4.0] - 2026-11-10
 
 本版本是**性能优化专版**：M0.3 建立了首份性能基线，M5 在其上完成三轮优化 ——
