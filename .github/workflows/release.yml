@@ -172,8 +172,11 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Windows x86-64：首次在发布链上启用 ORT（ci.yml 的 windows job 是
-  # ORT OFF 的编译验证）。DLL 随 bundle 进 bin/，测试时把 ORT 的 bin
-  # 加进 PATH。
+  # ORT OFF 的编译验证）。三个 Windows 专属坑（都实际踩过）：
+  # ① IMPORTED_IMPLIB 必须设置（Dependencies.cmake 处理）；
+  # ② runner 镜像 System32 自带 onnxruntime.dll 1.17.1，DLL 搜索顺序里
+  #    System32 恒在 PATH 之前 → 测试前把 DLL 拷到 exe 同目录；
+  # ③ Python 默认 cp1252，合成模型脚本的中文输出要 UTF-8 兜底。
   # ---------------------------------------------------------------------------
   build-windows:
     name: release windows-x64
@@ -203,28 +206,6 @@ jobs:
           }
           "GENIE_ONNXRUNTIME_ROOT=$OrtDir\root" | Out-File -Append -FilePath $env:GITHUB_ENV
 
-      - name: Put ORT DLLs on PATH (for tests)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          # win-x64 预编译包的 DLL 与 .lib 一起在 lib\（没有 bin\ 目录）——
-          # PATH 加错目录时测试会从 runner 预装路径捞到一个旧版 onnxruntime.dll
-          # （实测捞到 1.17.1：API 版本不符直接段错误）。
-          "$env:GENIE_ONNXRUNTIME_ROOT\lib" | Out-File -Append -FilePath $env:GITHUB_PATH
-
-      - name: Copy ORT DLL next to test executables (deterministic load)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          # Windows loader 的搜索第一顺位是**应用自身目录**，压过 System32 与
-          # PATH —— PATH 方案被 runner 上未知的 1.17.1 副本压住过一次
-          # （PATH 前缀未生效的原因不明），拷到 exe 旁边是确定性做法。
-          # where.exe 输出留作侦查：到底 PATH 上还有谁在提供 onnxruntime.dll。
-          where.exe onnxruntime.dll 2>&1 | Out-String | Write-Host
-          Copy-Item "$env:GENIE_ONNXRUNTIME_ROOT\lib\onnxruntime*.dll" `
-            -Destination "build\windows\tests\" -Force
-          Get-ChildItem "build\windows\tests\onnxruntime*.dll"
-
       - name: Configure
         run: >
           cmake -S . -B build/windows -G Ninja
@@ -232,6 +213,19 @@ jobs:
 
       - name: Build
         run: cmake --build build/windows --parallel
+
+      # win-x64 预编译包把 DLL 与 .lib 一起放在 lib\。**System32 里还躺着一个
+      # runner 镜像自带的 onnxruntime.dll（实测 1.17.1）** —— DLL 搜索顺序里
+      # System32 恒在 PATH 之前，给 PATH 加目录永远救不了；Windows loader 的
+      # 第一顺位是**应用自身目录**，把 DLL 拷到测试 exe 旁边是唯一确定性做法。
+      - name: Copy ORT DLL next to test executables (deterministic load)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          where.exe onnxruntime.dll 2>&1 | Out-String | Write-Host
+          Copy-Item "$env:GENIE_ONNXRUNTIME_ROOT\lib\onnxruntime*.dll" `
+            -Destination "build\windows\tests\" -Force
+          Get-ChildItem "build\windows\tests\onnxruntime*.dll" | Select-Object Name
 
       - name: Generate synthetic test models
         shell: pwsh
