@@ -45,6 +45,10 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ubuntu:22.04
+    # 容器默认 shell 是 sh（dash），不支持 pipefail —— 显式钉 bash。
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 30
     steps:
       - name: Install toolchain
@@ -124,6 +128,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 30
     steps:
       - name: Install cross toolchain
