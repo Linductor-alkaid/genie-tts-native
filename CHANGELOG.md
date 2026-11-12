@@ -22,6 +22,15 @@
   （audit §22），混精度包合法；此前 fp16 模式对真实 HF 下载目录必然
   报缺 `t2s_encoder_fp16.bin`。
 
+- **运行时 bundle 打包**（2026-11-12）：`tools/deploy/make_runtime_bundle.py`
+  用 `cmake --install` 复用既有 install 规则组装可分发 tar.gz（Windows 为
+  zip）—— 补 ORT 共享库（软链结构保留）、strip 自有 ELF、逐文件 sha256
+  体积清单（BUNDLE_MANIFEST.txt）；host 同架构自动做 stage 树运行冒烟
+  （不设 LD_LIBRARY_PATH），交叉构建走 `file` 架构校验。配套安装产物改用
+  `CMAKE_INSTALL_RPATH=$ORIGIN/../lib`（解包即用，不再依赖构建机路径）；
+  `Dependencies.cmake` 去掉裸 `LINKER:-rpath` 旗标（CMake 无感知、install
+  期剥不掉，产物会永久带构建机路径）。`docs/deployment.md` §5.7。
+
 - **Linux ARM64 交叉编译（M4 跨平台收口）**（2026-11-12）：新增
   `cmake/toolchains/aarch64-linux-gnu.cmake` 与 `arm64-release` preset，CI 新增
   `arm64` job —— 交叉工具链编译全部源码（含测试与 OpenJTalk），链接 aarch64 版
