@@ -136,6 +136,12 @@
 
 ### Fixed
 
+- **回归测试的会话登记竞态**（2026-11-12，master tsan CI 偶发"黄金快照
+  缺 stage/vits"的根因）：M5 的跨会话并行加载（§2.14）让 `SessionFactory`
+  在 Engine 构造期被多线程并发调用，`Regression.ModelIoTraceMatchesGolden`
+  的测试工厂不加锁往 `std::map` 里登记会话 —— 丢失更新随机吞掉尾部模型
+  的记录（实测约 1/40）。工厂加锁修复；`SessionFactory` 的公开文档补上
+  "可能被并发调用、实现必须线程安全"的契约说明。
 - **增量流式会话的一次性路径死锁**（2026-11-12，#62 引入）：一次性封装在同
   线程 feed，消费者还没拿到通道就开始抽 —— 段队列（8）与音频通道（64）
   双双打满时，feed 等 worker 取段、worker 等 audio 背压缓解、消费者等封装
