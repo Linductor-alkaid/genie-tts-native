@@ -166,6 +166,11 @@ struct StreamingSynthesis::Impl {
     std::shared_ptr<AudioChunkChannel> channel;
     /// 一次性封装预设的合成语言；增量喂入不预设时以第一段检测为准。
     std::optional<Language> pinned;
+    /// 一次性口径的整段文本：worker 用 split_for_synthesis 预切段、绕过
+    /// 段队列直接逐段合成。不走 feed 队列是**结构性**的 —— 一次性封装
+    /// 在同线程 feed，消费者还没拿到通道就开始抽；段队列（8）与音频
+    /// 通道（64）都满时三方互等，是喂入侧无法自救的流水线死锁。
+    std::optional<std::string> initial_text;
 
     // 喂入与段队列共用一把锁：feed 的"攒文本 → 抽段 → 入队"与 worker 的
     // "取段 → eof 取残余"碰的是同一批状态。两把锁要论证锁序，一把锁没有
@@ -863,17 +868,56 @@ void Engine::run_stream_session(std::shared_ptr<StreamingSynthesis::Impl> impl,
             const text::TextFrontend* frontend = nullptr;
             std::size_t synthesized = 0;
 
+            // 一次性口径：整段文本在这里切段（split_for_synthesis 的修剪 /
+            // 纯标点前缀丢弃语义原样保留），逐段索引推进；增量口径：从段
+            // 队列取段，eof 时把缓冲残余作为最后一段冲刷。
+            //
+            // 一次性口径的语言与前端**先于切段**解析 —— 与同步路径同序：
+            // 纯空白文本（"   "）报的是"该语言没有前端"而不是"没切段"，
+            // 错误码也随之前移（PR1 起就锁定这个口径，测试跟着语言走）。
+            std::vector<std::string> preset_segments;
+            std::size_t preset_index = 0;
+            if (impl->initial_text.has_value()) {
+                if (impl->initial_text->empty()) {
+                    // PR1 入口序：空文本在语言检测**之前**就报
+                    // InvalidArgument（与同步 synthesize 同口径）。
+                    throw_error(ErrorCode::InvalidArgument, "streaming text is empty");
+                }
+                language = impl->pinned.has_value()
+                               ? *impl->pinned
+                               : detect_language(*impl->initial_text, impl->options.language);
+                frontend = impl_->frontend_for(*language);
+                if (frontend == nullptr) {
+                    throw_error(ErrorCode::BackendUnavailable,
+                                "no text frontend for language: " + language_to_string(*language) +
+                                    " —— " + missing_frontend_hint(*language));
+                }
+                preset_segments = impl->stream.max_segment_chars == 0
+                                      ? std::vector<std::string>{*impl->initial_text}
+                                      : text::split_for_synthesis(*impl->initial_text,
+                                                                  impl->stream.max_segment_chars);
+                if (preset_segments.empty()) {
+                    throw_error(ErrorCode::InvalidArgument, "streaming text produced no segments");
+                }
+            }
+
             for (;;) {
                 if (token.cancelled()) {
                     return;
                 }
 
-                // 取下一段。队列优先；队列空且 eof 时把缓冲残余作为
-                // 最后一段冲刷（**原始内容**，含纯空白 —— 让前端按
-                // 一次性路径同样处理；彻底为空则视作空流报错）。
                 std::string segment;
                 bool is_final = false;
-                {
+                if (impl->initial_text.has_value()) {
+                    if (preset_index >= preset_segments.size()) {
+                        break;  // 预切段全部合成完
+                    }
+                    segment = preset_segments[preset_index++];
+                    is_final = preset_index == preset_segments.size();
+                } else {
+                    // 队列优先；队列空且 eof 时把缓冲残余作为最后一段冲刷
+                    // （**原始内容**，含纯空白 —— 让前端按一次性路径同样
+                    // 处理；彻底为空则视作空流报错）。
                     std::unique_lock lock(impl->mutex);
                     impl->cv.wait_for(lock, std::chrono::milliseconds(50),
                                       [&] { return !impl->queue.empty() || impl->eof; });
@@ -1009,11 +1053,17 @@ std::shared_ptr<AudioChunkChannel> Engine::synthesize_streaming(std::string_view
                                                                 const SynthesisOptions& options,
                                                                 const StreamOptions& stream) {
     // 一次性封装：整段文本先检测语言（与同步路径同口径）再按增量会话
-    // 走同一条 worker —— 两条入口一份逻辑。
+    // 走同一条 worker。文本以 initial_text 预置给 worker（worker 侧用
+    // split_for_synthesis 预切段）—— **不走 feed 队列**：封装在同线程
+    // feed、消费者还没拿到通道，段队列与音频通道双双打满时是喂入侧
+    // 无法自救的流水线死锁。分段与静音语义与增量口径严格一致。
     auto session = start_streaming(options, stream);
-    session->pin_language(detect_language(text, options.language));
-    session->feed(text);
-    session->finish();
+    {
+        auto& impl = *session->impl_;
+        std::lock_guard lock(impl.mutex);
+        impl.pinned = detect_language(text, options.language);
+        impl.initial_text = std::string(text);
+    }
     return session->channel();
 }
 

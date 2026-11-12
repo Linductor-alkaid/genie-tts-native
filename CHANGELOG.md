@@ -17,6 +17,12 @@
   `start + pin_language + feed + finish` 封装 —— 两条入口一份 worker 逻辑；
   修复会话所有权缺陷（封装返回即析构会话 → worker 队列中被取消扼杀，
   Engine 改持公开对象保活）。决策记录 `docs/architecture.md` §2.19。
+- **M6 流式性能基准 `genie-bench --stream`**（2026-11-12）：TTFA（含调度
+  排队）、块到达节奏（最大间隔 = 欠载风险窗口）、总排空时长、RTF、块数
+  与全流解码步数；`--segment-chars` / `--silence-ms` 直接暴露 StreamOptions
+  两个旋钮；`--save` 把首轮实测波形落 16-bit WAV（听测分块拼接边界）。
+  JSON 自描述（mode=stream），原始记录落 `docs/benchmarks/`。
+  unit 补取消响应时间上界与双引擎并发冒烟（CI 可测项）。
 - **M6 流式合成分段与真分块输出**（2026-11-12）：`synthesize_streaming()`
   按合成级规则分句（`src/text/segmenter`：句末终止符落刀、软终止符仅
   超长回退、ASCII `.` 不切 —— 小数/时间安全），逐段走完
@@ -127,6 +133,16 @@
 数字只在同硬件 + 同 ORT 版本上可比；跨轮次的绝对值有几百毫秒的漂移
 （本机就出现过同配置 3766 / 3952 ms 两轮读数），测量环境由 bench 的 JSON
 自证，原始记录在 `docs/benchmarks/`。
+
+### Fixed
+
+- **增量流式会话的一次性路径死锁**（2026-11-12，#62 引入）：一次性封装在同
+  线程 feed，消费者还没拿到通道就开始抽 —— 段队列（8）与音频通道（64）
+  双双打满时，feed 等 worker 取段、worker 等 audio 背压缓解、消费者等封装
+  返回，三方互等且喂入侧无法自救。修复：一次性文本以 `initial_text` 预置
+  给 worker，worker 侧用 `split_for_synthesis` 预切段、绕过段队列 —— 同时
+  恢复 PR1 的入口检查序（空文本先于语言检测报 InvalidArgument、纯空白
+  文本报"缺前端"而非"没切段"）。PR1 全部测试原样通过。
 
 ### Added
 

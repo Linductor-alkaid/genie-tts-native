@@ -1107,6 +1107,60 @@ TEST(Engine, CancelIncrementalSessionQuietlyCloses) {
     EXPECT_EQ(session->channel()->footer()->error, std::nullopt);
 }
 
+TEST(Engine, StreamingCancelRespondsWithinBound) {
+    // 取消响应时间上界（M6 流式性能测试的 CI 可测项）：解码循环逐 token
+    // 检查取消、段间也检查 —— 从 cancel() 到通道关闭必须在宽裕的界内
+    // （界给 CI 慢机留余量，语义是"不无限等"）。
+    //
+    // 长文本（100 句）：保证取消落在流的中间，而不是流已经跑完。
+    // 若机器快到流在取消前就完了，这个界断言退化为空转（语义仍成立：
+    // 完成的流不需要取消），测试不做 flaky 断言。
+    TempVoicePackage package;
+    Engine engine(package.root(), fake_factory());
+    std::string text;
+    for (int i = 0; i < 100; ++i) {
+        text += "\xE4\xBD\xA0\xE5\xA5\xBD\xE3\x80\x82";  // 你好。
+    }
+    auto channel = engine.synthesize_streaming(text);
+
+    // 让 worker 真正跑起来再取消。
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const auto start = std::chrono::steady_clock::now();
+    const bool hit = engine.cancel_streaming();
+
+    const auto chunks = drain_stream(channel, std::chrono::seconds(5));
+    if (hit) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - start)
+                                 .count();
+        EXPECT_LT(elapsed, 2000) << "cancel -> closed took " << elapsed << " ms";
+        EXPECT_TRUE(channel->closed());
+    }
+}
+
+TEST(Engine, TwoEnginesStreamConcurrently) {
+    // 并发冒烟：两个 Engine 各自一条流同时跑（调度器争用下的正确性 ——
+    // 单流限制是 per-Engine 的，多引擎并行是合法用法）。两边都必须
+    // 完整收尾且无错误。
+    TempVoicePackage package_a;
+    TempVoicePackage package_b;
+    Engine engine_a(package_a.root(), fake_factory());
+    Engine engine_b(package_b.root(), fake_factory());
+
+    auto channel_a = engine_a.synthesize_streaming("\xE4\xBD\xA0\xE5\xA5\xBD\xE3\x80\x82");
+    auto channel_b = engine_b.synthesize_streaming("\xE4\xB8\x96\xE7\x95\x8C\xE3\x80\x82");
+
+    const auto chunks_a = drain_stream(channel_a);
+    const auto chunks_b = drain_stream(channel_b);
+
+    ASSERT_FALSE(chunks_a.empty());
+    ASSERT_FALSE(chunks_b.empty());
+    ASSERT_NE(channel_a->footer(), nullptr);
+    ASSERT_NE(channel_b->footer(), nullptr);
+    EXPECT_EQ(channel_a->footer()->error, std::nullopt);
+    EXPECT_EQ(channel_b->footer()->error, std::nullopt);
+}
+
 TEST(Engine, StreamingFailureSurfacesInFooter) {
     // 纯空白文本：语言检测落到英文 → 没有英文前端 → 合成失败。
     // 错误必须出现在 footer 里，而不是像 M6 之前那样无声无息地
